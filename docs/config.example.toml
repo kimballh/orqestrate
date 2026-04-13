@@ -1,0 +1,88 @@
+version = 1
+active_profile = "saas"
+
+[paths]
+state_dir = ".harness/state"
+data_dir = ".harness/data"
+log_dir = ".harness/logs"
+
+[policy]
+max_concurrent_runs = 4
+max_runs_per_provider = 2
+allow_mixed_providers = true
+default_phase_timeout_sec = 5400
+
+[prompts]
+root = "./prompts"
+active_pack = "default"
+
+[prompt_packs.default]
+base_system = "base/system.md"
+
+[prompt_packs.default.roles]
+design = "roles/design.md"
+plan = "roles/plan.md"
+implement = "roles/implement.md"
+review = "roles/review.md"
+merge = "roles/merge.md"
+
+[prompt_packs.default.capabilities]
+github_review = "capabilities/github-review.md"
+github_reply = "capabilities/github-reply.md"
+playwright_exploration = "capabilities/playwright-exploration.md"
+user_journey_comparison = "capabilities/user-journey-comparison.md"
+
+[prompt_packs.default.overlays]
+organization = ["overlays/org/reviewer-qa.md"]
+project = ["overlays/project/reviewer-webapp.md"]
+
+[prompt_packs.default.experiments]
+reviewer_v2 = "experiments/reviewer-v2.md"
+reviewer_playwright_heavy = "experiments/reviewer-playwright-heavy.md"
+
+[providers.linear_main]
+kind = "planning.linear"
+token_env = "LINEAR_API_KEY"
+team = "ENG"
+webhook_signing_secret_env = "LINEAR_WEBHOOK_SECRET"
+
+[providers.notion_main]
+kind = "context.notion"
+token_env = "NOTION_TOKEN"
+artifacts_database_id = "replace-me"
+runs_database_id = "replace-me"
+
+[providers.local_planning]
+kind = "planning.local_files"
+root = ".harness/local/planning"
+
+[providers.local_context]
+kind = "context.local_files"
+root = ".harness/local/context"
+
+#[providers.asana_main]
+#kind = "planning.asana"
+#token_env = "ASANA_API_KEY"
+#workspace_gid = "replace-me"
+#project_gid = "replace-me"
+
+#[providers.drive_main]
+#kind = "context.google_drive"
+#credentials_path = "~/.config/harness/gdrive-service-account.json"
+#artifacts_folder_id = "replace-me"
+#runs_folder_id = "replace-me"
+
+[profiles.saas]
+planning = "linear_main"
+context = "notion_main"
+prompt_pack = "default"
+
+[profiles.local]
+planning = "local_planning"
+context = "local_context"
+prompt_pack = "default"
+
+[profiles.hybrid]
+planning = "linear_main"
+context = "local_context"
+prompt_pack = "default"

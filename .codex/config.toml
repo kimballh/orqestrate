@@ -1,0 +1,5 @@
+[mcp_servers.notion_orqestrate]
+url = "https://mcp.notion.com/mcp"
+
+[mcp_servers.linear_orqestrate]
+url = "https://mcp.linear.app/mcp"
