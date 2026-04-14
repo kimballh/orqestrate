@@ -143,15 +143,23 @@ export type CreatePageInput = {
 
 export type UpdatePageInput = {
   properties?: Record<string, unknown>;
-  archived?: boolean;
   inTrash?: boolean;
   icon?: Record<string, unknown> | null;
   cover?: Record<string, unknown> | null;
 };
 
+export type AppendBlockPosition =
+  | {
+      type: "start" | "end";
+    }
+  | {
+      type: "after_block";
+      afterBlockId: string;
+    };
+
 export type AppendBlockChildrenInput = {
   children: unknown[];
-  after?: string;
+  position?: AppendBlockPosition;
 };
 
 export type SearchInput = {
@@ -306,7 +314,6 @@ export class NotionClient implements NotionClientLike {
         ...(input.properties === undefined
           ? {}
           : { properties: input.properties }),
-        ...(input.archived === undefined ? {} : { archived: input.archived }),
         ...(input.inTrash === undefined ? {} : { in_trash: input.inTrash }),
         ...(input.icon === undefined ? {} : { icon: input.icon }),
         ...(input.cover === undefined ? {} : { cover: input.cover }),
@@ -326,7 +333,9 @@ export class NotionClient implements NotionClientLike {
         method: "PATCH",
         body: {
           children: input.children,
-          ...(input.after === undefined ? {} : { after: input.after }),
+          ...(input.position === undefined
+            ? {}
+            : { position: serializeAppendBlockPosition(input.position) }),
         },
       },
     );
@@ -466,6 +475,23 @@ function richTextToPlainText(value: NotionRichText[] | null | undefined): string
     .trim();
 
   return plainText === "" ? null : plainText;
+}
+
+function serializeAppendBlockPosition(
+  position: AppendBlockPosition,
+): Record<string, unknown> {
+  if (position.type === "after_block") {
+    return {
+      type: "after_block",
+      after_block: {
+        id: position.afterBlockId,
+      },
+    };
+  }
+
+  return {
+    type: position.type,
+  };
 }
 
 function safeJsonParse(text: string): unknown {

@@ -13,7 +13,7 @@
     "dev": "tsx src/index.ts",
     "setup": "bash ./scripts/codex-setup.sh",
     "start": "node --enable-source-maps dist/index.js",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "find src -name '*.test.ts' -print | sort | xargs tsx --test",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
