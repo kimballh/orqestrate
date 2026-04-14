@@ -168,6 +168,7 @@ export function parseConfig(
   return {
     sourcePath,
     version,
+    env,
     paths,
     policy,
     prompts,
@@ -386,7 +387,14 @@ function parsePlanningLinearProvider(
 ): PlanningLinearProviderConfig {
   assertAllowedKeys(
     provider,
-    ["kind", "token_env", "team", "webhook_signing_secret_env", "mapping"],
+    [
+      "kind",
+      "token_env",
+      "team",
+      "project",
+      "webhook_signing_secret_env",
+      "mapping",
+    ],
     providerPath,
   );
 
@@ -396,6 +404,10 @@ function parsePlanningLinearProvider(
     kind: "planning.linear",
     tokenEnv: parseEnvVarReference(provider.token_env, `${providerPath}.token_env`),
     team: expectNonEmptyString(provider.team, `${providerPath}.team`),
+    project:
+      provider.project === undefined
+        ? undefined
+        : expectNonEmptyString(provider.project, `${providerPath}.project`),
     webhookSigningSecretEnv:
       provider.webhook_signing_secret_env === undefined
         ? undefined
@@ -471,7 +483,18 @@ function parseContextLocalFilesProvider(
       configDir,
       `${providerPath}.root`,
     ),
-    templates: parseStringMap(provider.templates, `${providerPath}.templates`),
+    templates: Object.fromEntries(
+      Object.entries(parseStringMap(provider.templates, `${providerPath}.templates`)).map(
+        ([templateName, templatePath]) => [
+          templateName,
+          resolveFileSystemPath(
+            templatePath,
+            configDir,
+            `${providerPath}.templates.${templateName}`,
+          ),
+        ],
+      ),
+    ),
   };
 }
 

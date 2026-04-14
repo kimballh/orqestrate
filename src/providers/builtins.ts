@@ -16,7 +16,10 @@ export function registerBuiltinProviders(
 ): ProviderRegistry {
   registry.registerPlanning<PlanningLinearProviderConfig>(
     "planning.linear",
-    ({ provider }) => new LinearPlanningBackend(provider),
+    ({ provider, loadedConfig }) =>
+      new LinearPlanningBackend(provider, {
+        apiKey: loadedConfig.env[provider.tokenEnv],
+      }),
     { source: "builtin" },
   );
   registry.registerPlanning<PlanningLocalFilesProviderConfig>(

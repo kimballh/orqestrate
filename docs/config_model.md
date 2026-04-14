@@ -82,6 +82,7 @@ review = "phases/review.md"
 kind = "planning.linear"
 token_env = "LINEAR_API_KEY"
 team = "ENG"
+project = "Orqestrate Build"
 webhook_signing_secret_env = "LINEAR_WEBHOOK_SECRET"
 
 [providers.notion_main]
@@ -162,6 +163,7 @@ Good:
 [providers.linear_main]
 kind = "planning.linear"
 token_env = "LINEAR_API_KEY"
+project = "Orqestrate Build"
 ```
 
 Avoid:
@@ -230,9 +232,11 @@ Leave room for optional provider-specific nested sections:
 kind = "planning.linear"
 token_env = "LINEAR_API_KEY"
 team = "ENG"
+project = "Orqestrate Build"
 
 [providers.linear_main.mapping]
-ready_status = "Ready"
+implement_status = "Building"
+review_status = "QA Review"
 blocked_status = "Blocked"
 done_status = "Done"
 ```
