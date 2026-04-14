@@ -3,9 +3,12 @@ import test from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { AuthenticationLinearError } from "@linear/sdk";
+
 import type {
   ContextProviderDefinition,
   ContextLocalFilesProviderConfig,
+  PlanningLinearProviderConfig,
   PlanningProviderDefinition,
   PlanningLocalFilesProviderConfig,
 } from "../config/types.js";
@@ -18,6 +21,7 @@ import {
 import { LocalFilesContextBackend } from "../providers/context/local-files-backend.js";
 import { NotionContextBackend } from "../providers/context/notion-backend.js";
 import { UnimplementedContextBackend } from "../providers/context/unimplemented-context-backend.js";
+import { LinearPlanningClient } from "../providers/planning/linear/client.js";
 import { LinearPlanningBackend } from "../providers/planning/linear-backend.js";
 import { LocalFilesPlanningBackend } from "../providers/planning/local-files-backend.js";
 import { UnimplementedPlanningBackend } from "../providers/planning/unimplemented-planning-backend.js";
@@ -67,7 +71,9 @@ test("bootstraps the docs example saas profile through the built-in registry", a
     LINEAR_WEBHOOK_SECRET: "webhook-secret",
     NOTION_TOKEN: "notion-token",
   });
-  const result = await bootstrapActiveProfile(config);
+  const result = await bootstrapActiveProfile(config, {
+    runHealthChecks: false,
+  });
 
   assert.equal(result.report.profileName, "saas");
   assert.ok(result.planning instanceof LinearPlanningBackend);
@@ -79,7 +85,9 @@ test("bootstraps the docs example hybrid profile through the built-in registry",
     LINEAR_API_KEY: "linear-token",
     LINEAR_WEBHOOK_SECRET: "webhook-secret",
   });
-  const result = await bootstrapActiveProfile(config);
+  const result = await bootstrapActiveProfile(config, {
+    runHealthChecks: false,
+  });
 
   assert.equal(result.report.profileName, "hybrid");
   assert.ok(result.planning instanceof LinearPlanningBackend);
@@ -201,6 +209,42 @@ test("can skip health checks while still validating configuration", async () => 
   assert.deepEqual(
     result.report.checks.map((check) => check.healthCheck),
     [null, null],
+  );
+});
+
+test("surfaces built-in Linear health-check failures with actionable messages", async () => {
+  const config = await loadExampleConfig("hybrid", {
+    LINEAR_API_KEY: "linear-token",
+    LINEAR_WEBHOOK_SECRET: "webhook-secret",
+  });
+  const registry = new ProviderRegistry()
+    .registerPlanning<PlanningLinearProviderConfig>(
+      "planning.linear",
+      ({ provider }) =>
+        new LinearPlanningBackend(provider, {
+          client: new LinearPlanningClient({
+            sdkClient: {
+              viewer: Promise.reject(createLinearAuthError()),
+              teams: async () => ({ nodes: [] }),
+            },
+          }),
+        }),
+    )
+    .registerContext<ContextLocalFilesProviderConfig>(
+      "context.local_files",
+      ({ provider }) => new TrackingContextBackend(provider, []),
+    );
+
+  await assert.rejects(
+    () => bootstrapActiveProfile(config, { registry }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProviderBootstrapError);
+      assert.equal(error.code, "provider_healthcheck_failed");
+      assert.equal(error.family, "planning");
+      assert.equal(error.providerKind, "planning.linear");
+      assert.match(error.message, /configured api token/i);
+      return true;
+    },
   );
 });
 
@@ -376,4 +420,13 @@ function createFakeLoadedConfig() {
     activeProfileName: profile.name,
     activeProfile: profile,
   };
+}
+
+function createLinearAuthError() {
+  return new AuthenticationLinearError({
+    response: {
+      status: 401,
+      error: "Unauthorized",
+    },
+  } as never);
 }
