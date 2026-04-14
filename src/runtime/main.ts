@@ -74,25 +74,36 @@ export async function startRuntimeService(
   try {
     await apiServer.start();
   } catch (error) {
-    daemon.stop();
+    await daemon.stop();
     throw error;
   }
 
   const keepAlive = setKeepAlive(() => undefined, 60_000);
-  const shutdown = (signal: "SIGINT" | "SIGTERM"): void => {
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = (signal: "SIGINT" | "SIGTERM"): Promise<void> => {
+    if (shutdownPromise !== null) {
+      return shutdownPromise;
+    }
+
     clearKeepAlive(keepAlive);
-    void apiServer
+    shutdownPromise = apiServer
       .stop()
       .catch(() => undefined)
-      .finally(() => {
-        daemon.stop();
+      .then(async () => {
+        await daemon.stop();
         log(`Runtime daemon stopped (${signal}).`);
         exit(0);
       });
+
+    return shutdownPromise;
   };
 
-  registerSignalHandler("SIGINT", () => shutdown("SIGINT"));
-  registerSignalHandler("SIGTERM", () => shutdown("SIGTERM"));
+  registerSignalHandler("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  registerSignalHandler("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
 
   log(
     `Runtime daemon ready for profile '${loadedConfig.activeProfileName}'. Database: ${daemon.runtimeConfig.databasePath}. API: ${apiServer.info.endpoint}`,
@@ -122,15 +133,26 @@ export function startRuntimeDaemon(
   daemon.start();
 
   const keepAlive = setKeepAlive(() => undefined, 60_000);
-  const shutdown = (signal: "SIGINT" | "SIGTERM"): void => {
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = (signal: "SIGINT" | "SIGTERM"): Promise<void> => {
+    if (shutdownPromise !== null) {
+      return shutdownPromise;
+    }
+
     clearKeepAlive(keepAlive);
-    daemon.stop();
-    log(`Runtime daemon stopped (${signal}).`);
-    exit(0);
+    shutdownPromise = daemon.stop().then(() => {
+      log(`Runtime daemon stopped (${signal}).`);
+      exit(0);
+    });
+    return shutdownPromise;
   };
 
-  registerSignalHandler("SIGINT", () => shutdown("SIGINT"));
-  registerSignalHandler("SIGTERM", () => shutdown("SIGTERM"));
+  registerSignalHandler("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  registerSignalHandler("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
 
   log(
     `Runtime daemon ready for profile '${loadedConfig.activeProfileName}'. Database: ${daemon.runtimeConfig.databasePath}`,

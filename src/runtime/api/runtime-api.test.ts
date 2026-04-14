@@ -182,8 +182,8 @@ test("runtime API server does not unlink a live Unix socket when a second server
     assert.match(rawResponse, /HTTP\/1.1 200 OK/);
   } finally {
     await firstServer.stop();
-    firstDaemon.stop();
-    secondDaemon.stop();
+    await firstDaemon.stop();
+    await secondDaemon.stop();
   }
 });
 
@@ -265,7 +265,7 @@ async function createApiFixture(
       if (apiServer.isListening) {
         await apiServer.stop();
       }
-      daemon.stop();
+      await daemon.stop();
       rmSync(rootDir, { recursive: true, force: true });
     },
   };

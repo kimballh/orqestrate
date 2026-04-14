@@ -54,6 +54,7 @@ export class RuntimeDaemon {
   #dispatcherTimer: ReturnType<typeof globalThis.setInterval> | null = null;
   #drainPromise: Promise<void> | null = null;
   #drainRequested = false;
+  #stopping = false;
   readonly adapterRegistry: RuntimeAdapterRegistry;
   readonly sessionSupervisor: SessionSupervisor;
   readonly #setInterval: typeof globalThis.setInterval;
@@ -111,6 +112,7 @@ export class RuntimeDaemon {
       return;
     }
 
+    this.#stopping = false;
     mkdirSync(this.runtimeConfig.stateDir, { recursive: true });
     mkdirSync(this.runtimeConfig.logDir, { recursive: true });
     mkdirSync(this.runtimeConfig.runtimeLogDir, { recursive: true });
@@ -130,18 +132,25 @@ export class RuntimeDaemon {
     this.requestDispatch();
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.#dispatcherTimer !== null) {
       this.#clearInterval(this.#dispatcherTimer);
       this.#dispatcherTimer = null;
     }
+
+    this.#drainRequested = false;
+    this.#stopping = true;
 
     if (this.#database === null) {
       return;
     }
 
     if (this.#executor !== null) {
-      this.#executor.shutdown();
+      await this.#executor.shutdown();
+    }
+
+    if (this.#drainPromise !== null) {
+      await this.#drainPromise;
     }
 
     this.#database.close();
@@ -150,6 +159,7 @@ export class RuntimeDaemon {
     this.#executor = null;
     this.#drainPromise = null;
     this.#drainRequested = false;
+    this.#stopping = false;
   }
 
   enqueueRun(input: CreateRunInput): PersistedRunRecord {
@@ -344,7 +354,7 @@ export class RuntimeDaemon {
   }
 
   private requestDispatch(): void {
-    if (!this.isStarted) {
+    if (!this.isStarted || this.#stopping) {
       return;
     }
 
@@ -364,10 +374,10 @@ export class RuntimeDaemon {
   }
 
   private async drainQueue(): Promise<void> {
-    while (this.#drainRequested && this.isStarted) {
+    while (this.#drainRequested && this.isStarted && !this.#stopping) {
       this.#drainRequested = false;
 
-      while (this.isStarted) {
+      while (this.isStarted && !this.#stopping) {
         const candidate = this.selectDispatchCandidate();
 
         if (candidate === null) {

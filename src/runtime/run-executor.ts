@@ -74,6 +74,7 @@ const TERMINAL_STATUSES = new Set<RunStatus>([
 export class RunExecutor {
   private readonly liveRuns = new LiveRunRegistry<LiveRunContext>();
   private readonly activeContexts = new Map<string, LiveRunContext>();
+  private readonly executionTasks = new Map<string, Promise<void>>();
   private readonly now: () => string;
   private readonly setIntervalFn: typeof globalThis.setInterval;
   private readonly clearIntervalFn: typeof globalThis.clearInterval;
@@ -125,17 +126,20 @@ export class RunExecutor {
         reject,
       };
       this.activeContexts.set(run.runId, context);
-
-      void this.executeInternal(context).catch((error) => {
+      const executionTask = this.executeInternal(context).catch(async (error) => {
         if (context.finishing) {
           reject(error);
           return;
         }
 
-        void this.failContext(
+        await this.failContext(
           context,
           error instanceof Error ? error : new Error(String(error)),
         );
+      });
+      this.executionTasks.set(run.runId, executionTask);
+      void executionTask.finally(() => {
+        this.executionTasks.delete(run.runId);
       });
     });
   }
@@ -145,8 +149,12 @@ export class RunExecutor {
     return context !== null && context.controller !== null;
   }
 
-  shutdown(reason = "Runtime daemon stopped before the live run finished."): void {
-    for (const context of this.activeContexts.values()) {
+  async shutdown(
+    reason = "Runtime daemon stopped before the live run finished.",
+  ): Promise<void> {
+    const cleanupTasks: Promise<unknown>[] = [];
+
+    for (const context of [...this.activeContexts.values()]) {
       if (context.finishing) {
         continue;
       }
@@ -164,14 +172,22 @@ export class RunExecutor {
       }
 
       this.activeContexts.delete(context.run.runId);
+      const executionTask = this.executionTasks.get(context.run.runId);
+      if (executionTask !== undefined) {
+        cleanupTasks.push(executionTask);
+      }
 
       if (context.controller !== null) {
-        void this.supervisor.terminate(context.controller.sessionId, true);
+        cleanupTasks.push(
+          this.supervisor.terminate(context.controller.sessionId, true),
+        );
         context.controller = null;
       }
 
       context.resolve(context.currentRun);
     }
+
+    await Promise.allSettled(cleanupTasks);
   }
 
   async interruptRun(runId: string): Promise<PersistedRunRecord> {

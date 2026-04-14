@@ -23,7 +23,7 @@ test("runtime daemon dispatches queued runs under capacity and backfills after c
   });
   daemon.registerRuntimeAdapter("codex", () => new FakeProviderAdapter());
   daemon.start();
-  t.after(() => daemon.stop());
+  t.after(async () => daemon.stop());
 
   daemon.enqueueRun(createRunInput({ runId: "run-001", workItemId: "issue-1" }));
   daemon.enqueueRun(createRunInput({ runId: "run-002", workItemId: "issue-2" }));

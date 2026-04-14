@@ -135,7 +135,7 @@ test("shutdown marks active runs stale and ignores later heartbeat ticks", async
   assert.equal(repository.getRun(claimedRun.runId)?.status, "running");
   assert.ok(heartbeatTick !== null);
 
-  executor.shutdown();
+  await executor.shutdown();
   const staleRun = await execution;
 
   assert.equal(staleRun.status, "stale");
@@ -169,7 +169,7 @@ test("shutdown terminates a session that launches after the run is already stale
   }) as ExecutableRunRecord;
 
   const execution = executor.executeClaimedRun(claimedRun);
-  executor.shutdown();
+  const shutdown = executor.shutdown();
 
   const staleRun = await execution;
   assert.equal(staleRun.status, "stale");
@@ -177,7 +177,7 @@ test("shutdown terminates a session that launches after the run is already stale
   assert.equal(supervisor.terminated, 0);
 
   supervisor.resolveLaunch();
-  await waitForAsyncTurn();
+  await shutdown;
 
   assert.equal(supervisor.launched, 1);
   assert.equal(supervisor.terminated, 1);
