@@ -471,7 +471,18 @@ function parseContextLocalFilesProvider(
       configDir,
       `${providerPath}.root`,
     ),
-    templates: parseStringMap(provider.templates, `${providerPath}.templates`),
+    templates: Object.fromEntries(
+      Object.entries(parseStringMap(provider.templates, `${providerPath}.templates`)).map(
+        ([templateName, templatePath]) => [
+          templateName,
+          resolveFileSystemPath(
+            templatePath,
+            configDir,
+            `${providerPath}.templates.${templateName}`,
+          ),
+        ],
+      ),
+    ),
   };
 }
 
