@@ -39,4 +39,8 @@ export class RuntimeAdapterRegistry {
 
     return factory();
   }
+
+  listProviders(): AgentProvider[] {
+    return [...this.factories.keys()].sort();
+  }
 }

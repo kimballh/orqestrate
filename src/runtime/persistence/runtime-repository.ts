@@ -13,6 +13,7 @@ import type {
   CreateRunInput,
   CreateWorkspaceAllocationInput,
   ExecutableRunRecord,
+  ListRunsPage,
   ListRunEventsOptions,
   ListRunsFilters,
   PersistedRunRecord,
@@ -293,6 +294,10 @@ export class RuntimeRepository {
   }
 
   listRuns(filters: ListRunsFilters = {}): PersistedRunRecord[] {
+    return this.listRunsPage(filters).runs;
+  }
+
+  listRunsPage(filters: ListRunsFilters = {}): ListRunsPage {
     const clauses: string[] = [];
     const params: unknown[] = [];
 
@@ -321,16 +326,63 @@ export class RuntimeRepository {
       params.push(filters.repoRoot);
     }
 
+    const cursor = decodeListRunsCursor(filters.cursor);
+    if (cursor !== null) {
+      clauses.push(
+        "(runs.created_at < ? OR (runs.created_at = ? AND runs.run_id < ?))",
+      );
+      params.push(cursor.createdAt, cursor.createdAt, cursor.runId);
+    }
+
     let sql = RUN_SELECT_SQL;
 
     if (clauses.length > 0) {
       sql += ` WHERE ${clauses.join(" AND ")}`;
     }
 
-    sql += " ORDER BY runs.created_at DESC LIMIT ?";
-    params.push(clampLimit(filters.limit, DEFAULT_LIST_LIMIT));
+    const pageSize = clampLimit(filters.limit, DEFAULT_LIST_LIMIT);
+    sql += " ORDER BY runs.created_at DESC, runs.run_id DESC LIMIT ?";
+    params.push(pageSize + 1);
 
     const rows = this.database.prepare(sql).all(...params) as RunRow[];
+    const pageRows = rows.slice(0, pageSize);
+    const runs = pageRows.map((row) => this.mapRunRow(row));
+    const lastRow = pageRows.at(-1);
+
+    return {
+      runs,
+      nextCursor:
+        rows.length > pageSize && lastRow !== undefined
+          ? encodeListRunsCursor(lastRow.created_at, lastRow.run_id)
+          : null,
+    };
+  }
+
+  listQueuedRunsForDispatch(): PersistedRunRecord[] {
+    const rows = this.database
+      .prepare(
+        `
+          ${RUN_SELECT_SQL}
+          WHERE runs.status = 'queued'
+          ORDER BY runs.priority ASC, runs.created_at ASC, runs.run_id ASC
+        `,
+      )
+      .all() as RunRow[];
+
+    return rows.map((row) => this.mapRunRow(row));
+  }
+
+  listActiveRuns(): PersistedRunRecord[] {
+    const rows = this.database
+      .prepare(
+        `
+          ${RUN_SELECT_SQL}
+          WHERE runs.status IN (${ACTIVE_SESSION_RUN_STATUSES.map(() => "?").join(", ")})
+          ORDER BY runs.created_at ASC, runs.run_id ASC
+        `,
+      )
+      .all(...ACTIVE_SESSION_RUN_STATUSES) as RunRow[];
+
     return rows.map((row) => this.mapRunRow(row));
   }
 
@@ -384,6 +436,43 @@ export class RuntimeRepository {
     });
 
     return claimRun();
+  }
+
+  claimQueuedRun(input: {
+    runId: string;
+    runtimeOwner: string;
+    occurredAt?: string;
+  }): ExecutableRunRecord | null {
+    const claimRun = this.database.transaction(
+      (transactionInput: typeof input): ExecutableRunRecord | null => {
+        const current = this.getRunOrThrow(transactionInput.runId);
+
+        if (current.status !== "queued") {
+          return null;
+        }
+
+        const occurredAt = transactionInput.occurredAt ?? new Date().toISOString();
+        const nextRun = this.buildNextRunState(current, {
+          status: "admitted",
+          runtimeOwner: transactionInput.runtimeOwner,
+          admittedAt: occurredAt,
+          attemptCount: current.attemptCount + 1,
+        });
+
+        this.persistRun(nextRun);
+        this.insertRunEvent(nextRun.runId, occurredAt, {
+          eventType: "run_admitted",
+          payload: {
+            runtimeOwner: transactionInput.runtimeOwner,
+            status: "admitted",
+          },
+        });
+
+        return this.getExecutableRunOrThrow(nextRun.runId);
+      },
+    );
+
+    return claimRun(input);
   }
 
   markRunLaunching(input: {
@@ -749,6 +838,22 @@ export class RuntimeRepository {
       .all(...params) as RunEventRow[];
 
     return rows.map((row) => this.mapRunEventRow(row));
+  }
+
+  getLatestRunEventSeq(runId: string): number | null {
+    this.assertRunExists(runId);
+
+    const row = this.database
+      .prepare(
+        `
+          SELECT MAX(seq) AS seq
+          FROM run_events
+          WHERE run_id = ?
+        `,
+      )
+      .get(runId) as { seq: number | null };
+
+    return row.seq;
   }
 
   recordHeartbeat(input: RecordHeartbeatInput): SessionHeartbeatRecord {
@@ -1271,6 +1376,46 @@ function clampLimit(value: number | undefined, fallback: number): number {
   }
 
   return Math.max(1, value);
+}
+
+function encodeListRunsCursor(createdAt: string, runId: string): string {
+  return Buffer.from(JSON.stringify({ createdAt, runId }), "utf8").toString(
+    "base64url",
+  );
+}
+
+function decodeListRunsCursor(
+  value: string | undefined,
+): { createdAt: string; runId: string } | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as {
+      createdAt?: unknown;
+      runId?: unknown;
+    };
+
+    if (
+      typeof parsed.createdAt !== "string" ||
+      typeof parsed.runId !== "string"
+    ) {
+      throw new Error("Invalid cursor shape.");
+    }
+
+    return {
+      createdAt: parsed.createdAt,
+      runId: parsed.runId,
+    };
+  } catch (error) {
+    throw new RuntimeError("Run list cursor is invalid.", {
+      code: "invalid_request",
+      cause: error,
+    });
+  }
 }
 
 function encodeJson(value: unknown): string {

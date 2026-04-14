@@ -2,6 +2,7 @@ export const RUNTIME_ERROR_CODES = [
   "database_close_failed",
   "database_open_failed",
   "duplicate_runtime_adapter",
+  "invalid_request",
   "invalid_run_state_transition",
   "live_session_not_found",
   "migration_failed",
