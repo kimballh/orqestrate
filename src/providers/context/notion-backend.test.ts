@@ -15,13 +15,18 @@ import type {
   NotionBotUser,
   NotionClientLike,
   NotionCursorPage,
+  CreatePageInput,
   NotionDataSource,
   NotionDatabase,
   NotionPage,
+  QueryDataSourceInput,
+  UpdatePageInput,
+  UpdatePageMarkdownInput,
 } from "../context/notion-client.js";
 import { NotionRequestError, normalizeNotionId } from "../context/notion-client.js";
 import { NotionContextBackend } from "../context/notion-backend.js";
 import { UnimplementedPlanningBackend } from "../planning/unimplemented-planning-backend.js";
+import type { WorkItemRecord } from "../../domain-model.js";
 
 const ARTIFACTS_DATABASE_ID = normalizeNotionId(
   "11111111111111111111111111111111",
@@ -31,6 +36,35 @@ const ARTIFACTS_DATA_SOURCE_ID = normalizeNotionId(
   "33333333333333333333333333333333",
 );
 const RUNS_DATA_SOURCE_ID = normalizeNotionId("44444444444444444444444444444444");
+const WORK_ITEM = {
+  id: "ORQ-30",
+  identifier: "ORQ-30",
+  title: "Implement Notion artifact lifecycle and context loading adapter",
+  description:
+    "Support creation, lookup, and loading of issue artifacts from Notion.",
+  status: "implement",
+  phase: "implement",
+  priority: 2,
+  labels: ["backend"],
+  url: "https://linear.app/orqestrate/issue/ORQ-30",
+  parentId: "ORQ-10",
+  dependencyIds: ["ORQ-29"],
+  blockedByIds: ["ORQ-16"],
+  blocksIds: ["ORQ-31", "ORQ-37"],
+  artifactUrl: null,
+  updatedAt: "2026-04-14T17:37:54.159Z",
+  createdAt: "2026-04-13T23:54:51.359Z",
+  orchestration: {
+    state: "queued",
+    owner: null,
+    runId: null,
+    leaseUntil: null,
+    reviewOutcome: "none",
+    blockedReason: null,
+    lastError: null,
+    attemptCount: 0,
+  },
+} satisfies WorkItemRecord;
 
 test("validateConfig rejects placeholder database ids", async () => {
   const backend = createBackend({
@@ -98,20 +132,21 @@ test("healthCheck authenticates and resolves both configured data sources", asyn
           },
         },
         dataSources: {
-          [ARTIFACTS_DATA_SOURCE_ID]: {
-            id: ARTIFACTS_DATA_SOURCE_ID,
-            title: "Issue Artifacts",
+          [ARTIFACTS_DATA_SOURCE_ID]: createArtifactDataSource({
             url: "https://notion.so/data-source/artifacts",
-            parentDatabaseId: ARTIFACTS_DATABASE_ID,
-            propertyNames: ["Title", "Linear Issue ID"],
-          },
-          [RUNS_DATA_SOURCE_ID]: {
-            id: RUNS_DATA_SOURCE_ID,
-            title: "Harness Runs",
-            url: "https://notion.so/data-source/runs",
-            parentDatabaseId: RUNS_DATABASE_ID,
-            propertyNames: ["Run ID", "Status"],
-          },
+          }),
+          [RUNS_DATA_SOURCE_ID]: createDataSource(
+            RUNS_DATA_SOURCE_ID,
+            {
+              "Run ID": "rich_text",
+              Status: "rich_text",
+            },
+            {
+              title: "Harness Runs",
+              url: "https://notion.so/data-source/runs",
+              parentDatabaseId: RUNS_DATABASE_ID,
+            },
+          ),
         },
       }),
     },
@@ -122,6 +157,7 @@ test("healthCheck authenticates and resolves both configured data sources", asyn
 
   assert.equal(result.ok, true);
   assert.match(result.message ?? "", /Authenticated to Notion as 'Orqestrate Bot'/);
+  assert.match(result.message ?? "", /validated the artifacts schema/i);
   assert.deepEqual(backend.getResolvedConfig(), {
     tokenEnv: "NOTION_TOKEN",
     token: "notion-token",
@@ -198,13 +234,17 @@ test("healthCheck fails clearly when a database exposes multiple data sources", 
           },
         },
         dataSources: {
-          [RUNS_DATA_SOURCE_ID]: {
-            id: RUNS_DATA_SOURCE_ID,
-            title: "Harness Runs",
-            url: null,
-            parentDatabaseId: RUNS_DATABASE_ID,
-            propertyNames: [],
-          },
+          [RUNS_DATA_SOURCE_ID]: createDataSource(
+            RUNS_DATA_SOURCE_ID,
+            {
+              "Run ID": "rich_text",
+            },
+            {
+              title: "Harness Runs",
+              url: null,
+              parentDatabaseId: RUNS_DATABASE_ID,
+            },
+          ),
         },
       }),
     },
@@ -215,6 +255,182 @@ test("healthCheck fails clearly when a database exposes multiple data sources", 
 
   assert.equal(result.ok, false);
   assert.match(result.message ?? "", /exactly one data source/i);
+});
+
+test("healthCheck fails clearly when the artifacts schema is missing required properties", async () => {
+  const backend = createBackend(
+    {},
+    {
+      client: new FakeNotionClient({
+        databases: {
+          [ARTIFACTS_DATABASE_ID]: {
+            id: ARTIFACTS_DATABASE_ID,
+            title: "Issue Artifacts",
+            url: "https://notion.so/artifacts",
+            dataSources: [{ id: ARTIFACTS_DATA_SOURCE_ID, name: "Issue Artifacts" }],
+          },
+          [RUNS_DATABASE_ID]: {
+            id: RUNS_DATABASE_ID,
+            title: "Harness Runs",
+            url: "https://notion.so/runs",
+            dataSources: [{ id: RUNS_DATA_SOURCE_ID, name: "Harness Runs" }],
+          },
+        },
+        dataSources: {
+          [ARTIFACTS_DATA_SOURCE_ID]: createDataSource(
+            ARTIFACTS_DATA_SOURCE_ID,
+            {
+              Title: "title",
+            },
+            {
+              title: "Issue Artifacts",
+              url: "https://notion.so/data-source/artifacts",
+              parentDatabaseId: ARTIFACTS_DATABASE_ID,
+            },
+          ),
+          [RUNS_DATA_SOURCE_ID]: createDataSource(
+            RUNS_DATA_SOURCE_ID,
+            {
+              "Run ID": "rich_text",
+              Status: "rich_text",
+            },
+            {
+              title: "Harness Runs",
+              url: "https://notion.so/data-source/runs",
+              parentDatabaseId: RUNS_DATABASE_ID,
+            },
+          ),
+        },
+      }),
+    },
+  );
+
+  await backend.validateConfig();
+  const result = await backend.healthCheck();
+
+  assert.equal(result.ok, false);
+  assert.match(result.message ?? "", /Linear Issue ID/);
+});
+
+test("ensureArtifact creates a durable page once and reuses it on later lookups", async () => {
+  const client = createArtifactAwareClient();
+  const backend = createBackend({}, { client });
+
+  await backend.validateConfig();
+
+  const first = await backend.ensureArtifact({ workItem: WORK_ITEM });
+  const second = await backend.ensureArtifact({ workItem: WORK_ITEM });
+
+  assert.equal(client.createdPageIds.length, 1);
+  assert.deepEqual(second, first);
+  assert.equal(first.workItemId, WORK_ITEM.id);
+  assert.equal(first.phase, "none");
+  assert.equal(first.state, "draft");
+  assert.equal(first.planReady, false);
+  assert.equal(first.reviewSummaryPresent, false);
+
+  const markdown = await client.retrievePageMarkdown(first.artifactId);
+  assert.match(markdown.markdown, /^# Context/m);
+  assert.match(markdown.markdown, /orqestrate:phase:plan:start/);
+});
+
+test("ensureArtifact repairs an existing artifact when the markdown scaffold is missing", async () => {
+  const pageId = "page-existing";
+  const client = createArtifactAwareClient({
+    pages: {
+      [pageId]: createArtifactPage({
+        id: pageId,
+        properties: {
+          Title: {
+            title: [
+              {
+                type: "text",
+                text: {
+                  content: "ORQ-30 - Implement Notion artifact lifecycle and context loading adapter",
+                },
+              },
+            ],
+          },
+          "Linear Issue ID": {
+            rich_text: [
+              {
+                type: "text",
+                text: {
+                  content: WORK_ITEM.id,
+                },
+              },
+            ],
+          },
+          "Current Phase": {
+            rich_text: [{ type: "text", text: { content: "none" } }],
+          },
+          "Artifact State": {
+            rich_text: [{ type: "text", text: { content: "draft" } }],
+          },
+          "Last Updated At": {
+            date: { start: "2026-04-14T18:00:00.000Z" },
+          },
+          "Design Ready": { checkbox: false },
+          "Plan Ready": { checkbox: false },
+          "Implementation Notes Present": { checkbox: false },
+          "Review Summary Present": { checkbox: false },
+          "Verification Evidence Present": { checkbox: false },
+        },
+      }),
+    },
+    pageMarkdown: {
+      [pageId]: "",
+    },
+  });
+  const backend = createBackend({}, { client });
+
+  await backend.validateConfig();
+
+  const artifact = await backend.ensureArtifact({ workItem: WORK_ITEM });
+  const markdown = await client.retrievePageMarkdown(pageId);
+
+  assert.equal(client.createdPageIds.length, 0);
+  assert.equal(artifact.artifactId, pageId);
+  assert.match(markdown.markdown, /^# Context/m);
+  assert.match(markdown.markdown, /orqestrate:phase:review:start/);
+});
+
+test("writePhaseArtifact updates the managed section and loadContextBundle returns the markdown artifact", async () => {
+  const client = createArtifactAwareClient();
+  const backend = createBackend({}, { client });
+
+  await backend.validateConfig();
+
+  const artifact = await backend.ensureArtifact({ workItem: WORK_ITEM });
+  const updated = await backend.writePhaseArtifact({
+    workItem: WORK_ITEM,
+    artifact,
+    phase: "plan",
+    content: "Implementation plan for ORQ-30.",
+    summary: "Plan is ready.",
+  });
+  const storedArtifact = await backend.getArtifactByWorkItemId(WORK_ITEM.id);
+  const bundle = await backend.loadContextBundle({
+    workItem: WORK_ITEM,
+    artifact: storedArtifact,
+    phase: "plan",
+  });
+
+  assert.equal(updated.phase, "plan");
+  assert.equal(updated.state, "ready");
+  assert.equal(updated.planReady, true);
+  assert.equal(updated.summary, "Plan is ready.");
+  assert.ok(storedArtifact);
+  assert.equal(storedArtifact.summary, "Plan is ready.");
+  assert.match(bundle.contextText, /Implementation plan for ORQ-30\./);
+  assert.match(bundle.contextText, /Pending review notes\./);
+  assert.deepEqual(bundle.references, [
+    {
+      kind: "artifact",
+      title: updated.title,
+      url: updated.url,
+    },
+  ]);
 });
 
 test("bootstraps the notion backend through the shared provider lifecycle with a fake client", async () => {
@@ -272,20 +488,20 @@ context = "notion_main"
       },
     },
     dataSources: {
-      [ARTIFACTS_DATA_SOURCE_ID]: {
-        id: ARTIFACTS_DATA_SOURCE_ID,
-        title: "Issue Artifacts",
+      [ARTIFACTS_DATA_SOURCE_ID]: createArtifactDataSource({
         url: null,
-        parentDatabaseId: ARTIFACTS_DATABASE_ID,
-        propertyNames: [],
-      },
-      [RUNS_DATA_SOURCE_ID]: {
-        id: RUNS_DATA_SOURCE_ID,
-        title: "Harness Runs",
-        url: null,
-        parentDatabaseId: RUNS_DATABASE_ID,
-        propertyNames: [],
-      },
+      }),
+      [RUNS_DATA_SOURCE_ID]: createDataSource(
+        RUNS_DATA_SOURCE_ID,
+        {
+          "Run ID": "rich_text",
+        },
+        {
+          title: "Harness Runs",
+          url: null,
+          parentDatabaseId: RUNS_DATABASE_ID,
+        },
+      ),
     },
   });
   const registry = new ProviderRegistry()
@@ -355,6 +571,97 @@ function createBackend(
   );
 }
 
+function createArtifactAwareClient(
+  overrides: {
+    pages?: Record<string, NotionPage>;
+    pageMarkdown?: Record<string, string>;
+  } = {},
+) {
+  return new FakeNotionClient({
+    databases: {
+      [ARTIFACTS_DATABASE_ID]: {
+        id: ARTIFACTS_DATABASE_ID,
+        title: "Issue Artifacts",
+        url: "https://notion.so/artifacts",
+        dataSources: [{ id: ARTIFACTS_DATA_SOURCE_ID, name: "Issue Artifacts" }],
+      },
+      [RUNS_DATABASE_ID]: {
+        id: RUNS_DATABASE_ID,
+        title: "Harness Runs",
+        url: "https://notion.so/runs",
+        dataSources: [{ id: RUNS_DATA_SOURCE_ID, name: "Harness Runs" }],
+      },
+    },
+    dataSources: {
+      [ARTIFACTS_DATA_SOURCE_ID]: createArtifactDataSource(),
+      [RUNS_DATA_SOURCE_ID]: createDataSource(
+        RUNS_DATA_SOURCE_ID,
+        {
+          "Run ID": "rich_text",
+          Status: "rich_text",
+        },
+        {
+          title: "Harness Runs",
+          url: "https://notion.so/data-source/runs",
+          parentDatabaseId: RUNS_DATABASE_ID,
+        },
+      ),
+    },
+    pages: overrides.pages,
+    pageMarkdown: overrides.pageMarkdown,
+  });
+}
+
+function createArtifactDataSource(
+  overrides: {
+    title?: string | null;
+    url?: string | null;
+    parentDatabaseId?: string | null;
+  } = {},
+) {
+  return createDataSource(
+    ARTIFACTS_DATA_SOURCE_ID,
+    {
+      Title: "title",
+      "Linear Issue ID": "rich_text",
+      "Linear URL": "url",
+      "Current Phase": "rich_text",
+      "Current Status Snapshot": "rich_text",
+      "Artifact State": "rich_text",
+      "Review Outcome": "rich_text",
+      Summary: "rich_text",
+      "Last Updated At": "date",
+      "Design Ready": "checkbox",
+      "Plan Ready": "checkbox",
+      "Implementation Notes Present": "checkbox",
+      "Review Summary Present": "checkbox",
+      "Verification Evidence Present": "checkbox",
+    },
+    {
+      title: "Issue Artifacts",
+      url: "https://notion.so/data-source/artifacts",
+      parentDatabaseId: ARTIFACTS_DATABASE_ID,
+      ...overrides,
+    },
+  );
+}
+
+function createArtifactPage(input: {
+  id: string;
+  properties: Record<string, unknown>;
+}) {
+  return {
+    id: input.id,
+    object: "page",
+    url: `https://notion.so/${input.id}`,
+    createdTime: "2026-04-14T18:00:00.000Z",
+    lastEditedTime: "2026-04-14T18:00:00.000Z",
+    parentType: "data_source_id",
+    parentId: ARTIFACTS_DATA_SOURCE_ID,
+    properties: hydrateProperties(createArtifactDataSource(), input.properties),
+  } satisfies NotionPage;
+}
+
 function createFixtureWorkspace() {
   const workspaceDir = mkdtempSync(path.join(tmpdir(), "orqestrate-notion-"));
   const promptDir = path.join(workspaceDir, "prompts", "base");
@@ -377,12 +684,18 @@ class FakeNotionClient implements NotionClientLike {
   private readonly databases: Record<string, NotionDatabase>;
   private readonly dataSources: Record<string, NotionDataSource>;
   private readonly databaseErrors: Record<string, Error>;
+  private readonly pages: Record<string, NotionPage>;
+  private readonly pageMarkdown: Record<string, string>;
+  private pageSequence: number;
+  readonly createdPageIds: string[];
 
   constructor(options: {
     user?: NotionBotUser;
     databases?: Record<string, NotionDatabase>;
     dataSources?: Record<string, NotionDataSource>;
     databaseErrors?: Record<string, Error>;
+    pages?: Record<string, NotionPage>;
+    pageMarkdown?: Record<string, string>;
   } = {}) {
     this.user = options.user ?? {
       id: "bot-user",
@@ -394,6 +707,10 @@ class FakeNotionClient implements NotionClientLike {
     this.databases = options.databases ?? {};
     this.dataSources = options.dataSources ?? {};
     this.databaseErrors = options.databaseErrors ?? {};
+    this.pages = options.pages ?? {};
+    this.pageMarkdown = options.pageMarkdown ?? {};
+    this.pageSequence = Object.keys(this.pages).length + 1;
+    this.createdPageIds = [];
   }
 
   async getTokenBotUser(): Promise<NotionBotUser> {
@@ -426,7 +743,9 @@ class FakeNotionClient implements NotionClientLike {
     return dataSource;
   }
 
-  async queryDataSource<T = unknown>(): Promise<NotionCursorPage<T>> {
+  async queryDataSource<T = unknown>(
+    _input: QueryDataSourceInput,
+  ): Promise<NotionCursorPage<T>> {
     return {
       object: "list",
       results: [],
@@ -435,26 +754,121 @@ class FakeNotionClient implements NotionClientLike {
     };
   }
 
-  async createPage(): Promise<NotionPage> {
+  async queryDataSourcePages(
+    input: QueryDataSourceInput,
+  ): Promise<NotionCursorPage<NotionPage>> {
+    const results = Object.values(this.pages).filter((page) => {
+      if (page.parentId !== input.dataSourceId) {
+        return false;
+      }
+
+      if (input.filter === undefined) {
+        return true;
+      }
+
+      return matchesFilter(page, input.filter);
+    });
+
     return {
-      id: "page",
-      object: "page",
-      url: null,
-      parentType: null,
-      parentId: null,
-      properties: {},
+      object: "list",
+      results,
+      nextCursor: null,
+      hasMore: false,
     };
   }
 
-  async updatePage(): Promise<NotionPage> {
-    return {
-      id: "page",
+  async createPage(input: CreatePageInput): Promise<NotionPage> {
+    const parentId =
+      typeof input.parent.data_source_id === "string"
+        ? input.parent.data_source_id
+        : null;
+    const dataSource =
+      parentId === null ? undefined : this.dataSources[parentId];
+    const id = `page-${this.pageSequence++}`;
+    const page: NotionPage = {
+      id,
       object: "page",
-      url: null,
-      parentType: null,
-      parentId: null,
-      properties: {},
+      url: `https://notion.so/${id}`,
+      createdTime: "2026-04-14T18:00:00.000Z",
+      lastEditedTime: "2026-04-14T18:00:00.000Z",
+      parentType: "data_source_id",
+      parentId,
+      properties:
+        dataSource === undefined
+          ? input.properties ?? {}
+          : hydrateProperties(dataSource, input.properties ?? {}),
     };
+
+    this.pages[id] = page;
+    this.pageMarkdown[id] = "";
+    this.createdPageIds.push(id);
+
+    return page;
+  }
+
+  async updatePage(pageId: string, input: UpdatePageInput): Promise<NotionPage> {
+    const current = this.pages[pageId];
+
+    if (current === undefined) {
+      throw new Error(`Unexpected page update: ${pageId}`);
+    }
+
+    const dataSource =
+      current.parentId === null ? undefined : this.dataSources[current.parentId];
+
+    const updated: NotionPage = {
+      ...current,
+      lastEditedTime: "2026-04-14T18:05:00.000Z",
+      properties:
+        input.properties === undefined || dataSource === undefined
+          ? current.properties
+          : {
+              ...current.properties,
+              ...hydrateProperties(dataSource, input.properties),
+            },
+    };
+
+    this.pages[pageId] = updated;
+
+    return updated;
+  }
+
+  async retrievePageMarkdown(pageId: string): Promise<{
+    object: string | null;
+    id: string;
+    markdown: string;
+    truncated: boolean;
+    unknownBlockIds: string[];
+  }> {
+    if (!(pageId in this.pageMarkdown)) {
+      throw new Error(`Unexpected markdown lookup: ${pageId}`);
+    }
+
+    return {
+      object: "page_markdown",
+      id: pageId,
+      markdown: this.pageMarkdown[pageId] ?? "",
+      truncated: false,
+      unknownBlockIds: [],
+    };
+  }
+
+  async updatePageMarkdown(
+    pageId: string,
+    input: UpdatePageMarkdownInput,
+  ): Promise<{
+    object: string | null;
+    id: string;
+    markdown: string;
+    truncated: boolean;
+    unknownBlockIds: string[];
+  }> {
+    if (input.type !== "replace_content") {
+      throw new Error("FakeNotionClient only supports replace_content in tests.");
+    }
+
+    this.pageMarkdown[pageId] = input.newString;
+    return this.retrievePageMarkdown(pageId);
   }
 
   async appendBlockChildren<T = unknown>(): Promise<NotionCursorPage<T>> {
@@ -474,4 +888,111 @@ class FakeNotionClient implements NotionClientLike {
       hasMore: false,
     };
   }
+}
+
+function createDataSource(
+  id: string,
+  properties: Record<string, string>,
+  options: {
+    title?: string | null;
+    url?: string | null;
+    parentDatabaseId?: string | null;
+  } = {},
+): NotionDataSource {
+  return {
+    id,
+    title:
+      options.title ??
+      (id === ARTIFACTS_DATA_SOURCE_ID ? "Issue Artifacts" : "Harness Runs"),
+    url:
+      options.url === undefined
+        ? `https://notion.so/data-source/${id}`
+        : options.url,
+    parentDatabaseId:
+      options.parentDatabaseId ??
+      (id === ARTIFACTS_DATA_SOURCE_ID ? ARTIFACTS_DATABASE_ID : RUNS_DATABASE_ID),
+    propertyNames: Object.keys(properties),
+    properties: Object.fromEntries(
+      Object.entries(properties).map(([name, type]) => [
+        name,
+        {
+          id: name.toLowerCase().replace(/\s+/g, "-"),
+          type,
+        },
+      ]),
+    ),
+  };
+}
+
+function matchesFilter(page: NotionPage, filter: Record<string, unknown>): boolean {
+  const property = typeof filter.property === "string" ? filter.property : null;
+
+  if (property === null) {
+    return true;
+  }
+
+  if ("rich_text" in filter) {
+    const condition = filter.rich_text;
+
+    if (typeof condition !== "object" || condition === null) {
+      return false;
+    }
+
+    const equals = (condition as Record<string, unknown>).equals;
+    return readRichTextProperty(page.properties[property]) === equals;
+  }
+
+  return false;
+}
+
+function hydrateProperties(
+  dataSource: NotionDataSource,
+  properties: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(properties).map(([name, value]) => {
+      const property = dataSource.properties[name];
+      const propertyType = property?.type ?? "unknown";
+
+      return [
+        name,
+        {
+          id: property?.id ?? name,
+          type: propertyType,
+          ...(typeof value === "object" && value !== null
+            ? (value as Record<string, unknown>)
+            : {}),
+        },
+      ];
+    }),
+  );
+}
+
+function readRichTextProperty(value: unknown): string | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const richText = (value as Record<string, unknown>).rich_text;
+
+  if (!Array.isArray(richText)) {
+    return null;
+  }
+
+  return richText
+    .map((part) => {
+      if (typeof part !== "object" || part === null) {
+        return "";
+      }
+
+      const text = (part as Record<string, unknown>).text;
+
+      if (typeof text !== "object" || text === null) {
+        return "";
+      }
+
+      const content = (text as Record<string, unknown>).content;
+      return typeof content === "string" ? content : "";
+    })
+    .join("");
 }

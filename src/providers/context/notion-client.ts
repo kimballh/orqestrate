@@ -50,7 +50,7 @@ type NotionDataSourceResponse = {
     type?: string;
     database_id?: string;
   };
-  properties?: Record<string, unknown>;
+  properties?: Record<string, NotionDataSourcePropertyResponse>;
 };
 
 type CursorResponse<T> = {
@@ -64,6 +64,8 @@ type NotionPageResponse = {
   object?: string;
   id: string;
   url?: string | null;
+  created_time?: string | null;
+  last_edited_time?: string | null;
   properties?: Record<string, unknown>;
   parent?: {
     type?: string;
@@ -71,6 +73,19 @@ type NotionPageResponse = {
     database_id?: string;
     page_id?: string;
   };
+};
+
+type NotionDataSourcePropertyResponse = {
+  id?: string;
+  type?: string;
+};
+
+type NotionPageMarkdownResponse = {
+  object?: string;
+  id: string;
+  markdown?: string | null;
+  truncated?: boolean;
+  unknown_block_ids?: string[];
 };
 
 export type NotionBotUser = {
@@ -98,16 +113,32 @@ export type NotionDataSource = {
   title: string | null;
   url: string | null;
   parentDatabaseId: string | null;
+  properties: Record<string, NotionDataSourceProperty>;
   propertyNames: string[];
+};
+
+export type NotionDataSourceProperty = {
+  id: string | null;
+  type: string;
 };
 
 export type NotionPage = {
   id: string;
   object: string | null;
   url: string | null;
+  createdTime: string | null;
+  lastEditedTime: string | null;
   parentType: string | null;
   parentId: string | null;
   properties: Record<string, unknown>;
+};
+
+export type NotionPageMarkdown = {
+  object: string | null;
+  id: string;
+  markdown: string;
+  truncated: boolean;
+  unknownBlockIds: string[];
 };
 
 export type NotionCursorPage<T> = {
@@ -170,6 +201,22 @@ export type SearchInput = {
   pageSize?: number;
 };
 
+export type UpdatePageMarkdownInput =
+  | {
+      type: "replace_content";
+      newString: string;
+      allowDeletingContent?: boolean;
+    }
+  | {
+      type: "update_content";
+      contentUpdates: Array<{
+        oldString: string;
+        newString: string;
+        replaceAllMatches?: boolean;
+      }>;
+      allowDeletingContent?: boolean;
+    };
+
 export interface NotionClientLike {
   getTokenBotUser(): Promise<NotionBotUser>;
   retrieveDatabase(databaseId: string): Promise<NotionDatabase>;
@@ -177,8 +224,19 @@ export interface NotionClientLike {
   queryDataSource<T = unknown>(
     input: QueryDataSourceInput,
   ): Promise<NotionCursorPage<T>>;
+  queryDataSourcePages(
+    input: QueryDataSourceInput,
+  ): Promise<NotionCursorPage<NotionPage>>;
   createPage(input: CreatePageInput): Promise<NotionPage>;
   updatePage(pageId: string, input: UpdatePageInput): Promise<NotionPage>;
+  retrievePageMarkdown(
+    pageId: string,
+    options?: { includeTranscript?: boolean },
+  ): Promise<NotionPageMarkdown>;
+  updatePageMarkdown(
+    pageId: string,
+    input: UpdatePageMarkdownInput,
+  ): Promise<NotionPageMarkdown>;
   appendBlockChildren<T = unknown>(
     blockId: string,
     input: AppendBlockChildrenInput,
@@ -273,6 +331,7 @@ export class NotionClient implements NotionClientLike {
         response.parent?.type === "database_id"
           ? response.parent.database_id ?? null
           : null,
+      properties: normalizeDataSourceProperties(response.properties),
       propertyNames: Object.keys(response.properties ?? {}),
     };
   }
@@ -323,6 +382,64 @@ export class NotionClient implements NotionClientLike {
     return normalizePage(response);
   }
 
+  async queryDataSourcePages(
+    input: QueryDataSourceInput,
+  ): Promise<NotionCursorPage<NotionPage>> {
+    const response = await this.request<CursorResponse<NotionPageResponse>>(
+      `/data_sources/${input.dataSourceId}/query`,
+      {
+        method: "POST",
+        body: {
+          ...(input.filter === undefined ? {} : { filter: input.filter }),
+          ...(input.sorts === undefined ? {} : { sorts: input.sorts }),
+          ...(input.startCursor === undefined
+            ? {}
+            : { start_cursor: input.startCursor }),
+          ...(input.pageSize === undefined ? {} : { page_size: input.pageSize }),
+        },
+      },
+    );
+
+    return {
+      object: response.object ?? null,
+      results: (response.results ?? []).map((page) => normalizePage(page)),
+      nextCursor: response.next_cursor ?? null,
+      hasMore: response.has_more ?? false,
+    };
+  }
+
+  async retrievePageMarkdown(
+    pageId: string,
+    options: { includeTranscript?: boolean } = {},
+  ): Promise<NotionPageMarkdown> {
+    const path = new URL(`${this.baseUrl}/pages/${pageId}/markdown`);
+
+    if (options.includeTranscript === true) {
+      path.searchParams.set("include_transcript", "true");
+    }
+
+    const response = await this.request<NotionPageMarkdownResponse>(path, {
+      method: "GET",
+    });
+
+    return normalizePageMarkdown(response);
+  }
+
+  async updatePageMarkdown(
+    pageId: string,
+    input: UpdatePageMarkdownInput,
+  ): Promise<NotionPageMarkdown> {
+    const response = await this.request<NotionPageMarkdownResponse>(
+      `/pages/${pageId}/markdown`,
+      {
+        method: "PATCH",
+        body: serializePageMarkdownUpdate(input),
+      },
+    );
+
+    return normalizePageMarkdown(response);
+  }
+
   async appendBlockChildren<T = unknown>(
     blockId: string,
     input: AppendBlockChildrenInput,
@@ -361,7 +478,7 @@ export class NotionClient implements NotionClientLike {
   }
 
   private async request<T>(
-    path: string,
+    path: string | URL,
     init: {
       method: "GET" | "POST" | "PATCH";
       body?: unknown;
@@ -375,7 +492,10 @@ export class NotionClient implements NotionClientLike {
     let response: Response;
 
     try {
-      response = await this.fetcher(`${this.baseUrl}${path}`, {
+      const requestUrl =
+        path instanceof URL ? path.toString() : `${this.baseUrl}${path}`;
+
+      response = await this.fetcher(requestUrl, {
         method: init.method,
         headers:
           init.body === undefined
@@ -388,14 +508,23 @@ export class NotionClient implements NotionClientLike {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
-      throw normalizeTransportError(error, init.method, path);
+      throw normalizeTransportError(
+        error,
+        init.method,
+        path instanceof URL ? path.pathname : path,
+      );
     }
 
     const text = await response.text();
     const payload = safeJsonParse(text);
 
     if (!response.ok) {
-      throw normalizeHttpError(response.status, payload, init.method, path);
+      throw normalizeHttpError(
+        response.status,
+        payload,
+        init.method,
+        path instanceof URL ? path.pathname : path,
+      );
     }
 
     return payload as T;
@@ -447,9 +576,23 @@ function normalizePage(response: NotionPageResponse): NotionPage {
     id: response.id,
     object: response.object ?? null,
     url: response.url ?? null,
+    createdTime: response.created_time ?? null,
+    lastEditedTime: response.last_edited_time ?? null,
     parentType: response.parent?.type ?? null,
     parentId,
     properties: response.properties ?? {},
+  };
+}
+
+function normalizePageMarkdown(
+  response: NotionPageMarkdownResponse,
+): NotionPageMarkdown {
+  return {
+    object: response.object ?? null,
+    id: response.id,
+    markdown: response.markdown ?? "",
+    truncated: response.truncated ?? false,
+    unknownBlockIds: response.unknown_block_ids ?? [],
   };
 }
 
@@ -475,6 +618,52 @@ function richTextToPlainText(value: NotionRichText[] | null | undefined): string
     .trim();
 
   return plainText === "" ? null : plainText;
+}
+
+function normalizeDataSourceProperties(
+  properties: Record<string, NotionDataSourcePropertyResponse> | undefined,
+): Record<string, NotionDataSourceProperty> {
+  return Object.fromEntries(
+    Object.entries(properties ?? {}).map(([name, property]) => [
+      name,
+      {
+        id: property.id ?? null,
+        type: property.type ?? "unknown",
+      },
+    ]),
+  );
+}
+
+function serializePageMarkdownUpdate(
+  input: UpdatePageMarkdownInput,
+): Record<string, unknown> {
+  if (input.type === "replace_content") {
+    return {
+      type: "replace_content",
+      replace_content: {
+        new_str: input.newString,
+        ...(input.allowDeletingContent === undefined
+          ? {}
+          : { allow_deleting_content: input.allowDeletingContent }),
+      },
+    };
+  }
+
+  return {
+    type: "update_content",
+    update_content: {
+      content_updates: input.contentUpdates.map((update) => ({
+        old_str: update.oldString,
+        new_str: update.newString,
+        ...(update.replaceAllMatches === undefined
+          ? {}
+          : { replace_all_matches: update.replaceAllMatches }),
+      })),
+      ...(input.allowDeletingContent === undefined
+        ? {}
+        : { allow_deleting_content: input.allowDeletingContent }),
+    },
+  };
 }
 
 function serializeAppendBlockPosition(
