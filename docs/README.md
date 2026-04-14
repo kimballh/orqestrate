@@ -1,4 +1,4 @@
-# Linear Codex Harness
+# Orqestrate Codex Harness
 
 This directory is the first-pass design for a Codex orchestration harness.
 
