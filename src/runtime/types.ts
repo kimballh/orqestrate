@@ -76,6 +76,12 @@ export type ListRunsFilters = {
   phase?: WorkPhase;
   repoRoot?: string;
   limit?: number;
+  cursor?: string;
+};
+
+export type ListRunsPage = {
+  runs: PersistedRunRecord[];
+  nextCursor?: string | null;
 };
 
 export type RunEventRecord = {
@@ -93,6 +99,41 @@ export type AppendRunEventInput = Omit<RunEventRecord, "seq">;
 export type ListRunEventsOptions = {
   afterSeq?: number;
   limit?: number;
+};
+
+export type RuntimeGlobalCapacitySnapshot = {
+  max: number;
+  active: number;
+  queued: number;
+  available: number;
+};
+
+export type RuntimeProviderCapacitySnapshot = RuntimeGlobalCapacitySnapshot & {
+  provider: AgentProvider;
+};
+
+export type RuntimeRepoCapacitySnapshot = {
+  repoRoot: string;
+  active: number;
+  queued: number;
+};
+
+export type RuntimeCapacitySnapshot = {
+  global: RuntimeGlobalCapacitySnapshot;
+  providers: Record<AgentProvider, RuntimeProviderCapacitySnapshot>;
+  repos: RuntimeRepoCapacitySnapshot[];
+  mixedProvidersAllowed: boolean;
+};
+
+export type RuntimeReadinessSnapshot = {
+  ok: boolean;
+  profile: string;
+  checks: {
+    database: { ok: boolean };
+    dispatcher: { ok: boolean };
+    transport: { ok: boolean };
+    adapters: { ok: boolean; providers: AgentProvider[] };
+  };
 };
 
 export type SessionHeartbeatRecord = {

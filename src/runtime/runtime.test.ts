@@ -6,12 +6,15 @@ import path from "node:path";
 
 import type { RuntimeConfig } from "./config.js";
 import { RuntimeDaemon } from "./daemon.js";
-import { startRuntimeDaemon } from "./main.js";
+import { startRuntimeDaemon, startRuntimeService } from "./main.js";
 import { openRuntimeDatabase } from "./persistence/database.js";
 import { getRuntimeSchemaVersion } from "./persistence/migrations.js";
 import { RuntimeRepository } from "./persistence/runtime-repository.js";
+import type { LaunchSpec, SessionObserver, SessionSnapshot, SessionSupervisor } from "./session-supervisor.js";
 import type { CreateRunInput } from "./types.js";
 import type { LoadedConfig } from "../config/types.js";
+import { FakeProviderAdapter, waitForAsyncTurn } from "./test-support.js";
+import type { RuntimeApiServer } from "./api/server.js";
 
 type RuntimeFixture = {
   rootDir: string;
@@ -51,7 +54,7 @@ test("openRuntimeDatabase initializes WAL mode and the canonical schema", (t) =>
   ]);
 });
 
-test("runtime daemon preserves queued runs across restart", (t) => {
+test("runtime daemon preserves queued runs across restart", async (t) => {
   const fixture = createRuntimeFixture(t);
   const daemon = new RuntimeDaemon(fixture.runtimeConfig);
 
@@ -59,11 +62,11 @@ test("runtime daemon preserves queued runs across restart", (t) => {
   const createdRun = daemon.enqueueRun(createRunInput());
   assert.ok(existsSync(fixture.runtimeConfig.runtimeLogDir));
 
-  daemon.stop();
+  await daemon.stop();
 
   const restartedDaemon = new RuntimeDaemon(fixture.runtimeConfig);
   restartedDaemon.start();
-  t.after(() => restartedDaemon.stop());
+  t.after(async () => restartedDaemon.stop());
 
   const recoveredRun = restartedDaemon.getRun(createdRun.runId);
   assert.ok(recoveredRun);
@@ -230,7 +233,7 @@ test("startRuntimeDaemon does not create a keepalive timer when startup fails", 
             start(): void {
               throw new Error("boom");
             },
-            stop(): void {
+            async stop(): Promise<void> {
               throw new Error("stop should not be called");
             },
           }) as RuntimeDaemon,
@@ -247,6 +250,71 @@ test("startRuntimeDaemon does not create a keepalive timer when startup fails", 
 
   assert.equal(keepAliveCalls, 0);
   assert.equal(registeredSignals, 0);
+});
+
+test("startRuntimeService waits for daemon shutdown before exiting on signal", async (t) => {
+  const fixture = createRuntimeFixture(t);
+  const supervisor = new DelayedLaunchSessionSupervisor();
+  const daemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    sessionSupervisor: supervisor,
+    dispatcherIntervalMs: 5,
+  });
+  daemon.registerRuntimeAdapter("codex", () => new FakeProviderAdapter());
+
+  const signalHandlers = new Map<"SIGINT" | "SIGTERM", () => void>();
+  let exitCalls: number = 0;
+  const apiServer = {
+    info: {
+      endpoint: "http://runtime.test",
+      listening: true,
+    },
+    async start(): Promise<void> {},
+    async stop(): Promise<void> {},
+  } as RuntimeApiServer;
+
+  await startRuntimeService(createLoadedConfigFixture(), {
+    createRuntimeDaemon: () => daemon,
+    createRuntimeApiServer: () => apiServer,
+    registerSignalHandler: (signal, handler) => {
+      signalHandlers.set(signal, handler);
+    },
+    setKeepAlive: (() =>
+      ({ kind: "keepalive" } as unknown as ReturnType<typeof setInterval>)) as typeof setInterval,
+    clearKeepAlive: (() => undefined) as typeof clearInterval,
+    exit: ((_: number) => {
+      exitCalls += 1;
+      return undefined as never;
+    }) as (code: number) => never,
+    log: () => undefined,
+  });
+
+  daemon.enqueueRun(createRunInput());
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (supervisor.launchRequested > 0) {
+      break;
+    }
+
+    await waitForAsyncTurn();
+  }
+
+  assert.equal(supervisor.launchRequested, 1);
+  signalHandlers.get("SIGTERM")?.();
+  await waitForAsyncTurn();
+
+  assert.equal(exitCalls, 0);
+  assert.equal(supervisor.terminated, 0);
+
+  supervisor.resolveLaunch();
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (exitCalls > 0) {
+      break;
+    }
+
+    await waitForAsyncTurn();
+  }
+
+  assert.equal(supervisor.terminated, 1);
+  assert.equal(exitCalls, 1);
 });
 
 function createRepository(t: TestContext): RuntimeRepository {
@@ -432,4 +500,63 @@ function createLoadedConfigFixture(): LoadedConfig {
       },
     },
   };
+}
+
+class DelayedLaunchSessionSupervisor implements SessionSupervisor {
+  launchRequested = 0;
+  terminated = 0;
+  private pendingLaunch:
+    | {
+        observer: SessionObserver;
+        resolve: (handle: { sessionId: string; pid: number; runId: string }) => void;
+      }
+    | null = null;
+
+  async launch(
+    _spec: LaunchSpec,
+    observer: SessionObserver,
+  ): Promise<{ sessionId: string; pid: number; runId: string }> {
+    this.launchRequested += 1;
+    return new Promise((resolve) => {
+      this.pendingLaunch = { observer, resolve };
+    });
+  }
+
+  resolveLaunch(): void {
+    assert.ok(this.pendingLaunch);
+    const { observer, resolve } = this.pendingLaunch;
+    this.pendingLaunch = null;
+    resolve({
+      sessionId: "delayed-session-1",
+      pid: 5252,
+      runId: observer.runId,
+    });
+  }
+
+  async write(_sessionId: string, _input: string): Promise<void> {}
+
+  async interrupt(_sessionId: string): Promise<void> {}
+
+  async terminate(_sessionId: string): Promise<void> {
+    this.terminated += 1;
+  }
+
+  async snapshot(sessionId: string): Promise<SessionSnapshot> {
+    return {
+      sessionId,
+      runId: "run-001",
+      pid: 5252,
+      recentOutput: "",
+      bytesRead: 0,
+      bytesWritten: 0,
+      isAlive: false,
+      startedAt: "2026-04-14T18:00:00.000Z",
+      lastOutputAt: null,
+      lastInputAt: null,
+    };
+  }
+
+  async readRecentOutput(_sessionId: string, _maxChars: number): Promise<string> {
+    return "";
+  }
 }

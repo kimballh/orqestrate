@@ -73,6 +73,8 @@ const TERMINAL_STATUSES = new Set<RunStatus>([
 
 export class RunExecutor {
   private readonly liveRuns = new LiveRunRegistry<LiveRunContext>();
+  private readonly activeContexts = new Map<string, LiveRunContext>();
+  private readonly executionTasks = new Map<string, Promise<void>>();
   private readonly now: () => string;
   private readonly setIntervalFn: typeof globalThis.setInterval;
   private readonly clearIntervalFn: typeof globalThis.clearInterval;
@@ -123,19 +125,69 @@ export class RunExecutor {
         resolve,
         reject,
       };
-
-      void this.executeInternal(context).catch((error) => {
+      this.activeContexts.set(run.runId, context);
+      const executionTask = this.executeInternal(context).catch(async (error) => {
         if (context.finishing) {
           reject(error);
           return;
         }
 
-        void this.failContext(
+        await this.failContext(
           context,
           error instanceof Error ? error : new Error(String(error)),
         );
       });
+      this.executionTasks.set(run.runId, executionTask);
+      void executionTask.finally(() => {
+        this.executionTasks.delete(run.runId);
+      });
     });
+  }
+
+  hasLiveSession(runId: string): boolean {
+    const context = this.liveRuns.getByRunId(runId);
+    return context !== null && context.controller !== null;
+  }
+
+  async shutdown(
+    reason = "Runtime daemon stopped before the live run finished.",
+  ): Promise<void> {
+    const cleanupTasks: Promise<unknown>[] = [];
+
+    for (const context of [...this.activeContexts.values()]) {
+      if (context.finishing) {
+        continue;
+      }
+
+      context.finishing = true;
+      this.clearTimers(context);
+      this.liveRuns.removeByRunId(context.run.runId);
+
+      if (!TERMINAL_STATUSES.has(context.currentRun.status)) {
+        context.currentRun = this.repository.markRunStaleOnRecovery({
+          runId: context.run.runId,
+          occurredAt: this.now(),
+          reason,
+        });
+      }
+
+      this.activeContexts.delete(context.run.runId);
+      const executionTask = this.executionTasks.get(context.run.runId);
+      if (executionTask !== undefined) {
+        cleanupTasks.push(executionTask);
+      }
+
+      if (context.controller !== null) {
+        cleanupTasks.push(
+          this.supervisor.terminate(context.controller.sessionId, true),
+        );
+        context.controller = null;
+      }
+
+      context.resolve(context.currentRun);
+    }
+
+    await Promise.allSettled(cleanupTasks);
   }
 
   async interruptRun(runId: string): Promise<PersistedRunRecord> {
@@ -261,6 +313,11 @@ export class RunExecutor {
       },
     });
 
+    if (context.finishing) {
+      await this.supervisor.terminate(handle.sessionId, true);
+      return;
+    }
+
     context.controller = this.createSessionController(
       context.run.runId,
       handle.sessionId,
@@ -287,6 +344,10 @@ export class RunExecutor {
     context: LiveRunContext,
     event: SessionOutputChunk,
   ): Promise<void> {
+    if (context.finishing) {
+      return;
+    }
+
     appendFileSync(context.logFilePath, event.chunk);
     context.pendingHeartbeat.bytesRead += Buffer.byteLength(event.chunk);
 
@@ -352,6 +413,7 @@ export class RunExecutor {
     signal?: Extract<RuntimeSignal, { type: "ready" }>,
   ): Promise<void> {
     if (
+      context.finishing ||
       context.controller === null ||
       context.ready ||
       context.currentRun.status !== "bootstrapping"
@@ -443,6 +505,8 @@ export class RunExecutor {
       context.resolve(context.currentRun);
     } catch (error) {
       context.reject(error);
+    } finally {
+      this.activeContexts.delete(context.run.runId);
     }
   }
 
@@ -554,7 +618,7 @@ export class RunExecutor {
     context: LiveRunContext,
     allowQuietTick: boolean,
   ): void {
-    if (TERMINAL_STATUSES.has(context.currentRun.status)) {
+    if (context.finishing || TERMINAL_STATUSES.has(context.currentRun.status)) {
       return;
     }
 

@@ -1,0 +1,349 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { TestContext } from "node:test";
+
+import type { CreateRunInput, PersistedRunRecord } from "./types.js";
+import type { RuntimeConfig } from "./config.js";
+import {
+  buildRuntimeProviderError,
+  type HumanInput,
+  type OutputEvent,
+  type ProviderAdapter,
+  type RunOutcome,
+  type RuntimeSessionController,
+  type RuntimeSignal,
+} from "./provider-adapter.js";
+import type {
+  LaunchSpec,
+  SessionExit,
+  SessionObserver,
+  SessionSnapshot,
+  SessionSupervisor,
+} from "./session-supervisor.js";
+
+export type RuntimeFixture = {
+  rootDir: string;
+  runtimeConfig: RuntimeConfig;
+};
+
+export class FakeSessionSupervisor implements SessionSupervisor {
+  private readonly sessions = new Map<
+    string,
+    {
+      runId: string;
+      observer: SessionObserver;
+      recentOutput: string;
+      bytesRead: number;
+      bytesWritten: number;
+      startedAt: string;
+      isAlive: boolean;
+      exit: SessionExit | null;
+    }
+  >();
+
+  async launch(
+    _spec: LaunchSpec,
+    observer: SessionObserver,
+  ): Promise<{ sessionId: string; pid: number; runId: string }> {
+    const sessionId = `session-${this.sessions.size + 1}`;
+    this.sessions.set(sessionId, {
+      runId: observer.runId,
+      observer,
+      recentOutput: "",
+      bytesRead: 0,
+      bytesWritten: 0,
+      startedAt: "2026-04-14T18:00:00.000Z",
+      isAlive: true,
+      exit: null,
+    });
+
+    return {
+      sessionId,
+      pid: 4242 + this.sessions.size,
+      runId: observer.runId,
+    };
+  }
+
+  async write(sessionId: string, input: string): Promise<void> {
+    const session = this.requireSession(sessionId);
+    session.bytesWritten += Buffer.byteLength(input);
+  }
+
+  async interrupt(_sessionId: string): Promise<void> {}
+
+  async terminate(sessionId: string): Promise<void> {
+    this.emitExit(sessionId, 130, "SIGTERM");
+  }
+
+  async snapshot(sessionId: string): Promise<SessionSnapshot> {
+    const session = this.requireSession(sessionId);
+
+    return {
+      sessionId,
+      runId: session.runId,
+      pid: 4242,
+      recentOutput: session.recentOutput,
+      bytesRead: session.bytesRead,
+      bytesWritten: session.bytesWritten,
+      isAlive: session.isAlive,
+      startedAt: session.startedAt,
+      lastOutputAt: session.exit?.occurredAt ?? null,
+      lastInputAt: null,
+    };
+  }
+
+  async readRecentOutput(sessionId: string, maxChars: number): Promise<string> {
+    const session = this.requireSession(sessionId);
+    return session.recentOutput.slice(Math.max(0, session.recentOutput.length - maxChars));
+  }
+
+  emitOutput(sessionId: string, chunk: string): void {
+    const session = this.requireSession(sessionId);
+    session.recentOutput += chunk;
+    session.bytesRead += Buffer.byteLength(chunk);
+    void session.observer.onOutput({
+      sessionId,
+      occurredAt: "2026-04-14T18:00:01.000Z",
+      chunk,
+    });
+  }
+
+  emitExit(
+    sessionId: string,
+    exitCode: number | null,
+    signal: string | null,
+  ): void {
+    const session = this.requireSession(sessionId);
+
+    if (!session.isAlive) {
+      return;
+    }
+
+    session.isAlive = false;
+    session.exit = {
+      sessionId,
+      occurredAt: "2026-04-14T18:00:02.000Z",
+      exitCode,
+      signal,
+    };
+    void session.observer.onExit(session.exit);
+  }
+
+  private requireSession(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+
+    assert.ok(session);
+    return session;
+  }
+}
+
+export class FakeProviderAdapter implements ProviderAdapter {
+  readonly kind = "codex" as const;
+  humanInputCalls = 0;
+
+  constructor(
+    private readonly options: {
+      failHumanInput?: boolean;
+    } = {},
+  ) {}
+
+  buildLaunchSpec(input: { cwd: string }): LaunchSpec {
+    return {
+      command: "fake-agent",
+      args: [],
+      env: {},
+      cwd: input.cwd,
+    };
+  }
+
+  detectReady(snapshot: SessionSnapshot): boolean {
+    return snapshot.recentOutput.includes("READY");
+  }
+
+  classifyOutput(event: OutputEvent): RuntimeSignal[] {
+    const signals: RuntimeSignal[] = [];
+
+    if (event.chunk.includes("READY")) {
+      signals.push({
+        type: "ready",
+        payload: {
+          source: "fake-output",
+        },
+      });
+    }
+
+    if (event.chunk.includes("PROGRESS")) {
+      signals.push({
+        type: "progress",
+        eventType: "progress_update",
+        payload: {
+          chunk: event.chunk.trim(),
+        },
+      });
+    }
+
+    if (event.chunk.includes("NEEDS_HUMAN")) {
+      signals.push({
+        type: "waiting_human",
+        reason: "Need an operator decision.",
+      });
+    }
+
+    return signals;
+  }
+
+  async submitInitialPrompt(
+    session: RuntimeSessionController,
+    prompt: { userPrompt: string },
+  ): Promise<void> {
+    await session.write(`${prompt.userPrompt}\n`);
+  }
+
+  async submitHumanInput(
+    session: RuntimeSessionController,
+    input: HumanInput,
+  ): Promise<void> {
+    this.humanInputCalls += 1;
+
+    if (this.options.failHumanInput === true) {
+      throw new Error("fake human input failure");
+    }
+
+    await session.write(`${input.message}\n`);
+  }
+
+  async interrupt(session: RuntimeSessionController): Promise<void> {
+    await session.interrupt();
+  }
+
+  async cancel(session: RuntimeSessionController): Promise<void> {
+    await session.terminate(true);
+  }
+
+  async collectOutcome(
+    _session: RuntimeSessionController,
+    exit: SessionExit | null,
+  ): Promise<RunOutcome> {
+    if (exit?.exitCode === 0) {
+      return {
+        status: "completed",
+        code: "completed",
+        exitCode: 0,
+        summary: "Run completed.",
+      };
+    }
+
+    return {
+      status: "canceled",
+      code: "canceled",
+      exitCode: exit?.exitCode ?? null,
+      summary: "Run canceled.",
+      error: buildRuntimeProviderError({
+        providerKind: "codex",
+        code: "transport",
+        message: "Canceled by the fake adapter.",
+        retryable: false,
+      }),
+    };
+  }
+}
+
+export function createRuntimeFixture(t: TestContext): RuntimeFixture {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "orq-runtime-"));
+  t.after(() => {
+    rmSync(rootDir, { recursive: true, force: true });
+  });
+
+  return {
+    rootDir,
+    runtimeConfig: {
+      sourcePath: path.join(rootDir, "config.toml"),
+      profileName: "test",
+      stateDir: path.join(rootDir, "state"),
+      logDir: path.join(rootDir, "logs"),
+      runtimeLogDir: path.join(rootDir, "logs", "runtime"),
+      databasePath: path.join(rootDir, "state", "runtime.sqlite"),
+      policy: {
+        maxConcurrentRuns: 4,
+        maxRunsPerProvider: 2,
+        allowMixedProviders: true,
+        defaultPhaseTimeoutSec: 5400,
+      },
+    },
+  };
+}
+
+export function createRunInput(
+  overrides: {
+    runId?: string;
+    phase?: CreateRunInput["phase"];
+    provider?: CreateRunInput["provider"];
+    workItemId?: string;
+    workItemIdentifier?: string;
+  } = {},
+): CreateRunInput {
+  const runId = overrides.runId ?? "run-001";
+
+  return {
+    runId,
+    phase: overrides.phase ?? "implement",
+    workItem: {
+      id: overrides.workItemId ?? "issue-1",
+      identifier: overrides.workItemIdentifier ?? "ORQ-33",
+      title: "Implement PTY session supervisor abstraction and host process control",
+      description: "Add the runtime execution seam.",
+      labels: ["runtime"],
+      url: "https://linear.app/orqestrate/issue/ORQ-33",
+    },
+    artifact: {
+      artifactId: `artifact-${runId}`,
+      url: `https://www.notion.so/${runId}`,
+      summary: "Artifact placeholder",
+    },
+    provider: overrides.provider ?? "codex",
+    workspace: {
+      repoRoot: "/repo",
+      mode: "ephemeral_worktree",
+      workingDirHint: `/repo/.worktrees/${runId}`,
+      baseRef: "main",
+    },
+    prompt: {
+      contractId: "orqestrate/implement/v1",
+      userPrompt: "Implement ORQ-33.",
+      attachments: [],
+      sources: [],
+      digests: {
+        system: "sha256-system",
+        user: "sha256-user",
+      },
+    },
+    limits: {
+      maxWallTimeSec: 5400,
+      idleTimeoutSec: 300,
+      bootstrapTimeoutSec: 120,
+    },
+    requestedBy: "Kimball Hill",
+  };
+}
+
+export async function waitForAsyncTurn(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+export async function waitForRunStatus(
+  daemon: { getRun(runId: string): PersistedRunRecord | null },
+  runId: string,
+  expectedStatus: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (daemon.getRun(runId)?.status === expectedStatus) {
+      return;
+    }
+
+    await waitForAsyncTurn();
+  }
+
+  assert.fail(`Run '${runId}' never reached status '${expectedStatus}'.`);
+}
