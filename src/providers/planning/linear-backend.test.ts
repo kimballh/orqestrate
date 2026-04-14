@@ -18,6 +18,7 @@ import {
   type LinearSdkViewerLike,
   type LinearSdkWorkflowStateLike,
 } from "./linear/client.js";
+import { upsertLinearDescriptionMachineState } from "./linear/machine-state/index.js";
 import { LinearPlanningBackend } from "./linear-backend.js";
 
 test("validates and resolves a scoped Linear backend adapter", async () => {
@@ -193,7 +194,7 @@ test("maps Linear issues into canonical work items and defaults unresolved harne
   assert.equal(workItem.orchestration.lastError, null);
 });
 
-test("rejects actionable Linear listings until a verified harness-field binding exists", async () => {
+test("lists actionable Linear issues via hybrid label and description machine state", async () => {
   const backend = createBackend(
     {},
     createIssueSdkClient([
@@ -210,14 +211,28 @@ test("rejects actionable Linear listings until a verified harness-field binding 
         state: workflowState("implement"),
         priority: 1,
         updatedAt: "2026-04-13T10:00:00.000Z",
+        labels: [
+          { id: "label-phase-implement", name: "orq:phase:implement" },
+          { id: "label-state-running", name: "orq:state:running" },
+        ],
+        description: withMachineState("Leased implementation details.", {
+          owner: "worker-1",
+          runId: "run-1",
+          leaseUntil: "2999-04-13T10:30:00.000Z",
+          artifactUrl: null,
+          blockedReason: null,
+          lastError: null,
+          attemptCount: 2,
+        }),
       }),
       createFakeIssue({
         id: "issue-no-phase",
         identifier: "ORQ-21",
-        title: "Review with no phase",
+        title: "Review with derived phase",
         state: workflowState("review"),
         priority: 1,
         updatedAt: "2026-04-13T09:00:00.000Z",
+        description: "Human-authored review details.",
       }),
       createFakeIssue({
         id: "issue-blocked",
@@ -227,6 +242,7 @@ test("rejects actionable Linear listings until a verified harness-field binding 
         priority: 1,
         updatedAt: "2026-04-13T08:00:00.000Z",
         inverseRelations: [{ type: "blocks", issueId: "blocker-1" }],
+        labels: [{ id: "label-phase-implement-2", name: "orq:phase:implement" }],
       }),
       createFakeIssue({
         id: "issue-plan",
@@ -235,6 +251,7 @@ test("rejects actionable Linear listings until a verified harness-field binding 
         state: workflowState("plan"),
         priority: 1,
         updatedAt: "2026-04-13T07:00:00.000Z",
+        labels: [{ id: "label-state-queued", name: "orq:state:queued" }],
       }),
       createFakeIssue({
         id: "issue-review",
@@ -243,6 +260,19 @@ test("rejects actionable Linear listings until a verified harness-field binding 
         state: workflowState("review"),
         priority: 1,
         updatedAt: "2026-04-13T11:00:00.000Z",
+        labels: [
+          { id: "label-phase-review", name: "orq:phase:review" },
+          { id: "label-state-queued-2", name: "orq:state:queued" },
+        ],
+        description: withMachineState("Review work details.", {
+          owner: null,
+          runId: null,
+          leaseUntil: null,
+          artifactUrl: "https://notion.so/review-24",
+          blockedReason: null,
+          lastError: null,
+          attemptCount: 1,
+        }),
       }),
       createFakeIssue({
         id: "issue-implement",
@@ -251,13 +281,65 @@ test("rejects actionable Linear listings until a verified harness-field binding 
         state: workflowState("implement"),
         priority: 2,
         updatedAt: "2026-04-13T06:00:00.000Z",
+        labels: [{ id: "label-state-queued-3", name: "orq:state:queued" }],
+      }),
+    ]),
+  );
+
+  const records = await backend.listActionableWorkItems({ limit: 10 });
+
+  assert.deepEqual(
+    records.map((record) => record.identifier),
+    ["ORQ-23", "ORQ-21", "ORQ-24", "ORQ-25"],
+  );
+  assert.equal(records[0]?.phase, "plan");
+  assert.equal(records[1]?.phase, "review");
+  assert.equal(records[1]?.description, "Human-authored review details.");
+  assert.equal(records[2]?.artifactUrl, "https://notion.so/review-24");
+  assert.equal(records[2]?.orchestration.attemptCount, 1);
+});
+
+test("preserves explicit phase labels for blocked issues", async () => {
+  const backend = createBackend(
+    {},
+    createIssueSdkClient([
+      createFakeIssue({
+        id: "issue-53",
+        identifier: "ORQ-53",
+        title: "Blocked implementation still tracks phase",
+        state: workflowState("blocked"),
+        labels: [{ id: "label-phase-implement", name: "orq:phase:implement" }],
+      }),
+    ]),
+  );
+
+  const workItem = await backend.getWorkItem("issue-53");
+
+  assert.ok(workItem);
+  assert.equal(workItem.status, "blocked");
+  assert.equal(workItem.phase, "implement");
+});
+
+test("fails closed when a candidate issue contains malformed machine-state data", async () => {
+  const backend = createBackend(
+    {},
+    createIssueSdkClient([
+      createFakeIssue({
+        id: "issue-54",
+        identifier: "ORQ-54",
+        title: "Malformed machine state",
+        state: workflowState("implement"),
+        labels: [
+          { id: "label-phase-implement", name: "orq:phase:implement" },
+          { id: "label-phase-review", name: "orq:phase:review" },
+        ],
       }),
     ]),
   );
 
   await assert.rejects(
     () => backend.listActionableWorkItems({ limit: 10 }),
-    /do not expose the machine-owned custom fields required for actionable planning reads/i,
+    /malformed machine-owned state/i,
   );
 });
 
@@ -415,6 +497,13 @@ function createFakeIssue(
     inverseRelations: [],
     ...overrides,
   };
+}
+
+function withMachineState(
+  description: string,
+  machineState: Parameters<typeof upsertLinearDescriptionMachineState>[1],
+): string {
+  return upsertLinearDescriptionMachineState(description, machineState);
 }
 
 function createRequiredStates(
