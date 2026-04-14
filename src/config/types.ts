@@ -5,9 +5,18 @@ export const BUILTIN_PROVIDER_KINDS = [
   "context.local_files",
 ] as const;
 
-export type ProviderKind = (typeof BUILTIN_PROVIDER_KINDS)[number];
-export type PlanningProviderKind = Extract<ProviderKind, `planning.${string}`>;
-export type ContextProviderKind = Extract<ProviderKind, `context.${string}`>;
+export type ProviderKind = `${"planning" | "context"}.${string}`;
+export type PlanningProviderKind = `planning.${string}`;
+export type ContextProviderKind = `context.${string}`;
+export type BuiltinProviderKind = (typeof BUILTIN_PROVIDER_KINDS)[number];
+export type BuiltinPlanningProviderKind = Extract<
+  BuiltinProviderKind,
+  PlanningProviderKind
+>;
+export type BuiltinContextProviderKind = Extract<
+  BuiltinProviderKind,
+  ContextProviderKind
+>;
 
 export interface PathsConfig {
   stateDir: string;
@@ -37,11 +46,26 @@ export interface PromptPackConfig {
   experiments: Record<string, string>;
 }
 
-interface BaseProviderConfig<K extends ProviderKind, F extends "planning" | "context"> {
+export interface BaseProviderConfig<
+  K extends ProviderKind,
+  F extends "planning" | "context",
+> {
   name: string;
   kind: K;
   family: F;
 }
+
+export type PlanningProviderDefinition<
+  K extends PlanningProviderKind = PlanningProviderKind,
+> = BaseProviderConfig<K, "planning">;
+
+export type ContextProviderDefinition<
+  K extends ContextProviderKind = ContextProviderKind,
+> = BaseProviderConfig<K, "context">;
+
+export type ProviderDefinition =
+  | PlanningProviderDefinition
+  | ContextProviderDefinition;
 
 export interface PlanningLinearProviderConfig
   extends BaseProviderConfig<"planning.linear", "planning"> {

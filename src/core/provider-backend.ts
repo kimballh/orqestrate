@@ -1,4 +1,4 @@
-import type { ProviderConfig } from "../config/types.js";
+import type { ProviderDefinition } from "../config/types.js";
 
 import { ProviderOperationError } from "./errors.js";
 
@@ -7,7 +7,7 @@ export type ProviderHealthCheckResult = {
   message?: string;
 };
 
-export abstract class ProviderBackend<TConfig extends ProviderConfig> {
+export abstract class ProviderBackend<TConfig extends ProviderDefinition> {
   readonly family: TConfig["family"];
   readonly kind: TConfig["kind"];
   readonly name: string;

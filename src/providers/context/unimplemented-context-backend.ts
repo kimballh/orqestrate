@@ -1,4 +1,4 @@
-import type { ContextProviderConfig } from "../../config/types.js";
+import type { ContextProviderDefinition } from "../../config/types.js";
 import type {
   ArtifactRecord,
   RunLedgerRecord,
@@ -15,7 +15,7 @@ import {
 } from "../../core/context-backend.js";
 
 export abstract class UnimplementedContextBackend<
-  TConfig extends ContextProviderConfig,
+  TConfig extends ContextProviderDefinition,
 > extends ContextBackend<TConfig> {
   constructor(config: TConfig) {
     super(config);

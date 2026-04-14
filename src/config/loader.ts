@@ -6,6 +6,7 @@ import { parse as parseToml } from "smol-toml";
 
 import { ConfigError } from "./errors.js";
 import {
+  type BuiltinProviderKind,
   BUILTIN_PROVIDER_KINDS,
   type ContextLocalFilesProviderConfig,
   type ContextNotionProviderConfig,
@@ -22,7 +23,6 @@ import {
   type PromptPackConfig,
   type PromptsConfig,
   type ProviderConfig,
-  type ProviderKind,
 } from "./types.js";
 
 type ValueRecord = Record<string, unknown>;
@@ -367,7 +367,7 @@ function parseProvider(
     });
   }
 
-  switch (kind as ProviderKind) {
+  switch (kind as BuiltinProviderKind) {
     case "planning.linear":
       return parsePlanningLinearProvider(name, provider, providerPath);
     case "planning.local_files":

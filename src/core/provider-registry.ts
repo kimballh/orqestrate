@@ -1,8 +1,8 @@
 import type {
-  ContextProviderConfig,
+  ContextProviderDefinition,
   ContextProviderKind,
   LoadedConfig,
-  PlanningProviderConfig,
+  PlanningProviderDefinition,
   PlanningProviderKind,
   ProfileConfig,
 } from "../config/types.js";
@@ -15,7 +15,7 @@ import {
 import type { PlanningBackend } from "./planning-backend.js";
 
 export type ProviderFactoryContext<
-  TConfig extends PlanningProviderConfig | ContextProviderConfig,
+  TConfig extends PlanningProviderDefinition | ContextProviderDefinition,
 > = {
   provider: TConfig;
   profile: ProfileConfig;
@@ -23,59 +23,60 @@ export type ProviderFactoryContext<
 };
 
 export type PlanningBackendFactory<
-  TConfig extends PlanningProviderConfig = PlanningProviderConfig,
+  TConfig extends PlanningProviderDefinition = PlanningProviderDefinition,
 > = (
   input: ProviderFactoryContext<TConfig>,
 ) => PlanningBackend<TConfig> | Promise<PlanningBackend<TConfig>>;
 
 export type ContextBackendFactory<
-  TConfig extends ContextProviderConfig = ContextProviderConfig,
+  TConfig extends ContextProviderDefinition = ContextProviderDefinition,
 > = (
   input: ProviderFactoryContext<TConfig>,
 ) => ContextBackend<TConfig> | Promise<ContextBackend<TConfig>>;
 
 export type RegisteredPlanningProvider<
-  TKind extends PlanningProviderKind = PlanningProviderKind,
+  TConfig extends PlanningProviderDefinition = PlanningProviderDefinition,
 > = {
   family: "planning";
-  kind: TKind;
+  kind: TConfig["kind"];
   source: ProviderRegistrationSource;
-  create: PlanningBackendFactory<
-    Extract<PlanningProviderConfig, { kind: TKind }>
-  >;
+  create: PlanningBackendFactory<TConfig>;
 };
 
 export type RegisteredContextProvider<
-  TKind extends ContextProviderKind = ContextProviderKind,
+  TConfig extends ContextProviderDefinition = ContextProviderDefinition,
 > = {
   family: "context";
-  kind: TKind;
+  kind: TConfig["kind"];
   source: ProviderRegistrationSource;
-  create: ContextBackendFactory<Extract<ContextProviderConfig, { kind: TKind }>>;
+  create: ContextBackendFactory<TConfig>;
 };
 
 type RegistrationOptions = {
   source?: ProviderRegistrationSource;
 };
 
+type AnyRegisteredPlanningProvider =
+  RegisteredPlanningProvider<PlanningProviderDefinition>;
+type AnyRegisteredContextProvider =
+  RegisteredContextProvider<ContextProviderDefinition>;
+
 export class ProviderRegistry {
   private readonly planningFactories = new Map<
     PlanningProviderKind,
-    RegisteredPlanningProvider
+    AnyRegisteredPlanningProvider
   >();
   private readonly contextFactories = new Map<
     ContextProviderKind,
-    RegisteredContextProvider
+    AnyRegisteredContextProvider
   >();
 
-  registerPlanning<TKind extends PlanningProviderKind>(
-    kind: TKind,
-    create: PlanningBackendFactory<
-      Extract<PlanningProviderConfig, { kind: TKind }>
-    >,
+  registerPlanning<TConfig extends PlanningProviderDefinition>(
+    kind: TConfig["kind"],
+    create: PlanningBackendFactory<TConfig>,
     options: RegistrationOptions = {},
   ): this {
-    const registration: RegisteredPlanningProvider<TKind> = {
+    const registration: RegisteredPlanningProvider<TConfig> = {
       family: "planning",
       kind,
       source: options.source ?? "extension",
@@ -89,17 +90,17 @@ export class ProviderRegistry {
     );
     this.planningFactories.set(
       kind,
-      registration as unknown as RegisteredPlanningProvider,
+      registration as unknown as AnyRegisteredPlanningProvider,
     );
     return this;
   }
 
-  registerContext<TKind extends ContextProviderKind>(
-    kind: TKind,
-    create: ContextBackendFactory<Extract<ContextProviderConfig, { kind: TKind }>>,
+  registerContext<TConfig extends ContextProviderDefinition>(
+    kind: TConfig["kind"],
+    create: ContextBackendFactory<TConfig>,
     options: RegistrationOptions = {},
   ): this {
-    const registration: RegisteredContextProvider<TKind> = {
+    const registration: RegisteredContextProvider<TConfig> = {
       family: "context",
       kind,
       source: options.source ?? "extension",
@@ -113,14 +114,14 @@ export class ProviderRegistry {
     );
     this.contextFactories.set(
       kind,
-      registration as unknown as RegisteredContextProvider,
+      registration as unknown as AnyRegisteredContextProvider,
     );
     return this;
   }
 
   getPlanningRegistration<TKind extends PlanningProviderKind>(
     kind: TKind,
-  ): RegisteredPlanningProvider<TKind> {
+  ): RegisteredPlanningProvider<PlanningProviderDefinition<TKind>> {
     const registration = this.planningFactories.get(kind);
 
     if (registration === undefined) {
@@ -134,12 +135,14 @@ export class ProviderRegistry {
       );
     }
 
-    return registration as unknown as RegisteredPlanningProvider<TKind>;
+    return registration as unknown as RegisteredPlanningProvider<
+      PlanningProviderDefinition<TKind>
+    >;
   }
 
   getContextRegistration<TKind extends ContextProviderKind>(
     kind: TKind,
-  ): RegisteredContextProvider<TKind> {
+  ): RegisteredContextProvider<ContextProviderDefinition<TKind>> {
     const registration = this.contextFactories.get(kind);
 
     if (registration === undefined) {
@@ -153,7 +156,9 @@ export class ProviderRegistry {
       );
     }
 
-    return registration as unknown as RegisteredContextProvider<TKind>;
+    return registration as unknown as RegisteredContextProvider<
+      ContextProviderDefinition<TKind>
+    >;
   }
 
   listPlanningRegistrations(): RegisteredPlanningProvider[] {
@@ -164,13 +169,15 @@ export class ProviderRegistry {
     return [...this.contextFactories.values()];
   }
 
-  async createPlanningBackend<TKind extends PlanningProviderKind>(
-    input: ProviderFactoryContext<Extract<PlanningProviderConfig, { kind: TKind }>>,
+  async createPlanningBackend<TConfig extends PlanningProviderDefinition>(
+    input: ProviderFactoryContext<TConfig>,
   ): Promise<{
-    backend: PlanningBackend<Extract<PlanningProviderConfig, { kind: TKind }>>;
-    registration: RegisteredPlanningProvider<TKind>;
+    backend: PlanningBackend<TConfig>;
+    registration: RegisteredPlanningProvider<TConfig>;
   }> {
-    const registration = this.getPlanningRegistration(input.provider.kind);
+    const registration = this.getPlanningRegistration(
+      input.provider.kind,
+    ) as unknown as RegisteredPlanningProvider<TConfig>;
 
     return {
       backend: await registration.create(input),
@@ -178,13 +185,15 @@ export class ProviderRegistry {
     };
   }
 
-  async createContextBackend<TKind extends ContextProviderKind>(
-    input: ProviderFactoryContext<Extract<ContextProviderConfig, { kind: TKind }>>,
+  async createContextBackend<TConfig extends ContextProviderDefinition>(
+    input: ProviderFactoryContext<TConfig>,
   ): Promise<{
-    backend: ContextBackend<Extract<ContextProviderConfig, { kind: TKind }>>;
-    registration: RegisteredContextProvider<TKind>;
+    backend: ContextBackend<TConfig>;
+    registration: RegisteredContextProvider<TConfig>;
   }> {
-    const registration = this.getContextRegistration(input.provider.kind);
+    const registration = this.getContextRegistration(
+      input.provider.kind,
+    ) as unknown as RegisteredContextProvider<TConfig>;
 
     return {
       backend: await registration.create(input),

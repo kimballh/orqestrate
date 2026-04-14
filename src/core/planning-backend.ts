@@ -1,4 +1,4 @@
-import type { PlanningProviderConfig } from "../config/types.js";
+import type { PlanningProviderDefinition } from "../config/types.js";
 import type {
   OrchestrationState,
   ProviderError,
@@ -56,7 +56,7 @@ export type AppendCommentInput = {
 };
 
 export abstract class PlanningBackend<
-  TConfig extends PlanningProviderConfig = PlanningProviderConfig,
+  TConfig extends PlanningProviderDefinition = PlanningProviderDefinition,
 > extends ProviderBackend<TConfig> {
   abstract listActionableWorkItems(
     input: ListActionableWorkItemsInput,

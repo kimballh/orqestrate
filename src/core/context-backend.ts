@@ -1,4 +1,4 @@
-import type { ContextProviderConfig } from "../config/types.js";
+import type { ContextProviderDefinition } from "../config/types.js";
 import type {
   ArtifactRecord,
   ProviderError,
@@ -62,7 +62,7 @@ export type AppendEvidenceInput = {
 };
 
 export abstract class ContextBackend<
-  TConfig extends ContextProviderConfig = ContextProviderConfig,
+  TConfig extends ContextProviderDefinition = ContextProviderDefinition,
 > extends ProviderBackend<TConfig> {
   abstract ensureArtifact(input: EnsureArtifactInput): Promise<ArtifactRecord>;
 

@@ -1,4 +1,4 @@
-import type { PlanningProviderConfig } from "../../config/types.js";
+import type { PlanningProviderDefinition } from "../../config/types.js";
 import type { WorkItemRecord } from "../../domain-model.js";
 import {
   PlanningBackend,
@@ -11,7 +11,7 @@ import {
 } from "../../core/planning-backend.js";
 
 export abstract class UnimplementedPlanningBackend<
-  TConfig extends PlanningProviderConfig,
+  TConfig extends PlanningProviderDefinition,
 > extends PlanningBackend<TConfig> {
   constructor(config: TConfig) {
     super(config);

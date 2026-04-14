@@ -4,7 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
+  ContextProviderDefinition,
   ContextLocalFilesProviderConfig,
+  PlanningProviderDefinition,
   PlanningLocalFilesProviderConfig,
 } from "../config/types.js";
 import { loadConfig } from "../config/loader.js";
@@ -85,14 +87,14 @@ test("bootstraps the docs example hybrid profile through the built-in registry",
 });
 
 test("rejects duplicate provider registrations", () => {
-  const registry = new ProviderRegistry().registerPlanning(
+  const registry = new ProviderRegistry().registerPlanning<PlanningLocalFilesProviderConfig>(
     "planning.local_files",
     ({ provider }) => new TrackingPlanningBackend(provider, []),
   );
 
   assert.throws(
     () =>
-      registry.registerPlanning(
+      registry.registerPlanning<PlanningLocalFilesProviderConfig>(
         "planning.local_files",
         ({ provider }) => new TrackingPlanningBackend(provider, []),
       ),
@@ -128,11 +130,11 @@ test("runs validation for both backends before running either health check", asy
   const config = await loadExampleConfig();
   const events: string[] = [];
   const registry = new ProviderRegistry()
-    .registerPlanning(
+    .registerPlanning<PlanningLocalFilesProviderConfig>(
       "planning.local_files",
       ({ provider }) => new TrackingPlanningBackend(provider, events),
     )
-    .registerContext(
+    .registerContext<ContextLocalFilesProviderConfig>(
       "context.local_files",
       ({ provider }) => new TrackingContextBackend(provider, events),
     );
@@ -152,11 +154,11 @@ test("runs validation for both backends before running either health check", asy
 test("surfaces health-check failures with provider metadata", async () => {
   const config = await loadExampleConfig();
   const registry = new ProviderRegistry()
-    .registerPlanning(
+    .registerPlanning<PlanningLocalFilesProviderConfig>(
       "planning.local_files",
       ({ provider }) => new TrackingPlanningBackend(provider, []),
     )
-    .registerContext(
+    .registerContext<ContextLocalFilesProviderConfig>(
       "context.local_files",
       ({ provider }) => new FailingHealthContextBackend(provider),
     );
@@ -179,11 +181,11 @@ test("can skip health checks while still validating configuration", async () => 
   const config = await loadExampleConfig();
   const events: string[] = [];
   const registry = new ProviderRegistry()
-    .registerPlanning(
+    .registerPlanning<PlanningLocalFilesProviderConfig>(
       "planning.local_files",
       ({ provider }) => new TrackingPlanningBackend(provider, events),
     )
-    .registerContext(
+    .registerContext<ContextLocalFilesProviderConfig>(
       "context.local_files",
       ({ provider }) => new TrackingContextBackend(provider, events),
     );
@@ -200,6 +202,44 @@ test("can skip health checks while still validating configuration", async () => 
     result.report.checks.map((check) => check.healthCheck),
     [null, null],
   );
+});
+
+test("supports extension registrations with non-built-in provider kinds", async () => {
+  const registry = new ProviderRegistry()
+    .registerPlanning<AsanaPlanningProviderConfig>(
+      "planning.asana",
+      ({ provider }) => new ExtensionPlanningBackend(provider),
+    )
+    .registerContext<GoogleDriveContextProviderConfig>(
+      "context.google_drive",
+      ({ provider }) => new ExtensionContextBackend(provider),
+    );
+
+  const planning = await registry.createPlanningBackend({
+    provider: {
+      name: "asana_main",
+      family: "planning",
+      kind: "planning.asana",
+      workspace: "workspace-1",
+    },
+    profile: createFakeProfile(),
+    loadedConfig: createFakeLoadedConfig(),
+  });
+  const context = await registry.createContextBackend({
+    provider: {
+      name: "drive_main",
+      family: "context",
+      kind: "context.google_drive",
+      driveId: "drive-1",
+    },
+    profile: createFakeProfile(),
+    loadedConfig: createFakeLoadedConfig(),
+  });
+
+  assert.ok(planning.backend instanceof ExtensionPlanningBackend);
+  assert.ok(context.backend instanceof ExtensionContextBackend);
+  assert.equal(planning.registration.kind, "planning.asana");
+  assert.equal(context.registration.kind, "context.google_drive");
 });
 
 async function loadExampleConfig(
@@ -256,4 +296,84 @@ class FailingHealthContextBackend extends UnimplementedContextBackend<ContextLoc
       message: "context backend is unavailable",
     };
   }
+}
+
+type AsanaPlanningProviderConfig = PlanningProviderDefinition<"planning.asana"> & {
+  workspace: string;
+};
+
+type GoogleDriveContextProviderConfig =
+  ContextProviderDefinition<"context.google_drive"> & {
+    driveId: string;
+  };
+
+class ExtensionPlanningBackend extends UnimplementedPlanningBackend<AsanaPlanningProviderConfig> {}
+
+class ExtensionContextBackend extends UnimplementedContextBackend<GoogleDriveContextProviderConfig> {}
+
+function createFakeProfile() {
+  return {
+    name: "extension",
+    planningProviderName: "planning_ext",
+    contextProviderName: "context_ext",
+    promptPackName: "default",
+    planningProvider: {
+      name: "local_planning",
+      family: "planning",
+      kind: "planning.local_files",
+      root: "/tmp/planning",
+    } as PlanningLocalFilesProviderConfig,
+    contextProvider: {
+      name: "local_context",
+      family: "context",
+      kind: "context.local_files",
+      root: "/tmp/context",
+      templates: {},
+    } as ContextLocalFilesProviderConfig,
+    promptPack: {
+      name: "default",
+      baseSystem: "/tmp/system.md",
+      roles: {},
+      phases: {},
+      capabilities: {},
+      overlays: {},
+      experiments: {},
+    },
+  } as const;
+}
+
+function createFakeLoadedConfig() {
+  const profile = createFakeProfile();
+
+  return {
+    sourcePath: "/tmp/config.toml",
+    version: 1 as const,
+    paths: {
+      stateDir: "/tmp/state",
+      dataDir: "/tmp/data",
+      logDir: "/tmp/logs",
+    },
+    policy: {
+      maxConcurrentRuns: 1,
+      maxRunsPerProvider: 1,
+      allowMixedProviders: true,
+      defaultPhaseTimeoutSec: 60,
+    },
+    prompts: {
+      root: "/tmp/prompts",
+      activePack: "default",
+    },
+    promptPacks: {
+      default: profile.promptPack,
+    },
+    providers: {
+      [profile.planningProvider.name]: profile.planningProvider,
+      [profile.contextProvider.name]: profile.contextProvider,
+    },
+    profiles: {
+      [profile.name]: profile,
+    },
+    activeProfileName: profile.name,
+    activeProfile: profile,
+  };
 }

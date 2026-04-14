@@ -76,13 +76,13 @@ export async function bootstrapActiveProfile(
 }
 
 type LoadedPlanningBackend = {
-  backend: PlanningBackend;
-  registration: RegisteredPlanningProvider;
+  backend: PlanningBackend<PlanningProviderConfig>;
+  registration: RegisteredPlanningProvider<PlanningProviderConfig>;
 };
 
 type LoadedContextBackend = {
-  backend: ContextBackend;
-  registration: RegisteredContextProvider;
+  backend: ContextBackend<ContextProviderConfig>;
+  registration: RegisteredContextProvider<ContextProviderConfig>;
 };
 
 async function instantiatePlanningBackend(
