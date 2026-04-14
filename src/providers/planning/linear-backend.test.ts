@@ -13,7 +13,6 @@ import {
   type LinearSdkIssueLabelLike,
   type LinearSdkIssueLike,
   type LinearSdkIssueRelationLike,
-  type LinearSdkIssueSearchResultLike,
   type LinearSdkProjectLike,
   type LinearSdkTeamLike,
   type LinearSdkViewerLike,
@@ -55,11 +54,11 @@ test("validates and resolves a scoped Linear backend adapter", async () => {
   await backend.validateConfig();
 
   const healthCheck = await backend.healthCheck();
-  assert.deepEqual(healthCheck, {
-    ok: true,
-    message:
-      "Connected to Linear team 'Orqestrate' and project 'Orqestrate Build'.",
-  });
+  assert.equal(healthCheck.ok, false);
+  assert.match(
+    healthCheck.message ?? "",
+    /do not expose the machine-owned custom fields required for actionable planning reads/i,
+  );
 
   const adapter = await backend.getConfigAdapter();
   const cachedAdapter = await backend.getConfigAdapter();
@@ -128,7 +127,7 @@ test("normalizes authentication failures into actionable health-check messages",
   assert.match(result.message ?? "", /configured api token/i);
 });
 
-test("maps Linear issues into canonical work items using search-result harness fields", async () => {
+test("maps Linear issues into canonical work items and defaults unresolved harness fields", async () => {
   const backend = createBackend(
     {},
     createIssueSdkClient([
@@ -170,18 +169,6 @@ test("maps Linear issues into canonical work items using search-result harness f
           { type: "blocks", issueId: "issue-blocker-open" },
           { type: "blocks", issueId: "issue-blocker-done" },
         ],
-        searchMetadata: {
-          harness_phase: "implement",
-          harness_state: "waiting_human",
-          harness_owner: "orchestrator-1",
-          harness_run_id: "run-27",
-          harness_lease_until: "2099-01-01T00:00:00.000Z",
-          artifact_url: "https://notion.so/orq-27",
-          review_outcome: "changes_requested",
-          blocked_reason: "Waiting on ORQ-16",
-          last_error: "Timed out waiting for GitHub",
-          attempt_count: 2,
-        },
       }),
     ]),
   );
@@ -190,26 +177,23 @@ test("maps Linear issues into canonical work items using search-result harness f
 
   assert.ok(workItem);
   assert.equal(workItem.status, "blocked");
-  assert.equal(workItem.phase, "implement");
+  assert.equal(workItem.phase, "none");
   assert.equal(workItem.parentId, "ORQ-9");
   assert.deepEqual(workItem.dependencyIds, ["ORQ-16", "ORQ-26"]);
   assert.deepEqual(workItem.blockedByIds, ["ORQ-16"]);
   assert.deepEqual(workItem.blocksIds, ["ORQ-28"]);
-  assert.equal(workItem.artifactUrl, "https://notion.so/orq-27");
-  assert.equal(workItem.orchestration.state, "waiting_human");
-  assert.equal(workItem.orchestration.owner, "orchestrator-1");
-  assert.equal(workItem.orchestration.runId, "run-27");
-  assert.equal(workItem.orchestration.leaseUntil, "2099-01-01T00:00:00.000Z");
-  assert.equal(workItem.orchestration.reviewOutcome, "changes_requested");
-  assert.equal(workItem.orchestration.blockedReason, "Waiting on ORQ-16");
-  assert.equal(workItem.orchestration.attemptCount, 2);
-  assert.equal(
-    workItem.orchestration.lastError?.message,
-    "Timed out waiting for GitHub",
-  );
+  assert.equal(workItem.artifactUrl, null);
+  assert.equal(workItem.orchestration.state, "idle");
+  assert.equal(workItem.orchestration.owner, null);
+  assert.equal(workItem.orchestration.runId, null);
+  assert.equal(workItem.orchestration.leaseUntil, null);
+  assert.equal(workItem.orchestration.reviewOutcome, "none");
+  assert.equal(workItem.orchestration.blockedReason, null);
+  assert.equal(workItem.orchestration.attemptCount, 0);
+  assert.equal(workItem.orchestration.lastError, null);
 });
 
-test("lists actionable Linear work items with search-result harness fields and ordering", async () => {
+test("rejects actionable Linear listings until a verified harness-field binding exists", async () => {
   const backend = createBackend(
     {},
     createIssueSdkClient([
@@ -226,9 +210,6 @@ test("lists actionable Linear work items with search-result harness fields and o
         state: workflowState("implement"),
         priority: 1,
         updatedAt: "2026-04-13T10:00:00.000Z",
-        searchMetadata: {
-          harness_lease_until: "2099-01-01T00:00:00.000Z",
-        },
       }),
       createFakeIssue({
         id: "issue-no-phase",
@@ -237,9 +218,6 @@ test("lists actionable Linear work items with search-result harness fields and o
         state: workflowState("review"),
         priority: 1,
         updatedAt: "2026-04-13T09:00:00.000Z",
-        searchMetadata: {
-          harness_phase: "none",
-        },
       }),
       createFakeIssue({
         id: "issue-blocked",
@@ -277,21 +255,10 @@ test("lists actionable Linear work items with search-result harness fields and o
     ]),
   );
 
-  const actionable = await backend.listActionableWorkItems({ limit: 10 });
-  assert.deepEqual(actionable.map((item) => item.identifier), [
-    "ORQ-23",
-    "ORQ-24",
-    "ORQ-25",
-  ]);
-
-  const planOnly = await backend.listActionableWorkItems({
-    limit: 10,
-    phases: ["plan"],
-  });
-  assert.deepEqual(planOnly.map((item) => item.identifier), ["ORQ-23"]);
-
-  const limited = await backend.listActionableWorkItems({ limit: 2 });
-  assert.deepEqual(limited.map((item) => item.identifier), ["ORQ-23", "ORQ-24"]);
+  await assert.rejects(
+    () => backend.listActionableWorkItems({ limit: 10 }),
+    /do not expose the machine-owned custom fields required for actionable planning reads/i,
+  );
 });
 
 test("returns null for missing issues and builds deep links from the hydrated issue url", async () => {
@@ -407,14 +374,6 @@ function createIssueSdkClient(
 
       return paginateArray(filtered, variables);
     },
-    searchIssues: async (term, variables) => {
-      const filtered = issues
-        .filter((issue) => matchesIssueFilter(issue, variables?.filter))
-        .filter((issue) => matchesSearchTerm(issue, term))
-        .map((issue) => buildFakeIssueSearchResult(issue, issuesById));
-
-      return paginateArray(filtered, variables);
-    },
   };
 }
 
@@ -454,7 +413,6 @@ function createFakeIssue(
     labels: [],
     relations: [],
     inverseRelations: [],
-    searchMetadata: undefined,
     ...overrides,
   };
 }
@@ -541,16 +499,6 @@ function buildFakeIssue(
   };
 }
 
-function buildFakeIssueSearchResult(
-  issue: FakeIssueDefinition,
-  issuesById: Map<string, FakeIssueDefinition>,
-): LinearSdkIssueSearchResultLike {
-  return {
-    ...buildFakeIssue(issue, issuesById),
-    metadata: issue.searchMetadata,
-  };
-}
-
 function buildFakeRelation(
   relation: {
     id: string;
@@ -616,19 +564,6 @@ function matchesIssueFilter(issue: FakeIssueDefinition, filter: unknown): boolea
   }
 
   return true;
-}
-
-function matchesSearchTerm(issue: FakeIssueDefinition, term: string): boolean {
-  const normalizedTerm = term.trim().toLowerCase();
-
-  if (normalizedTerm === "") {
-    return true;
-  }
-
-  return (
-    issue.identifier.toLowerCase().includes(normalizedTerm) ||
-    issue.title.toLowerCase().includes(normalizedTerm)
-  );
 }
 
 function readNestedString(
@@ -697,5 +632,4 @@ type FakeIssueDefinition = {
     type: string;
     issueId: string;
   }>;
-  searchMetadata?: unknown;
 };

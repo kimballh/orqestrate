@@ -73,26 +73,10 @@ export interface LinearSdkIssueNodeLike {
 
 export interface LinearSdkIssueLike extends LinearSdkIssueNodeLike {}
 
-export interface LinearSdkIssueSearchResultLike extends LinearSdkIssueNodeLike {
-  metadata?: unknown;
-}
-
 export type LinearConnectionVariables = {
   first?: number;
   after?: string;
   includeArchived?: boolean;
-};
-
-export type LinearSearchIssueVariables = {
-  first?: number;
-  after?: string;
-  before?: string;
-  last?: number;
-  includeArchived?: boolean;
-  orderBy?: string;
-  includeComments?: boolean;
-  teamId?: string;
-  filter?: unknown;
 };
 
 export interface LinearSdkTeamLike {
@@ -120,10 +104,6 @@ export interface LinearSdkClientLike {
     orderBy?: string;
     filter?: unknown;
   }): Awaitable<LinearConnectionLike<LinearSdkIssueLike>>;
-  searchIssues?(
-    term: string,
-    variables?: LinearSearchIssueVariables,
-  ): Awaitable<LinearConnectionLike<LinearSdkIssueSearchResultLike>>;
 }
 
 export type LinearViewerRecord = {
@@ -193,6 +173,8 @@ export type LinearPlanningClientOptions = {
 };
 
 const LINEAR_PAGE_SIZE = 250;
+const ACTIONABLE_READ_BLOCKER =
+  "Current Linear public GraphQL schema and @linear/sdk@81.0.0 do not expose the machine-owned custom fields required for actionable planning reads.";
 
 export class LinearPlanningClient {
   private readonly sdkClient: LinearSdkClientLike;
@@ -231,6 +213,10 @@ export class LinearPlanningClient {
     } catch (error) {
       throw LinearProviderFailure.from(error, "Failed to load Linear teams.");
     }
+  }
+
+  getActionableReadBlocker(): string | null {
+    return ACTIONABLE_READ_BLOCKER;
   }
 
   async listIssueIds(input: {
@@ -288,9 +274,7 @@ export class LinearPlanningClient {
         return null;
       }
 
-      const harnessFieldsSource = await this.loadHarnessFieldsSource(issue);
-
-      return this.hydrateIssue(issue, harnessFieldsSource);
+      return this.hydrateIssue(issue);
     } catch (error) {
       if (isNotFoundError(error, id)) {
         return null;
@@ -305,7 +289,6 @@ export class LinearPlanningClient {
 
   private async hydrateIssue(
     issue: LinearSdkIssueNodeLike,
-    harnessFieldsSource: unknown,
   ): Promise<LinearHydratedIssueRecord> {
     const [state, parent, labels, relations, inverseRelations] =
       await Promise.all([
@@ -351,7 +334,7 @@ export class LinearPlanningClient {
       state: resolvedState,
       labels: labels.map((label) => label.name),
       parent: await this.toIssueReference(parent, null),
-      harnessFieldsSource,
+      harnessFieldsSource: null,
       relations: await Promise.all(
         relations.map((relation) =>
           this.toRelationRecord(relation, currentReference),
@@ -415,39 +398,6 @@ export class LinearPlanningClient {
       status: toWorkflowStateRecord(state),
       url: toNullableString(issue.url),
     };
-  }
-
-  private async loadHarnessFieldsSource(
-    issue: LinearSdkIssueLike,
-  ): Promise<unknown> {
-    const searchIssues = this.sdkClient.searchIssues;
-
-    if (searchIssues === undefined) {
-      return null;
-    }
-
-    try {
-      const response = await searchIssues(issue.identifier, {
-        first: 10,
-        includeArchived: false,
-        teamId: issue.teamId,
-        filter: buildIssueSearchFilter({
-          teamId: issue.teamId ?? null,
-          projectId: issue.projectId ?? null,
-        }),
-      });
-      const match = response.nodes.find(
-        (candidate) =>
-          candidate.id === issue.id || candidate.identifier === issue.identifier,
-      );
-
-      return match?.metadata ?? null;
-    } catch (error) {
-      throw LinearProviderFailure.from(
-        error,
-        `Failed to load harness fields for Linear issue '${issue.identifier}'.`,
-      );
-    }
   }
 }
 
@@ -529,32 +479,6 @@ function buildIssueListFilter(input: {
 
   return filter;
 }
-
-function buildIssueSearchFilter(input: {
-  teamId: string | null;
-  projectId?: string | null;
-}): Record<string, unknown> | undefined {
-  const filter: Record<string, unknown> = {};
-
-  if (input.teamId) {
-    filter.team = {
-      id: {
-        eq: input.teamId,
-      },
-    };
-  }
-
-  if (input.projectId) {
-    filter.project = {
-      id: {
-        eq: input.projectId,
-      },
-    };
-  }
-
-  return Object.keys(filter).length === 0 ? undefined : filter;
-}
-
 async function collectConnectionNodes<TNode>(
   fetchPage:
     | ((variables: LinearConnectionVariables) => Awaitable<LinearConnectionLike<TNode>>)
