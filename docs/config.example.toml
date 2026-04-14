@@ -1,5 +1,5 @@
 version = 1
-active_profile = "local"
+active_profile = "saas"
 
 [paths]
 state_dir = ".harness/state"

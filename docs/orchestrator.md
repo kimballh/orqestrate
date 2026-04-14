@@ -139,7 +139,7 @@ If changes are requested:
 
 ### Merge success
 
-`merge` is a reserved future phase, not a default planning status in the current working mode.
+`merge` is a reserved future phase, not a default planning status in the initial MVP.
 
 If a future workflow enables merge explicitly:
 

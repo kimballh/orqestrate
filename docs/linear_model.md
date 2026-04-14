@@ -275,7 +275,7 @@ Recommended first-pass transitions:
 7. `Implement -> Review`
 8. `Implement -> Blocked`
 9. `Review -> Implement` when rework is needed
-10. `Review -> Done` when approved in the current working mode
+10. `Review -> Done` when approved
 11. `Blocked -> Design | Plan | Implement | Review`
 12. `Design | Plan | Implement | Review | Blocked -> Canceled`
 

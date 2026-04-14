@@ -6,7 +6,7 @@ This file defines the configuration format for the harness.
 
 Use `config.toml`.
 
-That is the right default for an open-source local-first tool because it is:
+That is the right default for an open-source tool because it is:
 
 - readable
 - diffable
@@ -47,7 +47,7 @@ See [config.example.toml](./config.example.toml).
 
 ```toml
 version = 1
-active_profile = "local"
+active_profile = "saas"
 
 [paths]
 state_dir = ".harness/state"
@@ -201,12 +201,12 @@ Examples:
 
 This matters because the config is open to extension and we do not want ambiguous provider wiring.
 
-## 11. Local-first default
+## 11. Optional local profile
 
-The project should be able to ship with a fully working default local profile:
+The project should support a fully working local-only profile in addition to the primary SaaS-backed MVP profile:
 
 ```toml
-active_profile = "local"
+active_profile = "saas"
 
 [providers.local_planning]
 kind = "planning.local_files"
@@ -221,7 +221,7 @@ planning = "local_planning"
 context = "local_context"
 ```
 
-That gives open-source users a zero-credential first-run path.
+That gives self-hosted users a zero-credential fallback path without redefining the core architecture.
 
 ## 12. Suggested future extensibility
 
@@ -285,6 +285,7 @@ Use:
 - profile-based provider selection
 - prompt-pack selection through config
 - env-var references for secrets
-- a built-in local profile using `local_files` for both planning and context
+- a default SaaS profile using `planning.linear` and `context.notion`
+- an optional local profile using `local_files` for both planning and context
 
-That gives us a clean open-source story and a practical path for future providers.
+That gives us a clear MVP path and a practical path for future providers.
