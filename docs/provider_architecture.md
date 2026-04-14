@@ -237,18 +237,31 @@ Recommended `issues/*.json` shape:
 ```json
 {
   "id": "ISSUE-001",
+  "identifier": "ORQ-18",
   "title": "Add runtime provider adapter registry",
   "description": "Implement provider registration for planning/context backends.",
-  "status": "ready",
+  "status": "implement",
   "phase": "implement",
-  "claim_state": "queued",
-  "claim_owner": null,
-  "run_id": null,
-  "lease_until": null,
-  "review_outcome": "none",
-  "blocked_reason": null,
+  "priority": 2,
   "labels": ["backend"],
-  "updated_at": "2026-04-13T00:00:00.000Z"
+  "url": "https://linear.app/orqestrate/issue/ORQ-18",
+  "parentId": null,
+  "dependencyIds": ["ORQ-17"],
+  "blockedByIds": [],
+  "blocksIds": ["ORQ-32"],
+  "artifactUrl": "https://www.notion.so/example-artifact",
+  "updatedAt": "2026-04-13T00:00:00.000Z",
+  "createdAt": "2026-04-12T20:00:00.000Z",
+  "orchestration": {
+    "state": "queued",
+    "owner": null,
+    "runId": null,
+    "leaseUntil": null,
+    "reviewOutcome": "none",
+    "blockedReason": null,
+    "lastError": null,
+    "attemptCount": 0
+  }
 }
 ```
 

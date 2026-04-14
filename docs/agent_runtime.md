@@ -370,27 +370,60 @@ Suggested `enqueue_run` request:
 
 ```json
 {
-  "run_id": "run-2026-04-12-001",
-  "issue_id": "issue-id",
+  "runId": "run-2026-04-12-001",
   "phase": "implement",
+  "workItem": {
+    "id": "issue-id",
+    "identifier": "ORQ-16",
+    "title": "Define canonical domain model and cross-layer contracts",
+    "description": "Implement the shared contract module and align contract-heavy docs.",
+    "labels": ["domain-model", "backend"],
+    "url": "https://linear.app/orqestrate/issue/ORQ-16"
+  },
+  "artifact": {
+    "artifactId": "notion-page-id",
+    "url": "https://www.notion.so/342944e75fa2818d8641d3319ac53f72",
+    "summary": "Canonical domain model artifact for ORQ-16"
+  },
   "provider": "codex",
   "workspace": {
-    "repo_root": "/repo",
-    "working_dir": "/repo",
-    "worktree_mode": "ephemeral"
+    "repoRoot": "/repo",
+    "mode": "ephemeral_worktree",
+    "workingDirHint": "/repo",
+    "baseRef": "main"
   },
-  "prompt_spec": {
-    "system_contract": "executor-v1",
-    "user_prompt": "Implement the approved plan for issue LIN-123."
+  "prompt": {
+    "contractId": "orqestrate/implement/v1",
+    "systemPrompt": "Stay scoped to the assigned ticket and phase.",
+    "userPrompt": "Implement ORQ-16 using the canonical shared contracts.",
+    "attachments": [
+      {
+        "kind": "artifact_url",
+        "value": "https://www.notion.so/342944e75fa2818d8641d3319ac53f72",
+        "label": "Issue artifact"
+      }
+    ],
+    "sources": [
+      {
+        "kind": "base_pack",
+        "ref": "builtin://implement"
+      },
+      {
+        "kind": "artifact",
+        "ref": "notion-page-id"
+      }
+    ],
+    "digests": {
+      "system": "sha256-system",
+      "user": "sha256-user"
+    }
   },
   "limits": {
-    "max_wall_time_sec": 5400,
-    "idle_timeout_sec": 300
+    "maxWallTimeSec": 5400,
+    "idleTimeoutSec": 300,
+    "bootstrapTimeoutSec": 120
   },
-  "metadata": {
-    "linear_issue_identifier": "LIN-123",
-    "artifact_url": "https://notion.so/..."
-  }
+  "requestedBy": "orchestrator"
 }
 ```
 
@@ -398,11 +431,11 @@ Suggested `RunOutcome` back to the orchestrator:
 
 ```json
 {
-  "run_id": "run-2026-04-12-001",
+  "runId": "run-2026-04-12-001",
   "status": "completed",
   "provider": "codex",
-  "started_at": "2026-04-12T20:00:00.000Z",
-  "completed_at": "2026-04-12T20:22:00.000Z",
+  "startedAt": "2026-04-12T20:00:00.000Z",
+  "completedAt": "2026-04-12T20:22:00.000Z",
   "summary": "Implemented API adapter and added tests.",
   "verification": {
     "commands": ["npm test -- agent-runtime"],
