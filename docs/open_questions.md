@@ -22,13 +22,13 @@ These are the next decisions to settle before implementing the service.
 
 ## 2. Required vs optional design phase
 
-- Should every issue pass through `Needs Design` first?
-- Or should `Needs Design` be used only when labels like `uiux` are present?
+- Should every issue pass through `Design` first?
+- Or should `Design` be used only when labels like `uiux` are present?
 
-## 3. Ready to Merge
+## 3. Merge phase
 
-- Do we want a distinct `Ready to Merge` status?
-- Or should approved review move directly to `Done` while merge remains a separate out-of-band human step?
+- Do we want a distinct merge-oriented planning status?
+- Or should approved review move directly to `Done` while `merge` remains a separate out-of-band human step?
 
 ## 4. Review ownership
 

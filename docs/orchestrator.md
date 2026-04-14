@@ -31,24 +31,23 @@ The orchestrator should never transition a ticket based only on webhook payload 
 
 ## 3. Target phase resolution
 
-The orchestrator should derive the next action from the Linear status and machine fields.
+The orchestrator should derive the next action from the canonical planning status and machine fields.
 
 Recommended mapping:
 
 | Linear status | Target phase |
 | --- | --- |
-| `Needs Design` | `design` |
-| `Needs Plan` | `plan` |
-| `Ready` | `implement` |
-| `In Progress` | `implement` |
-| `In Review` | `review` |
-| `Ready to Merge` | `merge` |
+| `Design` | `design` |
+| `Plan` | `plan` |
+| `Implement` | `implement` |
+| `Review` | `review` |
 
 Special rules:
 
+- `Backlog` is not actionable unless a human explicitly selects it.
 - `Blocked` is not actionable unless a human explicitly clears it.
-- `Done` is terminal.
-- `Triage` is ignored by default.
+- `Done` and `Canceled` are terminal.
+- `merge` remains a reserved future phase until the planning workflow grows a first-class merge state.
 
 ## 4. Claim model
 
@@ -93,20 +92,20 @@ If the lease expires without completion:
 Actions:
 
 - persist design artifact to Notion
-- set status to `Needs Plan` or `Ready`
+- set status to `Plan` or `Implement`
 - set `harness_phase = plan` or `implement`
 - set `harness_state = queued`
 
 Rule:
 
-- move directly to `Ready` only if design already includes enough implementation detail and the operator wants design+plan collapsed
+- move directly to `Implement` only if design already includes enough implementation detail and the operator wants design+plan collapsed
 
 ### Plan success
 
 Actions:
 
 - persist plan artifact to Notion
-- set status to `Ready`
+- set status to `Implement`
 - set `harness_phase = implement`
 - set `harness_state = queued`
 
@@ -115,7 +114,7 @@ Actions:
 Actions:
 
 - persist implementation notes and verification evidence
-- set status to `In Review`
+- set status to `Review`
 - set `harness_phase = review`
 - set `harness_state = queued`
 
@@ -125,26 +124,29 @@ If approved:
 
 - persist review summary
 - set `review_outcome = approved`
-- set status to `Ready to Merge`
-- set `harness_phase = merge`
-- set `harness_state = queued`
+- by default, set status to `Done`
+- set `harness_phase = none`
+- set `harness_state = completed`
+- clear ownership and lease fields
 
 If changes are requested:
 
 - persist review findings
 - set `review_outcome = changes_requested`
-- set status to `In Progress`
+- set status to `Implement`
 - set `harness_phase = implement`
 - set `harness_state = queued`
 
 ### Merge success
 
-Actions:
+`merge` is a reserved future phase, not a default planning status in the current working mode.
+
+If a future workflow enables merge explicitly:
 
 - persist final summary
 - set status to `Done`
 - set `harness_phase = none`
-- set `harness_state = complete`
+- set `harness_state = completed`
 - clear ownership and lease fields
 
 ## 6. Failure handling
@@ -237,8 +239,8 @@ An issue is claimable when all of the following are true:
 
 Examples:
 
-- `Needs Plan` should not be claimable if the design artifact is missing and your process requires design first
-- `In Review` should not be claimable if implementation evidence is missing
+- `Plan` should not be claimable if the design artifact is missing and your process requires design first
+- `Review` should not be claimable if implementation evidence is missing
 
 ## 9. Minimal operator rules
 

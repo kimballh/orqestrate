@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 export * from "./config/index.js";
+export * from "./domain-model.js";
 
 export function main(): void {
   console.log(

@@ -53,75 +53,21 @@ The harness should not use provider-native objects internally.
 
 It should translate every provider response into canonical internal records.
 
-Recommended internal types:
+Recommended internal types are frozen in [domain_model.md](./domain_model.md) and exported from `src/domain-model.ts`:
 
 ```ts
-export type WorkItemPhase =
-  | "design"
-  | "plan"
-  | "implement"
-  | "review"
-  | "merge";
-
-export type WorkItemStatus =
-  | "triage"
-  | "needs_design"
-  | "needs_plan"
-  | "ready"
-  | "in_progress"
-  | "in_review"
-  | "blocked"
-  | "ready_to_merge"
-  | "done";
-
-export type ClaimState =
-  | "idle"
-  | "queued"
-  | "claimed"
-  | "running"
-  | "waiting_human"
-  | "failed"
-  | "complete";
-
-export type WorkItemRecord = {
-  id: string;
-  externalIdentifier?: string | null;
-  title: string;
-  description?: string | null;
-  status: WorkItemStatus;
-  phase: WorkItemPhase | "none";
-  claimState: ClaimState;
-  claimOwner?: string | null;
-  runId?: string | null;
-  leaseUntil?: string | null;
-  reviewOutcome?: "none" | "changes_requested" | "approved" | null;
-  blockedReason?: string | null;
-  labels: string[];
-  url?: string | null;
-  updatedAt: string;
-};
-
-export type ArtifactRecord = {
-  artifactId: string;
-  workItemId: string;
-  title: string;
-  url?: string | null;
-  phase: WorkItemPhase | "none";
-  state?: string | null;
-  updatedAt: string;
-};
-
-export type RunLedgerRecord = {
-  runId: string;
-  workItemId: string;
-  phase: WorkItemPhase;
-  status: string;
-  startedAt?: string | null;
-  endedAt?: string | null;
-  summary?: string | null;
-  error?: string | null;
-  url?: string | null;
-};
+import type {
+  ArtifactRecord,
+  OrchestrationState,
+  ProviderError,
+  ReviewOutcome,
+  RunLedgerRecord,
+  RunStatus,
+  WorkItemRecord,
+  WorkItemStatus,
+  WorkPhase,
+  WorkPhaseOrNone,
+} from "../src/domain-model.js";
 ```
 
 These are the objects the orchestrator should reason about.
@@ -137,7 +83,7 @@ export abstract class PlanningBackend {
   abstract healthCheck(): Promise<{ ok: boolean; message?: string }>;
 
   abstract listActionableWorkItems(input: {
-    phases?: WorkItemPhase[];
+    phases?: WorkPhase[];
     statuses?: WorkItemStatus[];
     limit: number;
   }): Promise<WorkItemRecord[]>;
@@ -146,7 +92,7 @@ export abstract class PlanningBackend {
 
   abstract claimWorkItem(input: {
     id: string;
-    phase: WorkItemPhase;
+    phase: WorkPhase;
     owner: string;
     runId: string;
     leaseUntil: string;
@@ -169,11 +115,11 @@ export abstract class PlanningBackend {
   abstract transitionWorkItem(input: {
     id: string;
     nextStatus: WorkItemStatus;
-    nextPhase: WorkItemPhase | "none";
-    claimState: ClaimState;
-    reviewOutcome?: "none" | "changes_requested" | "approved" | null;
+    nextPhase: WorkPhaseOrNone;
+    state: OrchestrationState;
+    reviewOutcome?: ReviewOutcome | null;
     blockedReason?: string | null;
-    lastError?: string | null;
+    lastError?: ProviderError | null;
     runId?: string | null;
   }): Promise<WorkItemRecord>;
 
@@ -216,7 +162,7 @@ export abstract class ContextBackend {
   abstract loadContextBundle(input: {
     workItem: WorkItemRecord;
     artifact?: ArtifactRecord | null;
-    phase: WorkItemPhase;
+    phase: WorkPhase;
   }): Promise<{
     artifact: ArtifactRecord | null;
     contextText: string;
@@ -226,7 +172,7 @@ export abstract class ContextBackend {
   abstract writePhaseArtifact(input: {
     workItem: WorkItemRecord;
     artifact: ArtifactRecord;
-    phase: WorkItemPhase;
+    phase: WorkPhase;
     content: string;
     summary?: string | null;
   }): Promise<ArtifactRecord>;
@@ -234,15 +180,15 @@ export abstract class ContextBackend {
   abstract createRunLedgerEntry(input: {
     runId: string;
     workItem: WorkItemRecord;
-    phase: WorkItemPhase;
-    status: string;
+    phase: WorkPhase;
+    status: RunStatus;
   }): Promise<RunLedgerRecord>;
 
   abstract finalizeRunLedgerEntry(input: {
     runId: string;
-    status: string;
+    status: RunStatus;
     summary?: string | null;
-    error?: string | null;
+    error?: ProviderError | null;
   }): Promise<RunLedgerRecord>;
 
   abstract appendEvidence(input: {
@@ -291,18 +237,31 @@ Recommended `issues/*.json` shape:
 ```json
 {
   "id": "ISSUE-001",
+  "identifier": "ORQ-18",
   "title": "Add runtime provider adapter registry",
   "description": "Implement provider registration for planning/context backends.",
-  "status": "ready",
+  "status": "implement",
   "phase": "implement",
-  "claim_state": "queued",
-  "claim_owner": null,
-  "run_id": null,
-  "lease_until": null,
-  "review_outcome": "none",
-  "blocked_reason": null,
+  "priority": 2,
   "labels": ["backend"],
-  "updated_at": "2026-04-13T00:00:00.000Z"
+  "url": "https://linear.app/orqestrate/issue/ORQ-18",
+  "parentId": null,
+  "dependencyIds": ["ORQ-17"],
+  "blockedByIds": [],
+  "blocksIds": ["ORQ-32"],
+  "artifactUrl": "https://www.notion.so/example-artifact",
+  "updatedAt": "2026-04-13T00:00:00.000Z",
+  "createdAt": "2026-04-12T20:00:00.000Z",
+  "orchestration": {
+    "state": "queued",
+    "owner": null,
+    "runId": null,
+    "leaseUntil": null,
+    "reviewOutcome": "none",
+    "blockedReason": null,
+    "lastError": null,
+    "attemptCount": 0
+  }
 }
 ```
 

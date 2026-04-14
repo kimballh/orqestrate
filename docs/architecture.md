@@ -372,18 +372,19 @@ The planning backend is the system of record for workflow state.
 The canonical workflow state for the harness is:
 
 ```text
-triage
-needs_design
-needs_plan
-ready
-in_progress
-in_review
+backlog
+design
+plan
+implement
+review
 blocked
-ready_to_merge
 done
+canceled
 ```
 
 The planning backend must map those canonical statuses onto provider-native fields.
+
+`merge` remains a reserved execution phase, not a default planning status, until the workflow grows a first-class merge handoff.
 
 ### 9.1 Planning layer invariants
 
@@ -567,14 +568,14 @@ stateDiagram-v2
   waiting_human --> stopping
   running --> completed
   running --> failed
-  running --> cancelled
+  running --> canceled
   running --> stale
   bootstrapping --> failed
   launching --> failed
-  stopping --> cancelled
+  stopping --> canceled
   completed --> [*]
   failed --> [*]
-  cancelled --> [*]
+  canceled --> [*]
   stale --> [*]
 ```
 
