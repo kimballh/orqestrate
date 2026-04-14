@@ -266,7 +266,65 @@ test("produces stable digests for equivalent capability requests", async () => {
   assert.equal(first.prompt.userPrompt, second.prompt.userPrompt);
 });
 
-function createFixtureWorkspace(): {
+test("keeps symbolic source refs stable when unused assets live outside the prompt root", async () => {
+  const baseFixture = createFixtureWorkspace();
+  const externalFixture = createFixtureWorkspace({
+    extraExperiments: {
+      unused_external: {
+        assetPath: "../external-exp/unused.md",
+        contents: "Unused external experiment instructions.\n",
+      },
+    },
+  });
+
+  const request = {
+    role: "implement" as const,
+    phase: "implement" as const,
+    context: {
+      workItem: {
+        id: "work-20",
+        identifier: "ORQ-20",
+        title: "Implement prompt assembly pipeline",
+        description: "Ensure unrelated assets do not rewrite prompt provenance.",
+        labels: ["prompts"],
+        url: "https://linear.app/orqestrate/issue/ORQ-20",
+      },
+      workspace: {
+        repoRoot: baseFixture.workspaceDir,
+        mode: "ephemeral_worktree" as const,
+      },
+      expectations: {},
+    },
+  };
+
+  const baseResult = await assemblePrompt(baseFixture.loadedConfig, request);
+  const externalResult = await assemblePrompt(externalFixture.loadedConfig, {
+    ...request,
+    context: {
+      ...request.context,
+      workspace: {
+        ...request.context.workspace,
+        repoRoot: externalFixture.workspaceDir,
+      },
+    },
+  });
+
+  assert.deepEqual(baseResult.prompt.sources, externalResult.prompt.sources);
+  assert.deepEqual(
+    baseResult.resolvedLayers.map((layer) => layer.ref),
+    externalResult.resolvedLayers.map((layer) => layer.ref),
+  );
+});
+
+function createFixtureWorkspace(options: {
+  extraExperiments?: Record<
+    string,
+    {
+      assetPath: string;
+      contents: string;
+    }
+  >;
+} = {}): {
   workspaceDir: string;
   loadedConfig: LoadedConfig;
 } {
@@ -286,6 +344,9 @@ function createFixtureWorkspace(): {
   writePromptFile(promptRoot, "overlays/org/org.md", "Organization overlay instructions.\n");
   writePromptFile(promptRoot, "overlays/project/project.md", "Project overlay instructions.\n");
   writePromptFile(promptRoot, "experiments/review.md", "Experiment variant instructions.\n");
+  for (const { assetPath, contents } of Object.values(options.extraExperiments ?? {})) {
+    writePromptFile(promptRoot, assetPath, contents);
+  }
 
   const sourcePath = path.join(workspaceDir, "config.toml");
   const configSource = `version = 1
@@ -320,6 +381,7 @@ project = ["overlays/project/project.md"]
 
 [prompt_packs.default.experiments]
 exp_review = "experiments/review.md"
+${renderExtraExperimentsToml(options.extraExperiments)}
 
 [providers.local_planning]
 kind = "planning.local_files"
@@ -348,4 +410,24 @@ function writePromptFile(root: string, relativePath: string, contents: string): 
   const destination = path.join(root, relativePath);
   mkdirSync(path.dirname(destination), { recursive: true });
   writeFileSync(destination, contents, "utf8");
+}
+
+function renderExtraExperimentsToml(
+  experiments:
+    | Record<
+        string,
+        {
+          assetPath: string;
+          contents: string;
+        }
+      >
+    | undefined,
+): string {
+  if (experiments === undefined || Object.keys(experiments).length === 0) {
+    return "";
+  }
+
+  return Object.entries(experiments)
+    .map(([name, experiment]) => `${name} = "${experiment.assetPath}"`)
+    .join("\n");
 }

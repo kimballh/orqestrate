@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { LoadedConfig, PromptPackConfig } from "../config/types.js";
+import type { LoadedConfig } from "../config/types.js";
 import type {
   ArtifactRecord,
   PromptAttachment,
@@ -74,7 +74,10 @@ export type PromptAssemblyResult = {
   resolvedLayers: ResolvedPromptLayer[];
 };
 
-type PromptAssemblyConfig = Pick<LoadedConfig, "activeProfile" | "promptPacks">;
+type PromptAssemblyConfig = Pick<
+  LoadedConfig,
+  "activeProfile" | "promptPacks" | "prompts"
+>;
 
 type FileLayerSpec = {
   kind: Extract<
@@ -117,7 +120,7 @@ export async function assemblePrompt(
     );
   }
 
-  const assetRoot = resolvePromptPackRoot(promptPack);
+  const promptRoot = config.prompts.root;
   const requestedCapabilities = dedupeStrings(request.capabilities);
   const capabilityOrder = Object.keys(promptPack.capabilities);
   const unknownCapabilities = requestedCapabilities.filter(
@@ -144,7 +147,7 @@ export async function assemblePrompt(
   fileLayers.push({
     kind: "base_pack",
     path: promptPack.baseSystem,
-    ref: createPackRef(promptPackName, assetRoot, promptPack.baseSystem),
+    ref: createPackRef(promptPackName, promptRoot, promptPack.baseSystem),
   });
 
   const rolePath = promptPack.roles[request.role];
@@ -157,7 +160,7 @@ export async function assemblePrompt(
   fileLayers.push({
     kind: "role_prompt",
     path: rolePath,
-    ref: createPackRef(promptPackName, assetRoot, rolePath),
+    ref: createPackRef(promptPackName, promptRoot, rolePath),
   });
 
   const phasePath = promptPack.phases[request.phase];
@@ -165,7 +168,7 @@ export async function assemblePrompt(
     fileLayers.push({
       kind: "phase_prompt",
       path: phasePath,
-      ref: createPackRef(promptPackName, assetRoot, phasePath),
+      ref: createPackRef(promptPackName, promptRoot, phasePath),
     });
   }
 
@@ -178,7 +181,7 @@ export async function assemblePrompt(
     fileLayers.push({
       kind: "capability",
       path: capabilityPath,
-      ref: createPackRef(promptPackName, assetRoot, capabilityPath),
+      ref: createPackRef(promptPackName, promptRoot, capabilityPath),
     });
   }
 
@@ -189,7 +192,7 @@ export async function assemblePrompt(
       fileLayers.push({
         kind: "overlay",
         path: overlayPath,
-        ref: createPackRef(promptPackName, assetRoot, overlayPath),
+        ref: createPackRef(promptPackName, promptRoot, overlayPath),
       });
     }
   }
@@ -202,7 +205,7 @@ export async function assemblePrompt(
           path: promptPack.experiments[request.experiment],
           ref: createPackRef(
             promptPackName,
-            assetRoot,
+            promptRoot,
             promptPack.experiments[request.experiment],
           ),
         };
@@ -476,44 +479,6 @@ function renderArtifactContext(
 
 function renderSimpleSection(title: string, body: string): string {
   return normalizePromptText(`## ${title}\n${body}`);
-}
-
-function resolvePromptPackRoot(promptPack: PromptPackConfig): string {
-  const paths = [
-    promptPack.baseSystem,
-    ...Object.values(promptPack.roles),
-    ...Object.values(promptPack.phases),
-    ...Object.values(promptPack.capabilities),
-    ...Object.values(promptPack.overlays).flat(),
-    ...Object.values(promptPack.experiments),
-  ];
-
-  if (paths.length === 0) {
-    throw new PromptAssemblyError("Prompt pack does not include any asset paths.");
-  }
-
-  let commonDirectory = path.dirname(paths[0]);
-
-  for (const candidatePath of paths.slice(1)) {
-    const candidateDirectory = path.dirname(candidatePath);
-
-    while (
-      commonDirectory !== path.dirname(commonDirectory) &&
-      !isDirectoryAncestor(commonDirectory, candidateDirectory)
-    ) {
-      commonDirectory = path.dirname(commonDirectory);
-    }
-  }
-
-  return commonDirectory;
-}
-
-function isDirectoryAncestor(ancestor: string, target: string): boolean {
-  const relativePath = path.relative(ancestor, target);
-  return (
-    relativePath.length === 0 ||
-    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
-  );
 }
 
 function createPackRef(
