@@ -5,6 +5,17 @@ export const BUILTIN_PROVIDER_KINDS = [
   "context.local_files",
 ] as const;
 
+export const LINEAR_STATUS_MAPPING_KEYS = [
+  "backlog_status",
+  "design_status",
+  "plan_status",
+  "implement_status",
+  "review_status",
+  "blocked_status",
+  "done_status",
+  "canceled_status",
+] as const;
+
 export type ProviderKind = `${"planning" | "context"}.${string}`;
 export type PlanningProviderKind = `planning.${string}`;
 export type ContextProviderKind = `context.${string}`;
@@ -17,6 +28,7 @@ export type BuiltinContextProviderKind = Extract<
   BuiltinProviderKind,
   ContextProviderKind
 >;
+export type LinearStatusMappingKey = (typeof LINEAR_STATUS_MAPPING_KEYS)[number];
 
 export interface PathsConfig {
   stateDir: string;
@@ -71,8 +83,9 @@ export interface PlanningLinearProviderConfig
   extends BaseProviderConfig<"planning.linear", "planning"> {
   tokenEnv: string;
   team: string;
+  project?: string;
   webhookSigningSecretEnv?: string;
-  mapping: Record<string, string>;
+  mapping: Partial<Record<LinearStatusMappingKey, string>>;
 }
 
 export interface PlanningLocalFilesProviderConfig
@@ -116,6 +129,7 @@ export interface ProfileConfig {
 export interface LoadedConfig {
   sourcePath: string;
   version: 1;
+  env: NodeJS.ProcessEnv;
   paths: PathsConfig;
   policy: PolicyConfig;
   prompts: PromptsConfig;

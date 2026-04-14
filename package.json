@@ -23,6 +23,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@linear/sdk": "^81.0.0",
     "better-sqlite3": "^12.4.1",
     "smol-toml": "^1.6.1"
   }

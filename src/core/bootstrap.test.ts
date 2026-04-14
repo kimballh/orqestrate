@@ -3,9 +3,12 @@ import test from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { AuthenticationLinearError } from "@linear/sdk";
+
 import type {
   ContextProviderDefinition,
   ContextLocalFilesProviderConfig,
+  PlanningLinearProviderConfig,
   PlanningProviderDefinition,
   PlanningLocalFilesProviderConfig,
 } from "../config/types.js";
@@ -18,6 +21,7 @@ import {
 import { LocalFilesContextBackend } from "../providers/context/local-files-backend.js";
 import { NotionContextBackend } from "../providers/context/notion-backend.js";
 import { UnimplementedContextBackend } from "../providers/context/unimplemented-context-backend.js";
+import { LinearPlanningClient } from "../providers/planning/linear/client.js";
 import { LinearPlanningBackend } from "../providers/planning/linear-backend.js";
 import { LocalFilesPlanningBackend } from "../providers/planning/local-files-backend.js";
 import { UnimplementedPlanningBackend } from "../providers/planning/unimplemented-planning-backend.js";
@@ -220,6 +224,42 @@ test("can skip health checks while still validating configuration", async () => 
   );
 });
 
+test("surfaces built-in Linear health-check failures with actionable messages", async () => {
+  const config = await loadExampleConfig("hybrid", {
+    LINEAR_API_KEY: "linear-token",
+    LINEAR_WEBHOOK_SECRET: "webhook-secret",
+  });
+  const registry = new ProviderRegistry()
+    .registerPlanning<PlanningLinearProviderConfig>(
+      "planning.linear",
+      ({ provider }) =>
+        new LinearPlanningBackend(provider, {
+          client: new LinearPlanningClient({
+            sdkClient: {
+              viewer: Promise.reject(createLinearAuthError()),
+              teams: async () => ({ nodes: [] }),
+            },
+          }),
+        }),
+    )
+    .registerContext<ContextLocalFilesProviderConfig>(
+      "context.local_files",
+      ({ provider }) => new TrackingContextBackend(provider, []),
+    );
+
+  await assert.rejects(
+    () => bootstrapActiveProfile(config, { registry }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProviderBootstrapError);
+      assert.equal(error.code, "provider_healthcheck_failed");
+      assert.equal(error.family, "planning");
+      assert.equal(error.providerKind, "planning.linear");
+      assert.match(error.message, /configured api token/i);
+      return true;
+    },
+  );
+});
+
 test("supports extension registrations with non-built-in provider kinds", async () => {
   const registry = new ProviderRegistry()
     .registerPlanning<AsanaPlanningProviderConfig>(
@@ -256,6 +296,33 @@ test("supports extension registrations with non-built-in provider kinds", async 
   assert.ok(context.backend instanceof ExtensionContextBackend);
   assert.equal(planning.registration.kind, "planning.asana");
   assert.equal(context.registration.kind, "context.google_drive");
+});
+
+test("built-in Linear registration uses the loaded config env snapshot instead of process.env", async () => {
+  const config = await loadExampleConfig("hybrid", {
+    LINEAR_API_KEY: "env-snapshot-token",
+    LINEAR_WEBHOOK_SECRET: "webhook-secret",
+  });
+  const originalToken = process.env.LINEAR_API_KEY;
+  delete process.env.LINEAR_API_KEY;
+
+  try {
+    const result = await bootstrapActiveProfile(config, {
+      runHealthChecks: false,
+    });
+
+    assert.ok(result.planning instanceof LinearPlanningBackend);
+    assert.equal(
+      (result.planning as unknown as { apiKey?: string }).apiKey,
+      "env-snapshot-token",
+    );
+  } finally {
+    if (originalToken === undefined) {
+      delete process.env.LINEAR_API_KEY;
+    } else {
+      process.env.LINEAR_API_KEY = originalToken;
+    }
+  }
 });
 
 async function loadExampleConfig(
@@ -364,6 +431,7 @@ function createFakeLoadedConfig() {
   return {
     sourcePath: "/tmp/config.toml",
     version: 1 as const,
+    env: {},
     paths: {
       stateDir: "/tmp/state",
       dataDir: "/tmp/data",
@@ -392,4 +460,13 @@ function createFakeLoadedConfig() {
     activeProfileName: profile.name,
     activeProfile: profile,
   };
+}
+
+function createLinearAuthError() {
+  return new AuthenticationLinearError({
+    response: {
+      status: 401,
+      error: "Unauthorized",
+    },
+  } as never);
 }

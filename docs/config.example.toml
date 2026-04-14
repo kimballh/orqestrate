@@ -48,6 +48,7 @@ reviewer_playwright_heavy = "experiments/reviewer-playwright-heavy.md"
 kind = "planning.linear"
 token_env = "LINEAR_API_KEY"
 team = "ENG"
+project = "Orqestrate Build" # optional: scope work to a single Linear project
 webhook_signing_secret_env = "LINEAR_WEBHOOK_SECRET"
 
 [providers.notion_main]
