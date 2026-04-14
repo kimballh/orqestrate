@@ -55,6 +55,7 @@ This mirrors one of the most important lessons from OMX: do not overload one fie
 - [agent_contract.md](./agent_contract.md) - explicit responsibility split between the code agent, orchestrator, and runtime daemon
 - [example_prompts.md](./example_prompts.md) - first-pass prompt templates for design, plan, implement, review, merge, and GitHub PR review loops
 - [prompt_customization.md](./prompt_customization.md) - layered prompt overrides, prompt packs, capability fragments, and prompt testing model
+- [working_mode.md](./working_mode.md) - current human-orchestrated operating model using Linear, Notion, and local docs while Orqestrate is being built
 - [deployment_topology.md](./deployment_topology.md) - public webhook ingress vs private orchestrator/runtime deployment boundary and service topology
 - [provider_architecture.md](./provider_architecture.md) - abstract planning/context backend model, provider registry, and local-files built-ins
 - [config_model.md](./config_model.md) - `config.toml` schema with named provider instances and profiles

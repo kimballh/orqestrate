@@ -70,6 +70,9 @@ web_modules/
 .env.*
 !.env.example
 
+# Local Orqestrate runtime and bootstrap state
+.orqestrate/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
