@@ -14,12 +14,21 @@ const INITIAL_SCHEMA_SQL = readFileSync(
   new URL("./sql/0001_initial.sql", import.meta.url),
   "utf8",
 );
+const RUN_PROMPT_ENVELOPE_SQL = readFileSync(
+  new URL("./sql/0002_run_prompt_envelope.sql", import.meta.url),
+  "utf8",
+);
 
 const RUNTIME_MIGRATIONS: RuntimeMigration[] = [
   {
     version: 1,
     name: "initial_runtime_schema",
     sql: INITIAL_SCHEMA_SQL,
+  },
+  {
+    version: 2,
+    name: "run_prompt_envelope",
+    sql: RUN_PROMPT_ENVELOPE_SQL,
   },
 ];
 

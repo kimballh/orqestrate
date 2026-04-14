@@ -72,6 +72,7 @@ CREATE TABLE runs (
   workspace_allocation_id TEXT,
   base_ref TEXT,
   prompt_contract TEXT NOT NULL,
+  prompt_envelope_json TEXT,
   system_prompt_hash TEXT,
   user_prompt_hash TEXT NOT NULL,
   artifact_url TEXT,
@@ -107,6 +108,7 @@ Column rules:
 
 - `run_id` is supplied by the orchestrator and doubles as the idempotency key
 - `status` is authoritative runtime state
+- `prompt_envelope_json` persists the launchable prompt payload so the runtime can actually start a queued run without depending on another store for the prompt body
 - `summary`, `outcome_code`, and `last_error` are write-on-transition fields, not free-form logs
 - `version` exists for optimistic updates if you need them later
 

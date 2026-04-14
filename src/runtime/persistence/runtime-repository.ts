@@ -1,7 +1,10 @@
 import type BetterSqlite3 from "better-sqlite3";
 
 import type {
+  AgentProvider,
+  PromptEnvelope,
   ProviderError,
+  RunStatus,
   VerificationSummary,
 } from "../../domain-model.js";
 import { RuntimeError } from "../errors.js";
@@ -9,11 +12,14 @@ import type {
   AppendRunEventInput,
   CreateRunInput,
   CreateWorkspaceAllocationInput,
+  ExecutableRunRecord,
   ListRunEventsOptions,
   ListRunsFilters,
   PersistedRunRecord,
   RecordHeartbeatInput,
   RunEventRecord,
+  RunTerminalStatus,
+  RuntimeOutcomeSnapshot,
   SessionHeartbeatRecord,
   UpdateWorkspaceAllocationStatusInput,
   WorkspaceAllocationRecord,
@@ -34,6 +40,7 @@ type RunRow = {
   workspace_allocation_id: string | null;
   base_ref: string | null;
   prompt_contract: string;
+  prompt_envelope_json: string | null;
   system_prompt_hash: string | null;
   user_prompt_hash: string;
   artifact_url: string | null;
@@ -100,8 +107,38 @@ type WorkspaceAllocationRow = {
   cleanup_error: string | null;
 };
 
+type RunMutationEvent = {
+  eventType: string;
+  level?: RunEventRecord["level"];
+  source?: RunEventRecord["source"];
+  payload?: Record<string, unknown>;
+};
+
 const DEFAULT_LIST_LIMIT = 50;
 const DEFAULT_EVENT_LIMIT = 100;
+const TERMINAL_RUN_STATUSES = new Set<RunStatus>([
+  "completed",
+  "failed",
+  "canceled",
+  "stale",
+]);
+const NON_TERMINAL_RUN_STATUSES: RunStatus[] = [
+  "queued",
+  "admitted",
+  "launching",
+  "bootstrapping",
+  "running",
+  "waiting_human",
+  "stopping",
+];
+const ACTIVE_SESSION_RUN_STATUSES: RunStatus[] = [
+  "admitted",
+  "launching",
+  "bootstrapping",
+  "running",
+  "waiting_human",
+  "stopping",
+];
 
 const RUN_SELECT_SQL = `
   SELECT
@@ -145,6 +182,7 @@ export class RuntimeRepository {
                 workspace_allocation_id,
                 base_ref,
                 prompt_contract,
+                prompt_envelope_json,
                 system_prompt_hash,
                 user_prompt_hash,
                 artifact_url,
@@ -168,7 +206,7 @@ export class RuntimeRepository {
                 last_heartbeat_at,
                 version
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
           )
           .run(
@@ -185,6 +223,7 @@ export class RuntimeRepository {
             null,
             createRunInput.workspace.baseRef ?? null,
             createRunInput.prompt.contractId,
+            encodeJson(createRunInput.prompt),
             createRunInput.prompt.digests.system ?? null,
             createRunInput.prompt.digests.user,
             createRunInput.artifact?.url ?? null,
@@ -248,6 +287,11 @@ export class RuntimeRepository {
     return row === null ? null : this.mapRunRow(row);
   }
 
+  getExecutableRun(runId: string): ExecutableRunRecord | null {
+    const row = this.selectRunById(runId);
+    return row === null ? null : this.mapExecutableRunRow(row);
+  }
+
   listRuns(filters: ListRunsFilters = {}): PersistedRunRecord[] {
     const clauses: string[] = [];
     const params: unknown[] = [];
@@ -288,6 +332,308 @@ export class RuntimeRepository {
 
     const rows = this.database.prepare(sql).all(...params) as RunRow[];
     return rows.map((row) => this.mapRunRow(row));
+  }
+
+  claimNextQueuedRun(input: {
+    runtimeOwner: string;
+    provider?: AgentProvider;
+    occurredAt?: string;
+  }): ExecutableRunRecord | null {
+    const claimRun = this.database.transaction((): ExecutableRunRecord | null => {
+      const clauses = ["status = 'queued'"];
+      const params: unknown[] = [];
+
+      if (input.provider !== undefined) {
+        clauses.push("provider = ?");
+        params.push(input.provider);
+      }
+
+      const nextRow = this.database
+        .prepare(
+          `
+            ${RUN_SELECT_SQL}
+            WHERE ${clauses.map((clause) => `runs.${clause}`).join(" AND ")}
+            ORDER BY runs.priority ASC, runs.created_at ASC
+            LIMIT 1
+          `,
+        )
+        .get(...params) as RunRow | undefined;
+
+      if (nextRow === undefined) {
+        return null;
+      }
+
+      const occurredAt = input.occurredAt ?? new Date().toISOString();
+      const nextRun = this.buildNextRunState(this.mapRunRow(nextRow), {
+        status: "admitted",
+        runtimeOwner: input.runtimeOwner,
+        admittedAt: occurredAt,
+        attemptCount: nextRow.attempt_count + 1,
+      });
+
+      this.persistRun(nextRun);
+      this.insertRunEvent(nextRun.runId, occurredAt, {
+        eventType: "run_admitted",
+        payload: {
+          runtimeOwner: input.runtimeOwner,
+          status: "admitted",
+        },
+      });
+
+      return this.getExecutableRunOrThrow(nextRun.runId);
+    });
+
+    return claimRun();
+  }
+
+  markRunLaunching(input: {
+    runId: string;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    return this.transitionRunState({
+      runId: input.runId,
+      from: ["admitted"],
+      occurredAt: input.occurredAt,
+      nextState: {
+        status: "launching",
+      },
+      event: {
+        eventType: "session_launch_requested",
+        payload: input.payload,
+      },
+    });
+  }
+
+  markRunBootstrapping(input: {
+    runId: string;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    return this.transitionRunState({
+      runId: input.runId,
+      from: ["launching"],
+      occurredAt,
+      nextState: {
+        status: "bootstrapping",
+        startedAt: occurredAt,
+      },
+      event: {
+        eventType: "session_started",
+        payload: input.payload,
+      },
+    });
+  }
+
+  markRunRunning(input: {
+    runId: string;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    return this.transitionRunState({
+      runId: input.runId,
+      from: ["bootstrapping", "waiting_human"],
+      occurredAt,
+      nextState: {
+        status: "running",
+        waitingHumanReason: null,
+        readyAt: occurredAt,
+      },
+      event: {
+        eventType: "session_ready",
+        payload: input.payload,
+      },
+    });
+  }
+
+  markRunWaitingHuman(input: {
+    runId: string;
+    reason: string;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    return this.transitionRunState({
+      runId: input.runId,
+      from: ["bootstrapping", "running"],
+      occurredAt: input.occurredAt,
+      nextState: {
+        status: "waiting_human",
+        waitingHumanReason: input.reason,
+      },
+      event: {
+        eventType: "waiting_human",
+        payload: {
+          ...(input.payload ?? {}),
+          reason: input.reason,
+        },
+      },
+    });
+  }
+
+  resumeRunFromWaitingHuman(input: {
+    runId: string;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    return this.transitionRunState({
+      runId: input.runId,
+      from: ["waiting_human"],
+      occurredAt: input.occurredAt,
+      nextState: {
+        status: "running",
+        waitingHumanReason: null,
+      },
+      event: {
+        eventType: "human_input_received",
+        payload: input.payload,
+      },
+    });
+  }
+
+  markRunStopping(input: {
+    runId: string;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    return this.transitionRunState({
+      runId: input.runId,
+      from: ["launching", "bootstrapping", "running", "waiting_human"],
+      occurredAt: input.occurredAt,
+      nextState: {
+        status: "stopping",
+      },
+      event: {
+        eventType: "cancel_requested",
+        payload: input.payload,
+      },
+    });
+  }
+
+  recordRuntimeIssue(input: {
+    runId: string;
+    error: ProviderError;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    return this.mutateRun({
+      runId: input.runId,
+      allowedStatuses: NON_TERMINAL_RUN_STATUSES,
+      occurredAt,
+      mutate: (current) => ({
+        ...current,
+        outcome: mergeOutcome(current.outcome, {
+          error: input.error,
+        }),
+      }),
+      event: {
+        eventType: "runtime_issue_detected",
+        source: "provider",
+        level: "warn",
+        payload: {
+          ...(input.payload ?? {}),
+          code: input.error.code,
+          message: input.error.message,
+          retryable: input.error.retryable,
+        },
+      },
+    });
+  }
+
+  finalizeRun(input: {
+    runId: string;
+    status: RunTerminalStatus;
+    outcome?: RuntimeOutcomeSnapshot | null;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    return this.mutateRun({
+      runId: input.runId,
+      allowedStatuses: ["launching", "bootstrapping", "running", "waiting_human", "stopping"],
+      occurredAt,
+      mutate: (current) => ({
+        ...current,
+        status: input.status,
+        completedAt: occurredAt,
+        waitingHumanReason: null,
+        outcome: mergeOutcome(current.outcome, input.outcome ?? null),
+      }),
+      event: {
+        eventType: terminalEventType(input.status),
+        payload: {
+          ...(input.payload ?? {}),
+          status: input.status,
+        },
+      },
+    });
+  }
+
+  markRunStaleOnRecovery(input: {
+    runId: string;
+    reason: string;
+    occurredAt?: string;
+  }): PersistedRunRecord {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    return this.mutateRun({
+      runId: input.runId,
+      allowedStatuses: NON_TERMINAL_RUN_STATUSES,
+      occurredAt,
+      mutate: (current) => ({
+        ...current,
+        status: "stale",
+        completedAt: occurredAt,
+        waitingHumanReason: null,
+        outcome: mergeOutcome(current.outcome, {
+          summary: current.outcome?.summary ?? input.reason,
+          error: current.outcome?.error ?? {
+            providerFamily: "runtime",
+            providerKind: current.provider,
+            code: "unavailable",
+            message: input.reason,
+            retryable: true,
+            details: { staleOnRecovery: true },
+          },
+        }),
+      }),
+      event: {
+        eventType: "run_stale",
+        level: "warn",
+        payload: {
+          reason: input.reason,
+        },
+      },
+    });
+  }
+
+  markAllNonTerminalRunsStaleOnRecovery(input: {
+    occurredAt?: string;
+  } = {}): PersistedRunRecord[] {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+    const rows = this.database
+      .prepare(
+        `
+          ${RUN_SELECT_SQL}
+          WHERE runs.status IN (${ACTIVE_SESSION_RUN_STATUSES.map(() => "?").join(", ")})
+          ORDER BY runs.created_at ASC
+        `,
+      )
+      .all(...ACTIVE_SESSION_RUN_STATUSES) as RunRow[];
+
+    return rows.map((row) =>
+      this.markRunStaleOnRecovery({
+        runId: row.run_id,
+        occurredAt,
+        reason: "Runtime restarted without rehydrating the live PTY session.",
+      }),
+    );
   }
 
   appendRunEvent(input: AppendRunEventInput): RunEventRecord {
@@ -546,6 +892,146 @@ export class RuntimeRepository {
     return this.getWorkspaceAllocationOrThrow(input.workspaceAllocationId);
   }
 
+  private transitionRunState(input: {
+    runId: string;
+    from: RunStatus[];
+    occurredAt?: string;
+    nextState: Partial<PersistedRunRecord>;
+    event: RunMutationEvent;
+  }): PersistedRunRecord {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    return this.mutateRun({
+      runId: input.runId,
+      allowedStatuses: input.from,
+      occurredAt,
+      mutate: (current) => ({
+        ...current,
+        ...input.nextState,
+      }),
+      event: input.event,
+    });
+  }
+
+  private mutateRun(input: {
+    runId: string;
+    allowedStatuses: RunStatus[];
+    occurredAt: string;
+    mutate: (current: PersistedRunRecord) => PersistedRunRecord;
+    event: RunMutationEvent;
+  }): PersistedRunRecord {
+    const applyMutation = this.database.transaction(
+      (
+        transactionInput: typeof input,
+      ): PersistedRunRecord => {
+        const current = this.getRunOrThrow(transactionInput.runId);
+
+        if (!transactionInput.allowedStatuses.includes(current.status)) {
+          throw new RuntimeError(
+            `Run '${transactionInput.runId}' cannot transition from '${current.status}'.`,
+            {
+              code: "invalid_run_state_transition",
+            },
+          );
+        }
+
+        const next = this.buildNextRunState(
+          transactionInput.mutate(current),
+          {},
+        );
+        this.persistRun(next);
+        this.insertRunEvent(next.runId, transactionInput.occurredAt, transactionInput.event);
+        return this.getRunOrThrow(next.runId);
+      },
+    );
+
+    return applyMutation(input);
+  }
+
+  private insertRunEvent(
+    runId: string,
+    occurredAt: string,
+    event: RunMutationEvent,
+  ): void {
+    this.database
+      .prepare(
+        `
+          INSERT INTO run_events (
+            run_id,
+            event_type,
+            level,
+            source,
+            occurred_at,
+            payload_json
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        runId,
+        event.eventType,
+        event.level ?? "info",
+        event.source ?? "supervisor",
+        occurredAt,
+        encodeJson(event.payload ?? {}),
+      );
+  }
+
+  private persistRun(run: PersistedRunRecord): void {
+    this.database
+      .prepare(
+        `
+          UPDATE runs
+          SET
+            status = ?,
+            workspace_allocation_id = ?,
+            runtime_owner = ?,
+            attempt_count = ?,
+            waiting_human_reason = ?,
+            outcome_code = ?,
+            exit_code = ?,
+            summary = ?,
+            verification_json = ?,
+            last_error = ?,
+            admitted_at = ?,
+            started_at = ?,
+            ready_at = ?,
+            completed_at = ?,
+            version = ?
+          WHERE run_id = ?
+        `,
+      )
+      .run(
+        run.status,
+        run.workspace.allocationId ?? null,
+        run.runtimeOwner ?? null,
+        run.attemptCount,
+        run.waitingHumanReason ?? null,
+        run.outcome?.code ?? null,
+        run.outcome?.exitCode ?? null,
+        run.outcome?.summary ?? null,
+        encodeNullableJson(run.outcome?.verification ?? null),
+        encodeNullableJson(run.outcome?.error ?? null),
+        run.admittedAt ?? null,
+        run.startedAt ?? null,
+        run.readyAt ?? null,
+        run.completedAt ?? null,
+        run.version,
+        run.runId,
+      );
+  }
+
+  private buildNextRunState(
+    run: PersistedRunRecord,
+    overrides: Partial<PersistedRunRecord>,
+  ): PersistedRunRecord {
+    return {
+      ...run,
+      ...overrides,
+      version: (overrides.version ?? run.version) + 1,
+    };
+  }
+
   private assertRunExists(runId: string): void {
     const row = this.database
       .prepare("SELECT 1 FROM runs WHERE run_id = ?")
@@ -560,6 +1046,18 @@ export class RuntimeRepository {
 
   private getRunOrThrow(runId: string): PersistedRunRecord {
     const run = this.getRun(runId);
+
+    if (run === null) {
+      throw new RuntimeError(`Run '${runId}' was not found.`, {
+        code: "run_not_found",
+      });
+    }
+
+    return run;
+  }
+
+  private getExecutableRunOrThrow(runId: string): ExecutableRunRecord {
+    const run = this.getExecutableRun(runId);
 
     if (run === null) {
       throw new RuntimeError(`Run '${runId}' was not found.`, {
@@ -656,6 +1154,28 @@ export class RuntimeRepository {
     };
   }
 
+  private mapExecutableRunRow(row: RunRow): ExecutableRunRecord {
+    const prompt = parseJson<PromptEnvelope>(row.prompt_envelope_json);
+
+    if (
+      prompt === null ||
+      typeof prompt.contractId !== "string" ||
+      typeof prompt.userPrompt !== "string"
+    ) {
+      throw new RuntimeError(
+        `Run '${row.run_id}' is missing its persisted prompt envelope.`,
+        {
+          code: "run_prompt_missing",
+        },
+      );
+    }
+
+    return {
+      ...this.mapRunRow(row),
+      prompt,
+    };
+  }
+
   private mapRunEventRow(row: RunEventRow): RunEventRecord {
     return {
       seq: row.seq,
@@ -703,10 +1223,44 @@ function encodeJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function encodeNullableJson(value: unknown | null): string | null {
+  return value === null ? null : JSON.stringify(value);
+}
+
 function parseJson<T>(value: string | null): T | null {
   if (value === null) {
     return null;
   }
 
   return JSON.parse(value) as T;
+}
+
+function mergeOutcome(
+  current: PersistedRunRecord["outcome"],
+  next: RuntimeOutcomeSnapshot | null,
+): PersistedRunRecord["outcome"] {
+  if (current === null && next === null) {
+    return null;
+  }
+
+  return {
+    code: next?.code ?? current?.code ?? null,
+    exitCode: next?.exitCode ?? current?.exitCode ?? null,
+    summary: next?.summary ?? current?.summary ?? null,
+    verification: next?.verification ?? current?.verification ?? null,
+    error: next?.error ?? current?.error ?? null,
+  };
+}
+
+function terminalEventType(status: RunTerminalStatus): string {
+  switch (status) {
+    case "completed":
+      return "run_completed";
+    case "failed":
+      return "run_failed";
+    case "canceled":
+      return "run_canceled";
+    case "stale":
+      return "run_stale";
+  }
 }
