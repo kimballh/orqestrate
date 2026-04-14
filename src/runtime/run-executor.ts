@@ -297,6 +297,11 @@ export class RunExecutor {
       },
     });
 
+    if (context.finishing) {
+      await this.supervisor.terminate(handle.sessionId, true);
+      return;
+    }
+
     context.controller = this.createSessionController(
       context.run.runId,
       handle.sessionId,

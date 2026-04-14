@@ -145,6 +145,45 @@ test("shutdown marks active runs stale and ignores later heartbeat ticks", async
   assert.doesNotThrow(() => heartbeatTick?.());
 });
 
+test("shutdown terminates a session that launches after the run is already stale", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new DelayedLaunchSessionSupervisor();
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+    },
+  );
+  repository.enqueueRun(createRunInput());
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  executor.shutdown();
+
+  const staleRun = await execution;
+  assert.equal(staleRun.status, "stale");
+  assert.equal(supervisor.launched, 0);
+  assert.equal(supervisor.terminated, 0);
+
+  supervisor.resolveLaunch();
+  await waitForAsyncTurn();
+
+  assert.equal(supervisor.launched, 1);
+  assert.equal(supervisor.terminated, 1);
+  assert.equal(repository.getRun(claimedRun.runId)?.status, "stale");
+});
+
 test("run executor does not mark a session ready until the adapter or snapshot proves it", async (t) => {
   const { fixture, repository } = createRepositoryFixture(t);
   const registry = new RuntimeAdapterRegistry().register(
@@ -455,6 +494,66 @@ class FakeSessionSupervisor implements SessionSupervisor {
 
     assert.ok(session);
     return session;
+  }
+}
+
+class DelayedLaunchSessionSupervisor implements SessionSupervisor {
+  launched = 0;
+  terminated = 0;
+  private pendingLaunch:
+    | {
+        observer: SessionObserver;
+        resolve: (handle: { sessionId: string; pid: number; runId: string }) => void;
+      }
+    | null = null;
+
+  async launch(
+    _spec: LaunchSpec,
+    observer: SessionObserver,
+  ): Promise<{ sessionId: string; pid: number; runId: string }> {
+    return new Promise((resolve) => {
+      this.pendingLaunch = { observer, resolve };
+    });
+  }
+
+  resolveLaunch(): void {
+    assert.ok(this.pendingLaunch);
+    const { observer, resolve } = this.pendingLaunch;
+    this.pendingLaunch = null;
+    this.launched += 1;
+    resolve({
+      sessionId: "delayed-session-1",
+      pid: 5252,
+      runId: observer.runId,
+    });
+  }
+
+  async write(_sessionId: string, _input: string): Promise<void> {}
+
+  async interrupt(_sessionId: string): Promise<void> {}
+
+  async terminate(_sessionId: string): Promise<void> {
+    this.terminated += 1;
+    await Promise.resolve();
+  }
+
+  async snapshot(sessionId: string): Promise<SessionSnapshot> {
+    return {
+      sessionId,
+      runId: "run-001",
+      pid: 5252,
+      recentOutput: "",
+      bytesRead: 0,
+      bytesWritten: 0,
+      isAlive: false,
+      startedAt: "2026-04-14T18:00:00.000Z",
+      lastOutputAt: null,
+      lastInputAt: null,
+    };
+  }
+
+  async readRecentOutput(_sessionId: string, _maxChars: number): Promise<string> {
+    return "";
   }
 }
 
