@@ -94,6 +94,10 @@ const promptFixture = {
       ref: "builtin://implement",
     },
     {
+      kind: "phase_prompt",
+      ref: "builtin://implement-phase",
+    },
+    {
       kind: "artifact",
       ref: artifactFixture.artifactId,
     },
