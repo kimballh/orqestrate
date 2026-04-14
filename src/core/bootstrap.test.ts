@@ -295,58 +295,15 @@ test("built-in Linear registration uses the loaded config env snapshot instead o
   delete process.env.LINEAR_API_KEY;
 
   try {
-    const registry = new ProviderRegistry()
-      .registerPlanning<PlanningLinearProviderConfig>(
-        "planning.linear",
-        ({ provider, loadedConfig }) =>
-          new LinearPlanningBackend(provider, {
-            apiKey: loadedConfig.env[provider.tokenEnv],
-            client: new LinearPlanningClient({
-              sdkClient: {
-                viewer: Promise.resolve({
-                  id: "viewer-1",
-                  name: "Kimball Hill",
-                  displayName: "Kimball Hill",
-                  email: "kimball@example.com",
-                }),
-                teams: async () => ({
-                  nodes: [
-                    {
-                      id: "team-1",
-                      key: "ENG",
-                      name: "Engineering",
-                      displayName: "Engineering",
-                      projects: async () => ({ nodes: [] }),
-                      states: async () => ({
-                        nodes: [
-                          { id: "backlog", name: "Backlog", type: "backlog", teamId: "team-1", archivedAt: null },
-                          { id: "design", name: "Design", type: "unstarted", teamId: "team-1", archivedAt: null },
-                          { id: "plan", name: "Plan", type: "unstarted", teamId: "team-1", archivedAt: null },
-                          { id: "implement", name: "Implement", type: "started", teamId: "team-1", archivedAt: null },
-                          { id: "review", name: "Review", type: "started", teamId: "team-1", archivedAt: null },
-                          { id: "blocked", name: "Blocked", type: "unstarted", teamId: "team-1", archivedAt: null },
-                          { id: "done", name: "Done", type: "completed", teamId: "team-1", archivedAt: null },
-                          { id: "canceled", name: "Canceled", type: "canceled", teamId: "team-1", archivedAt: null },
-                        ],
-                      }),
-                    },
-                  ],
-                }),
-              },
-            }),
-          }),
-      )
-      .registerContext<ContextLocalFilesProviderConfig>(
-        "context.local_files",
-        ({ provider }) => new TrackingContextBackend(provider, []),
-      );
-
     const result = await bootstrapActiveProfile(config, {
-      registry,
       runHealthChecks: false,
     });
 
     assert.ok(result.planning instanceof LinearPlanningBackend);
+    assert.equal(
+      (result.planning as unknown as { apiKey?: string }).apiKey,
+      "env-snapshot-token",
+    );
   } finally {
     if (originalToken === undefined) {
       delete process.env.LINEAR_API_KEY;
