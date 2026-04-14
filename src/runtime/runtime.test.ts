@@ -344,6 +344,7 @@ function createLoadedConfigFixture(): LoadedConfig {
   return {
     sourcePath: "/tmp/config.toml",
     version: 1 as const,
+    env: {},
     paths: {
       stateDir: "/tmp/state",
       dataDir: "/tmp/data",
