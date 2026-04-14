@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
+import net, { type Socket } from "node:net";
 import path from "node:path";
 
 import type { RuntimeConfig } from "../config.js";
@@ -9,6 +10,7 @@ import type { RuntimeApiListenOptions, RuntimeApiServerInfo } from "./types.js";
 
 export class RuntimeApiServer {
   #server: Server | null = null;
+  readonly #connections = new Set<Socket>();
   readonly #router: RuntimeApiRouter;
   readonly #listenOptions: RuntimeApiListenOptions;
   #serverInfo: RuntimeApiServerInfo;
@@ -40,13 +42,18 @@ export class RuntimeApiServer {
 
     if (this.#listenOptions.kind === "socket") {
       mkdirSync(path.dirname(this.#listenOptions.socketPath), { recursive: true });
-      if (existsSync(this.#listenOptions.socketPath)) {
-        rmSync(this.#listenOptions.socketPath, { force: true });
-      }
+      await ensureSocketPathAvailable(this.#listenOptions.socketPath);
     }
 
     const server = createServer((request, response) => {
       void this.#router.handle(request, response);
+    });
+    server.on("connection", (connection) => {
+      connection.unref();
+      this.#connections.add(connection);
+      connection.on("close", () => {
+        this.#connections.delete(connection);
+      });
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -83,6 +90,11 @@ export class RuntimeApiServer {
 
     const server = this.#server;
     this.#server = null;
+
+    for (const connection of this.#connections) {
+      connection.destroy();
+    }
+    this.#connections.clear();
 
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -126,6 +138,25 @@ export function resolveRuntimeApiListenOptions(
   };
 }
 
+async function ensureSocketPathAvailable(socketPath: string): Promise<void> {
+  if (existsSync(socketPath) === false) {
+    return;
+  }
+
+  try {
+    const socket = await connectToSocket(socketPath);
+    socket.destroy();
+    throw new Error(`Socket path '${socketPath}' is already in use.`);
+  } catch (error) {
+    if (isRecoverableStaleSocketError(error)) {
+      rmSync(socketPath, { force: true });
+      return;
+    }
+
+    throw error;
+  }
+}
+
 function formatEndpoint(listenOptions: RuntimeApiListenOptions): string {
   switch (listenOptions.kind) {
     case "socket":
@@ -152,4 +183,25 @@ function resolveListeningEndpoint(
   }
 
   return `http://${address.address}:${address.port}`;
+}
+
+function connectToSocket(socketPath: string): Promise<Socket> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    socket.once("connect", () => resolve(socket));
+    socket.once("error", (error) => {
+      socket.destroy();
+      reject(error);
+    });
+  });
+}
+
+function isRecoverableStaleSocketError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error.code === "ECONNREFUSED" ||
+      error.code === "ENOENT" ||
+      error.code === "ENOTSOCK")
+  );
 }

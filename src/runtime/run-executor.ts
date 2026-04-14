@@ -138,6 +138,11 @@ export class RunExecutor {
     });
   }
 
+  hasLiveSession(runId: string): boolean {
+    const context = this.liveRuns.getByRunId(runId);
+    return context !== null && context.controller !== null;
+  }
+
   async interruptRun(runId: string): Promise<PersistedRunRecord> {
     const context = this.liveRuns.getByRunId(runId);
 

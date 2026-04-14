@@ -297,14 +297,15 @@ export class RuntimeApiRouter {
     runId: string,
     response: ServerResponse,
   ): Promise<void> {
-    const before = this.requireRun(runId);
+    this.requireRun(runId);
+    const accepted = this.daemon.canInterruptRun(runId);
     const run = await this.daemon.interruptRun(runId);
 
     this.writeJson(
       response,
       202,
       serializeActionRunResponse({
-        accepted: TERMINAL_STATUSES.has(before.status) === false,
+        accepted,
         run,
         lastEventSeq: this.daemon.getRunLastEventSeq(run.runId),
       }),

@@ -214,6 +214,10 @@ export class RuntimeDaemon {
     return this.executor.interruptRun(runId);
   }
 
+  canInterruptRun(runId: string): boolean {
+    return this.executor.hasLiveSession(runId);
+  }
+
   cancelRun(
     runId: string,
     reason: string,
