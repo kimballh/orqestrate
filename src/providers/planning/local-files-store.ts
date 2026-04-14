@@ -992,7 +992,7 @@ function readNullableProviderError(
     return null;
   }
 
-  if (!isRecord(value)) {
+  if (!isRecord(value) || Array.isArray(value)) {
     throw new Error(`${source}.${fieldName} must be an object or null.`);
   }
 
@@ -1299,7 +1299,7 @@ function readNullableProviderErrorDetails(
     return null;
   }
 
-  if (!isRecord(value)) {
+  if (!isRecord(value) || Array.isArray(value)) {
     throw new Error(`${source}.${fieldName} must be an object or null.`);
   }
 

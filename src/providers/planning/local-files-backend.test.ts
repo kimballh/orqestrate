@@ -450,6 +450,36 @@ test("rejects malformed issue files, duplicate identifiers, and stale indexes", 
     /providerFamily/i,
   );
 
+  const invalidDetailsRoot = await createTempPlanningRoot();
+  t.after(async () => {
+    await rm(invalidDetailsRoot, { recursive: true, force: true });
+  });
+
+  await writeIssueFile(
+    invalidDetailsRoot,
+    "BAD-DETAILS",
+    `${JSON.stringify({
+      ...createWorkItem({ id: "BAD-DETAILS" }),
+      orchestration: {
+        ...createWorkItem({ id: "BAD-DETAILS" }).orchestration,
+        lastError: {
+          providerFamily: "planning",
+          providerKind: "x",
+          code: "unknown",
+          message: "m",
+          retryable: false,
+          details: ["oops"],
+        },
+      },
+    }, null, 2)}\n`,
+  );
+
+  const invalidDetailsBackend = createBackend(invalidDetailsRoot);
+  await assert.rejects(
+    () => invalidDetailsBackend.validateConfig(),
+    /details must be an object or null/i,
+  );
+
   const staleRoot = await createTempPlanningRoot();
   t.after(async () => {
     await rm(staleRoot, { recursive: true, force: true });
