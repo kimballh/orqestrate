@@ -1,3 +1,9 @@
-# Project Overlay
+# Reviewer Webapp Overlay
 
-Placeholder project overlay prompt for the example config.
+For web application changes in this project:
+
+- check navigation and state transitions, not just isolated components
+- verify loading, empty, error, and success states for touched flows
+- call out accessibility regressions that would block keyboard or screen-reader use
+- look for mobile and narrow-viewport regressions when layouts or interactions change
+- treat console errors, broken requests, or hydration issues as product bugs, not incidental noise

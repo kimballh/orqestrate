@@ -26,6 +26,10 @@ implement = "roles/implement.md"
 review = "roles/review.md"
 merge = "roles/merge.md"
 
+[prompt_packs.default.phases]
+implement = "phases/implement.md"
+review = "phases/review.md"
+
 [prompt_packs.default.capabilities]
 github_review = "capabilities/github-review.md"
 github_reply = "capabilities/github-reply.md"
