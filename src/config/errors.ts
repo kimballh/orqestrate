@@ -4,6 +4,7 @@ export type ConfigErrorCode =
   | "config_parse_error"
   | "unsupported_version"
   | "missing_field"
+  | "missing_path"
   | "invalid_type"
   | "invalid_value"
   | "unknown_key"

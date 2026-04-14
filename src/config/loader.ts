@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -762,7 +763,45 @@ function resolvePromptAssetPath(
   fieldPath: string,
   promptRoot: string,
 ): string {
-  return resolveFileSystemPath(assetPath, promptRoot, fieldPath);
+  const resolvedPath = resolveFileSystemPath(assetPath, promptRoot, fieldPath);
+  assertExistingPromptAsset(resolvedPath, fieldPath);
+  return resolvedPath;
+}
+
+function assertExistingPromptAsset(
+  resolvedPath: string,
+  fieldPath: string,
+): void {
+  let stats: ReturnType<typeof statSync>;
+
+  try {
+    stats = statSync(resolvedPath);
+  } catch (error) {
+    if (isErrnoError(error, "ENOENT")) {
+      throw new ConfigError(`Prompt asset '${resolvedPath}' does not exist.`, {
+        code: "missing_path",
+        path: fieldPath,
+        hint: "Create the prompt file or update the configured asset path.",
+        cause: error,
+      });
+    }
+
+    throw new ConfigError(`Failed to inspect prompt asset '${resolvedPath}'.`, {
+      code: "config_read_error",
+      path: fieldPath,
+      cause: error,
+    });
+  }
+
+  if (!stats.isFile()) {
+    throw new ConfigError(
+      `Prompt asset '${resolvedPath}' must point to a file.`,
+      {
+        code: "invalid_value",
+        path: fieldPath,
+      },
+    );
+  }
 }
 
 function resolveFileSystemPath(
