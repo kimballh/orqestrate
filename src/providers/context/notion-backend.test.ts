@@ -157,7 +157,7 @@ test("healthCheck authenticates and resolves both configured data sources", asyn
 
   assert.equal(result.ok, true);
   assert.match(result.message ?? "", /Authenticated to Notion as 'Orqestrate Bot'/);
-  assert.match(result.message ?? "", /validated the artifacts schema/i);
+  assert.match(result.message ?? "", /validated the artifacts and runs schemas/i);
   assert.deepEqual(backend.getResolvedConfig(), {
     tokenEnv: "NOTION_TOKEN",
     token: "notion-token",
@@ -431,6 +431,70 @@ test("writePhaseArtifact updates the managed section and loadContextBundle retur
       url: updated.url,
     },
   ]);
+});
+
+test("run ledgers, evidence, and context bundles are persisted in notion", async () => {
+  const client = createArtifactAwareClient();
+  const backend = createBackend({}, { client });
+
+  await backend.validateConfig();
+
+  const artifact = await backend.ensureArtifact({ workItem: WORK_ITEM });
+
+  await backend.writePhaseArtifact({
+    workItem: WORK_ITEM,
+    artifact,
+    phase: "implement",
+    content: "Implemented the Notion run ledger backend.",
+    summary: "Implementation landed.",
+  });
+
+  const createdRun = await backend.createRunLedgerEntry({
+    runId: "run-1",
+    workItem: WORK_ITEM,
+    phase: "implement",
+    status: "running",
+  });
+  const finalizedRun = await backend.finalizeRunLedgerEntry({
+    runId: "run-1",
+    status: "completed",
+    summary: "Checks passed.",
+  });
+
+  await backend.appendEvidence({
+    runId: "run-1",
+    workItemId: WORK_ITEM.id,
+    section: "Verification",
+    content: "npm run check",
+  });
+
+  const storedArtifact = await backend.getArtifactByWorkItemId(WORK_ITEM.id);
+  const bundle = await backend.loadContextBundle({
+    workItem: WORK_ITEM,
+    artifact: storedArtifact,
+    phase: "implement",
+  });
+  const runPageId = client.createdPageIds[1];
+  const runMarkdown = await client.retrievePageMarkdown(runPageId);
+  const artifactMarkdown = await client.retrievePageMarkdown(artifact.artifactId);
+
+  assert.equal(createdRun.artifactId, artifact.artifactId);
+  assert.equal(finalizedRun.status, "completed");
+  assert.equal(finalizedRun.summary, "Checks passed.");
+  assert.ok(storedArtifact);
+  assert.equal(storedArtifact.verificationEvidencePresent, true);
+  assert.match(runMarkdown.markdown, /# Evidence/);
+  assert.match(runMarkdown.markdown, /## .* - Verification/);
+  assert.match(runMarkdown.markdown, /npm run check/);
+  assert.doesNotMatch(artifactMarkdown.markdown, /No verification evidence captured yet\./);
+  assert.match(artifactMarkdown.markdown, /Latest evidence run: `run-1`/);
+  assert.match(bundle.contextText, /Implemented the Notion run ledger backend\./);
+  assert.match(bundle.contextText, /# Recent Run History/);
+  assert.match(bundle.contextText, /run-1/);
+  assert.deepEqual(
+    bundle.references.map((reference) => reference.kind),
+    ["artifact", "run_ledger"],
+  );
 });
 
 test("bootstraps the notion backend through the shared provider lifecycle with a fake client", async () => {
@@ -899,6 +963,14 @@ function createDataSource(
     parentDatabaseId?: string | null;
   } = {},
 ): NotionDataSource {
+  const normalizedProperties =
+    id === RUNS_DATA_SOURCE_ID
+      ? {
+          ...createRunDataSourceProperties(),
+          ...properties,
+        }
+      : properties;
+
   return {
     id,
     title:
@@ -911,9 +983,9 @@ function createDataSource(
     parentDatabaseId:
       options.parentDatabaseId ??
       (id === ARTIFACTS_DATA_SOURCE_ID ? ARTIFACTS_DATABASE_ID : RUNS_DATABASE_ID),
-    propertyNames: Object.keys(properties),
+    propertyNames: Object.keys(normalizedProperties),
     properties: Object.fromEntries(
-      Object.entries(properties).map(([name, type]) => [
+      Object.entries(normalizedProperties).map(([name, type]) => [
         name,
         {
           id: name.toLowerCase().replace(/\s+/g, "-"),
@@ -921,6 +993,22 @@ function createDataSource(
         },
       ]),
     ),
+  };
+}
+
+function createRunDataSourceProperties(): Record<string, string> {
+  return {
+    Title: "title",
+    "Run ID": "rich_text",
+    "Linear Issue ID": "rich_text",
+    "Linear URL": "url",
+    Phase: "rich_text",
+    Status: "rich_text",
+    "Started At": "date",
+    "Ended At": "date",
+    "Artifact Page": "rich_text",
+    Summary: "rich_text",
+    Error: "rich_text",
   };
 }
 
