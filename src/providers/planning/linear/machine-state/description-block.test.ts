@@ -62,6 +62,64 @@ test("round-trips machine-state blocks while preserving surrounding text", () =>
   assert.equal(parsed.machineState.attemptCount, 2);
 });
 
+test("preserves leading and trailing human-authored whitespace exactly", () => {
+  const original = "\n\n# Title\nBody\n\n";
+
+  const withBlock = upsertLinearDescriptionMachineState(original, {
+    owner: null,
+    runId: null,
+    leaseUntil: null,
+    artifactUrl: null,
+    blockedReason: null,
+    lastError: null,
+    attemptCount: 0,
+  });
+
+  const parsed = parseLinearDescriptionMachineState(withBlock);
+  const rewritten = upsertLinearDescriptionMachineState(withBlock, {
+    owner: "worker-1",
+    runId: "run-1",
+    leaseUntil: "2026-04-15T00:00:00.000Z",
+    artifactUrl: null,
+    blockedReason: null,
+    lastError: null,
+    attemptCount: 1,
+  });
+
+  assert.equal(parsed.description, original);
+  assert.match(rewritten, /Body\n\n<!-- orqestrate:machine-state:boundary -->/);
+});
+
+test("moves the machine-state block back to the end when humans append notes after it", () => {
+  const withBlock = upsertLinearDescriptionMachineState("Body", {
+    owner: null,
+    runId: null,
+    leaseUntil: null,
+    artifactUrl: null,
+    blockedReason: null,
+    lastError: null,
+    attemptCount: 0,
+  });
+  const withTrailingNotes = `${withBlock}\n\nPostscript from a human.`;
+
+  const rewritten = upsertLinearDescriptionMachineState(withTrailingNotes, {
+    owner: "worker-1",
+    runId: "run-2",
+    leaseUntil: "2026-04-15T00:00:00.000Z",
+    artifactUrl: "https://notion.so/orq-53",
+    blockedReason: null,
+    lastError: null,
+    attemptCount: 2,
+  });
+  const parsed = parseLinearDescriptionMachineState(rewritten);
+
+  assert.equal(parsed.description, "Body\n\nPostscript from a human.");
+  assert.match(
+    rewritten,
+    /Postscript from a human\.<!-- orqestrate:machine-state:boundary -->[\s\S]*<!-- orqestrate:machine-state:end -->$/,
+  );
+});
+
 test("rejects duplicate machine-state blocks", () => {
   const first = upsertLinearDescriptionMachineState("Ticket body.", {
     owner: null,

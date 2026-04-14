@@ -25,8 +25,10 @@ type ManagedBlockLocation = {
   replaceEnd: number;
   blockStart: number;
   blockEnd: number;
+  hasBoundary: boolean;
 };
 
+const MACHINE_STATE_BOUNDARY = "<!-- orqestrate:machine-state:boundary -->";
 const MACHINE_STATE_START = "<!-- orqestrate:machine-state:start -->";
 const MACHINE_STATE_END = "<!-- orqestrate:machine-state:end -->";
 const MACHINE_STATE_WARNING =
@@ -96,42 +98,40 @@ export function upsertLinearDescriptionMachineState(
 ): string {
   const source = description ?? "";
   const location = findManagedBlockLocation(source);
-  const nextBlock = serializeManagedBlock(machineState);
+  const humanDescription =
+    location === null ? source : stripManagedBlock(source, location);
 
-  if (location === null) {
-    if (source === "") {
-      return nextBlock;
-    }
-
-    const separator =
-      source.endsWith("\n\n") || source.endsWith("\r\n\r\n")
-        ? ""
-        : source.endsWith("\n") || source.endsWith("\r\n")
-          ? "\n"
-          : "\n\n";
-
-    return `${source}${separator}${nextBlock}`;
-  }
-
-  return `${source.slice(0, location.replaceStart)}${nextBlock}${source.slice(location.replaceEnd)}`;
+  return appendManagedBlock(humanDescription, machineState);
 }
 
 function findManagedBlockLocation(
   description: string,
 ): ManagedBlockLocation | null {
+  const boundaryMatches = [
+    ...description.matchAll(toGlobalRegExp(MACHINE_STATE_BOUNDARY)),
+  ];
   const startMatches = [...description.matchAll(toGlobalRegExp(MACHINE_STATE_START))];
   const endMatches = [...description.matchAll(toGlobalRegExp(MACHINE_STATE_END))];
 
-  if (startMatches.length === 0 && endMatches.length === 0) {
+  if (
+    boundaryMatches.length === 0 &&
+    startMatches.length === 0 &&
+    endMatches.length === 0
+  ) {
     return null;
   }
 
-  if (startMatches.length !== 1 || endMatches.length !== 1) {
+  if (
+    boundaryMatches.length > 1 ||
+    startMatches.length !== 1 ||
+    endMatches.length !== 1
+  ) {
     throw new Error(
       "Linear description contains duplicate machine-state sentinels.",
     );
   }
 
+  const boundaryIndex = boundaryMatches[0]?.index ?? -1;
   const startIndex = startMatches[0].index ?? -1;
   const endIndex = endMatches[0].index ?? -1;
 
@@ -141,13 +141,17 @@ function findManagedBlockLocation(
     );
   }
 
-  const replaceStart = findManagedReplaceStart(description, startIndex);
+  const hasBoundary = boundaryIndex >= 0 && boundaryIndex <= startIndex;
+  const replaceStart = hasBoundary
+    ? boundaryIndex
+    : findManagedReplaceStart(description, startIndex);
 
   return {
     replaceStart,
     replaceEnd: endIndex + MACHINE_STATE_END.length,
     blockStart: startIndex,
     blockEnd: endIndex,
+    hasBoundary,
   };
 }
 
@@ -214,12 +218,30 @@ function stripManagedBlock(
   description: string,
   location: ManagedBlockLocation,
 ): string {
-  const next = `${description.slice(0, location.replaceStart)}${description.slice(location.replaceEnd)}`;
-  return next.replace(/\n{3,}$/u, "\n\n").trim();
+  return `${description.slice(0, location.replaceStart)}${description.slice(location.replaceEnd)}`;
+}
+
+function appendManagedBlock(
+  description: string,
+  machineState: LinearDescriptionMachineState,
+): string {
+  if (description === "") {
+    return serializeManagedBlock(machineState, "");
+  }
+
+  const separator =
+    description.endsWith("\n\n") || description.endsWith("\r\n\r\n")
+      ? ""
+      : description.endsWith("\n") || description.endsWith("\r\n")
+        ? "\n"
+        : "\n\n";
+
+  return `${description}${serializeManagedBlock(machineState, separator)}`;
 }
 
 function serializeManagedBlock(
   machineState: LinearDescriptionMachineState,
+  separator: string,
 ): string {
   const payload = JSON.stringify(
     {
@@ -235,15 +257,18 @@ function serializeManagedBlock(
     2,
   );
 
-  return [
-    MACHINE_STATE_WARNING,
-    "",
-    MACHINE_STATE_START,
-    "```json",
-    payload,
-    "```",
-    MACHINE_STATE_END,
-  ].join("\n");
+  return (
+    `${MACHINE_STATE_BOUNDARY}${separator}` +
+    [
+      MACHINE_STATE_WARNING,
+      "",
+      MACHINE_STATE_START,
+      "```json",
+      payload,
+      "```",
+      MACHINE_STATE_END,
+    ].join("\n")
+  );
 }
 
 function readNullableStringField(
@@ -395,8 +420,7 @@ function valuesEqual(left: unknown, right: unknown): boolean {
 }
 
 function toNullableDescription(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed === "" ? null : trimmed;
+  return value === "" ? null : value;
 }
 
 function toGlobalRegExp(value: string): RegExp {
