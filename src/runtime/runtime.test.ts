@@ -6,10 +6,12 @@ import path from "node:path";
 
 import type { RuntimeConfig } from "./config.js";
 import { RuntimeDaemon } from "./daemon.js";
+import { startRuntimeDaemon } from "./main.js";
 import { openRuntimeDatabase } from "./persistence/database.js";
 import { getRuntimeSchemaVersion } from "./persistence/migrations.js";
 import { RuntimeRepository } from "./persistence/runtime-repository.js";
 import type { CreateRunInput } from "./types.js";
+import type { LoadedConfig } from "../config/types.js";
 
 type RuntimeFixture = {
   rootDir: string;
@@ -150,6 +152,35 @@ test("recordHeartbeat persists liveness evidence and updates the run snapshot", 
   assert.equal(persistedCount.count, 1);
 });
 
+test("recordHeartbeat does not regress the canonical liveness timestamp", (t) => {
+  const repository = createRepository(t);
+  const run = repository.enqueueRun(createRunInput());
+
+  repository.recordHeartbeat({
+    runId: run.runId,
+    emittedAt: "2026-04-14T10:00:00.000Z",
+    source: "supervisor_tick",
+    bytesRead: 128,
+    bytesWritten: 16,
+    fileChanges: 0,
+    providerState: "running",
+    note: null,
+  });
+  repository.recordHeartbeat({
+    runId: run.runId,
+    emittedAt: "2026-04-14T09:00:00.000Z",
+    source: "supervisor_tick",
+    bytesRead: 64,
+    bytesWritten: 8,
+    fileChanges: 0,
+    providerState: "running",
+    note: "late arrival",
+  });
+
+  const refreshedRun = repository.getRun(run.runId);
+  assert.equal(refreshedRun?.lastHeartbeatAt, "2026-04-14T10:00:00.000Z");
+});
+
 test("workspace allocations persist and support explicit state transitions", (t) => {
   const repository = createRepository(t);
 
@@ -184,6 +215,38 @@ test("runtime SQL migration asset is available to the source loader", () => {
 
   const sql = readFileSync(migrationPath, "utf8");
   assert.match(sql, /CREATE TABLE runs/);
+});
+
+test("startRuntimeDaemon does not create a keepalive timer when startup fails", () => {
+  let keepAliveCalls = 0;
+  let registeredSignals = 0;
+
+  assert.throws(
+    () =>
+      startRuntimeDaemon(createLoadedConfigFixture(), {
+        createRuntimeDaemon: () =>
+          ({
+            runtimeConfig: { databasePath: "/tmp/runtime.sqlite" },
+            start(): void {
+              throw new Error("boom");
+            },
+            stop(): void {
+              throw new Error("stop should not be called");
+            },
+          }) as RuntimeDaemon,
+        setKeepAlive: (() => {
+          keepAliveCalls += 1;
+          return setInterval(() => undefined, 60_000);
+        }) as typeof setInterval,
+        registerSignalHandler: () => {
+          registeredSignals += 1;
+        },
+      }),
+    /boom/,
+  );
+
+  assert.equal(keepAliveCalls, 0);
+  assert.equal(registeredSignals, 0);
 });
 
 function createRepository(t: TestContext): RuntimeRepository {
@@ -274,5 +337,98 @@ function createRunInput(
       bootstrapTimeoutSec: 120,
     },
     requestedBy: overrides.requestedBy ?? "Kimball Hill",
+  };
+}
+
+function createLoadedConfigFixture(): LoadedConfig {
+  return {
+    sourcePath: "/tmp/config.toml",
+    version: 1 as const,
+    paths: {
+      stateDir: "/tmp/state",
+      dataDir: "/tmp/data",
+      logDir: "/tmp/logs",
+    },
+    policy: {
+      maxConcurrentRuns: 4,
+      maxRunsPerProvider: 2,
+      allowMixedProviders: true,
+      defaultPhaseTimeoutSec: 5400,
+    },
+    prompts: {
+      root: "/tmp/prompts",
+      activePack: "default",
+    },
+    promptPacks: {
+      default: {
+        name: "default",
+        baseSystem: "/tmp/prompts/base/system.md",
+        roles: {},
+        phases: {},
+        capabilities: {},
+        overlays: {},
+        experiments: {},
+      },
+    },
+    providers: {},
+    profiles: {
+      local: {
+        name: "local",
+        planningProviderName: "local_planning",
+        contextProviderName: "local_context",
+        promptPackName: "default",
+        planningProvider: {
+          name: "local_planning",
+          kind: "planning.local_files",
+          family: "planning",
+          root: "/tmp/planning",
+        },
+        contextProvider: {
+          name: "local_context",
+          kind: "context.local_files",
+          family: "context",
+          root: "/tmp/context",
+          templates: {},
+        },
+        promptPack: {
+          name: "default",
+          baseSystem: "/tmp/prompts/base/system.md",
+          roles: {},
+          phases: {},
+          capabilities: {},
+          overlays: {},
+          experiments: {},
+        },
+      },
+    },
+    activeProfileName: "local",
+    activeProfile: {
+      name: "local",
+      planningProviderName: "local_planning",
+      contextProviderName: "local_context",
+      promptPackName: "default",
+      planningProvider: {
+        name: "local_planning",
+        kind: "planning.local_files",
+        family: "planning",
+        root: "/tmp/planning",
+      },
+      contextProvider: {
+        name: "local_context",
+        kind: "context.local_files",
+        family: "context",
+        root: "/tmp/context",
+        templates: {},
+      },
+      promptPack: {
+        name: "default",
+        baseSystem: "/tmp/prompts/base/system.md",
+        roles: {},
+        phases: {},
+        capabilities: {},
+        overlays: {},
+        experiments: {},
+      },
+    },
   };
 }

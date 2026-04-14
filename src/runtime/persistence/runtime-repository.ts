@@ -387,11 +387,19 @@ export class RuntimeRepository {
           .prepare(
             `
               UPDATE runs
-              SET last_heartbeat_at = ?
+              SET last_heartbeat_at = CASE
+                WHEN last_heartbeat_at IS NULL OR last_heartbeat_at < ?
+                  THEN ?
+                ELSE last_heartbeat_at
+              END
               WHERE run_id = ?
             `,
           )
-          .run(heartbeatInput.emittedAt, heartbeatInput.runId);
+          .run(
+            heartbeatInput.emittedAt,
+            heartbeatInput.emittedAt,
+            heartbeatInput.runId,
+          );
 
         return {
           ...heartbeatInput,
