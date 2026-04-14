@@ -19,3 +19,11 @@ Deliverables:
 - risk list
 - verification plan
 - automated test plan or explicit test-gap rationale
+
+Return your result in this shape:
+
+STATUS: completed | failed | waiting_human
+SUMMARY:
+DETAILS:
+ARTIFACT: markdown implementation plan
+REQUESTED_HUMAN_INPUT: optional blocking question

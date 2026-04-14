@@ -20,3 +20,11 @@ Deliverables:
 - decisions and tradeoffs
 - open questions
 - recommended next step
+
+Return your result in this shape:
+
+STATUS: completed | failed | waiting_human
+SUMMARY:
+DETAILS:
+ARTIFACT: markdown design note
+REQUESTED_HUMAN_INPUT: optional blocking question

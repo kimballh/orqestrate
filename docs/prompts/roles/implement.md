@@ -19,3 +19,17 @@ Deliverables:
 - automated tests added or updated for behavior changes, or explicit rationale for the gap
 - clear change summary
 - explicit blocker if the work cannot be completed
+
+Return your result in this shape:
+
+STATUS: completed | failed | waiting_human
+SUMMARY:
+DETAILS:
+VERIFICATION:
+- commands run
+- pass/fail
+- notes
+ARTIFACT:
+- implementation summary markdown
+- evidence markdown
+REQUESTED_HUMAN_INPUT: optional blocking question

@@ -186,6 +186,62 @@ test("loads the docs example default prompt pack with non-placeholder prompt ass
       `${assetPath} should not contain placeholder text`,
     );
   }
+
+  const roleContracts: Record<string, string[]> = {
+    design: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "ARTIFACT: markdown design note",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+    plan: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "ARTIFACT: markdown implementation plan",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+    implement: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "VERIFICATION:",
+      "ARTIFACT:",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+    review: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "ARTIFACT: markdown review report",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+    merge: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "ARTIFACT: markdown merge summary",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+  };
+
+  for (const [role, markers] of Object.entries(roleContracts)) {
+    const contents = readFileSync(pack.roles[role], "utf8");
+
+    for (const marker of markers) {
+      assert.match(
+        contents,
+        new RegExp(escapeRegExp(marker)),
+        `${role} role prompt should include '${marker}'`,
+      );
+    }
+  }
 });
 
 test("rejects unsupported provider kinds", () => {
@@ -326,4 +382,8 @@ function writePromptFixtureFiles(promptRoot: string): void {
     mkdirSync(path.dirname(absolutePath), { recursive: true });
     writeFileSync(absolutePath, contents, "utf8");
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

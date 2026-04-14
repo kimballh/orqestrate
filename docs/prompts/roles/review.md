@@ -17,3 +17,11 @@ Deliverables:
 - verification gaps
 - missing or weak test coverage called out explicitly when relevant
 - approval summary if no blocking findings remain
+
+Return your result in this shape:
+
+STATUS: completed | failed | waiting_human
+SUMMARY:
+DETAILS:
+ARTIFACT: markdown review report
+REQUESTED_HUMAN_INPUT: optional blocking question

@@ -16,3 +16,11 @@ Deliverables:
 - merge readiness or blocker summary
 - final verification summary
 - residual risk or follow-up notes
+
+Return your result in this shape:
+
+STATUS: completed | failed | waiting_human
+SUMMARY:
+DETAILS:
+ARTIFACT: markdown merge summary
+REQUESTED_HUMAN_INPUT: optional blocking question
