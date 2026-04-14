@@ -47,7 +47,7 @@ See [config.example.toml](./config.example.toml).
 
 ```toml
 version = 1
-active_profile = "saas"
+active_profile = "local"
 
 [paths]
 state_dir = ".harness/state"
