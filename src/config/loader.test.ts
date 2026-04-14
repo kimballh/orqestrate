@@ -42,6 +42,7 @@ review = "phases/review.md"
 kind = "planning.linear"
 token_env = "LINEAR_API_KEY"
 team = "ENG"
+project = "Platform"
 
 [providers.notion_main]
 kind = "context.notion"
@@ -103,6 +104,7 @@ test("loads the docs example for the saas profile when required env vars exist",
 
   assert.equal(config.activeProfileName, "saas");
   assert.equal(config.activeProfile.planningProvider.kind, "planning.linear");
+  assert.equal(config.activeProfile.planningProvider.project, "Orqestrate Build");
   assert.equal(config.activeProfile.contextProvider.kind, "context.notion");
 });
 
@@ -150,6 +152,33 @@ test("normalizes relative filesystem and prompt asset paths against the config l
     config.promptPacks.default.phases.review,
     path.join(fixture.workspaceDir, "prompts", "phases", "review.md"),
   );
+});
+
+test("parses optional Linear project selectors and status-name overrides", () => {
+  const fixture = createFixtureWorkspace();
+  const config = parseConfig(
+    `${VALID_CONFIG}
+
+[providers.linear_main.mapping]
+implement_status = "Building"
+review_status = "QA Review"
+`,
+    {
+      sourcePath: fixture.sourcePath,
+      activeProfile: "saas",
+      env: {
+        LINEAR_API_KEY: "linear-token",
+        NOTION_TOKEN: "notion-token",
+      },
+    },
+  );
+
+  assert.equal(config.activeProfile.planningProvider.kind, "planning.linear");
+  assert.equal(config.activeProfile.planningProvider.project, "Platform");
+  assert.deepEqual(config.activeProfile.planningProvider.mapping, {
+    implement_status: "Building",
+    review_status: "QA Review",
+  });
 });
 
 test("loads the docs example default prompt pack with non-placeholder prompt assets", async () => {
