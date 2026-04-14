@@ -134,6 +134,11 @@ Use:
 
 When a decision is likely to matter again, prefer writing it into `docs/` rather than leaving it only in a ticket comment.
 
+Important phase rule for this repository:
+
+- `design` and `plan` should write durable context to Notion and Linear, not to repo-tracked files, unless the user explicitly asks for a repo-doc change
+- repo-tracked docs normally move with `implement` work or with dedicated documentation tickets
+
 Quality and verification policy lives in:
 
 - `docs/quality_policy.md`
@@ -152,7 +157,15 @@ When the user asks for `design`:
 - produce or update a Notion design artifact
 - leave a concise Linear comment linking to the artifact and summarizing the result
 
-Do not implement code changes unless explicitly asked.
+Do not:
+
+- implement code changes
+- modify repo-tracked files
+- create commits
+- create or switch branches
+- open a pull request
+
+unless the user explicitly asks for one of those actions.
 
 ### Plan
 
@@ -163,7 +176,15 @@ When the user asks for `plan`:
 - update the Notion artifact
 - leave a concise Linear comment linking to the plan
 
-Do not implement unless explicitly asked.
+Do not:
+
+- implement code changes
+- modify repo-tracked files
+- create commits
+- create or switch branches
+- open a pull request
+
+unless the user explicitly asks for one of those actions.
 
 ### Implement
 
@@ -177,6 +198,15 @@ When the user asks for `implement`:
 - update local docs when the change affects durable project knowledge
 - update the Notion artifact with implementation summary and evidence
 - leave a concise Linear comment with outcome and verification summary
+
+When the run is happening in a dedicated worktree or branch-backed workflow:
+
+- treat the current checked-out branch as authoritative unless the user explicitly provides a different branch
+- do not invent a second feature branch for the same run
+- commit the completed implementation to the assigned/current branch
+- push the branch
+- create a pull request if one does not already exist
+- update the existing pull request if one already exists
 
 If you do not add automated coverage for a behavior change, explain the gap explicitly in:
 
@@ -195,6 +225,14 @@ When the user asks for `review`:
 - update the Notion artifact with the review output
 - leave a concise Linear comment summarizing findings
 
+By default, review is read-only with respect to the repo branch unless the user explicitly asks for rework.
+
+If the review run is using the same GitHub actor that authored the PR:
+
+- do not require a formal GitHub review state
+- leave comment-only findings on the PR instead
+- treat those comments as the durable review surface for the run
+
 ## Direct tool use policy
 
 Default rule:
@@ -208,6 +246,11 @@ In this repository’s current human-orchestrated mode, direct Linear and Notion
 - writing long-form artifacts to Notion
 - writing concise progress or outcome comments to Linear
 
+Git and GitHub execution-surface writes are also allowed when the assigned phase and workspace call for them:
+
+- `implement` may commit, push, and create or update the PR for the assigned/current branch
+- `review` may inspect the PR and leave findings when that is part of the assigned run
+
 Do not use Linear or Notion to silently invent workflow transitions.
 
 ## Working style
@@ -219,7 +262,7 @@ For each assigned ticket:
 3. Do the assigned work in the repo.
 4. Update the durable artifact surface:
    - Notion for long-form artifact
-   - `docs/` for durable local project knowledge when appropriate
+   - `docs/` for durable local project knowledge when appropriate during implementation or explicit documentation work
 5. Add a concise Linear comment summarizing the run.
 6. Return a local summary to the user with verification and remaining risks.
 

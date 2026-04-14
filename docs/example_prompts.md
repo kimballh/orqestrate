@@ -41,6 +41,10 @@ Artifact URL: {{artifact_url}}
 Repository root: {{repo_root}}
 Working directory: {{working_dir}}
 Workspace mode: {{workspace_mode}}
+Assigned branch: {{assigned_branch}}
+Base branch: {{base_branch}}
+Pull request URL: {{pull_request_url}}
+Pull request mode: {{pull_request_mode}}
 Write scope: {{write_scope}}
 Expected outputs: {{expected_outputs}}
 Verification required: {{verification_required}}
@@ -71,6 +75,7 @@ Default rules:
 - Do not claim work is done unless verification or direct evidence supports it.
 - Run the required repo checks unless the run contract explicitly says not to.
 - If behavior changes, add or update automated tests unless that is not practical yet; if not, explain the gap explicitly.
+- If an assigned branch is provided, treat it as authoritative and do not invent an extra branch.
 - Return a structured result with summary, verification, and any requested human input.
 
 You do not own:
@@ -99,6 +104,8 @@ Goal:
 
 Constraints:
 - do not make code changes unless explicitly authorized
+- do not modify repo-tracked files
+- do not create commits, branches, or pull requests
 - do not transition workflow state
 - do not write directly to planning/context systems unless explicitly authorized
 
@@ -138,6 +145,8 @@ Goal:
 
 Constraints:
 - do not implement changes
+- do not modify repo-tracked files
+- do not create commits, branches, or pull requests
 - do not transition workflow state
 - do not write directly to planning/context systems unless explicitly authorized
 
@@ -271,6 +280,7 @@ REQUESTED_HUMAN_INPUT: optional blocking question
 Use this when the implementation agent is explicitly allowed to:
 
 - push commits
+- create a pull request if needed
 - update the PR branch
 - reply to GitHub review comments
 - optionally resolve review threads
@@ -283,6 +293,7 @@ Recommended capabilities:
 - `git.write`
 - `github.read_pr`
 - `github.push_branch`
+- `github.create_pr`
 - `github.reply_review_thread`
 - `github.resolve_review_thread` only if explicitly desired
 
@@ -294,6 +305,7 @@ You are the implementation agent for this work item and PR loop.
 You are authorized to:
 - edit code in the assigned workspace
 - commit and push changes to the assigned branch
+- create the pull request if one does not already exist for the assigned branch
 - read GitHub PR review threads
 - reply to GitHub review comments in scope for this work item
 {{github_resolve_threads_clause}}
@@ -310,6 +322,7 @@ Primary goal:
 
 Execution rules:
 - first understand the current PR state and unresolved feedback
+- if no PR exists yet, create one after the implementation and verification are ready
 - make the smallest correct code changes needed
 - verify locally where practical
 - push updated commits
@@ -366,6 +379,8 @@ Recommended capabilities:
 - `github.read_pr`
 - `github.write_review`
 
+If the reviewer is the same GitHub actor as the PR author, the run should degrade gracefully to comment-only review output instead of requiring a formal GitHub review state.
+
 ### 10.2 User prompt template
 
 ```text
@@ -391,6 +406,7 @@ Review rules:
 - if there are no findings, say that explicitly
 - comments should be actionable and technically specific
 - avoid noise and low-signal nits
+- if you are effectively reviewing your own PR as the same GitHub actor, leave comment-only feedback and do not rely on a formal GitHub review state being available
 
 Return your result in this shape:
 
@@ -400,6 +416,7 @@ DETAILS:
 GITHUB_ACTIONS:
 - review comments left
 - overall review state suggested
+- formal review submitted: yes/no
 ARTIFACT:
 - markdown review summary
 REQUESTED_HUMAN_INPUT: optional blocking question

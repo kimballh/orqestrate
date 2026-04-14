@@ -267,6 +267,8 @@ Agent should:
 
 Agent should not:
 
+- modify repo-tracked files by default
+- create commits, branches, or pull requests
 - transition the work item to the next workflow state
 
 ### 11.2 Plan
@@ -279,6 +281,8 @@ Agent should:
 
 Agent should not:
 
+- modify repo-tracked files by default
+- create commits, branches, or pull requests
 - claim implementation has started
 
 ### 11.3 Implement
@@ -288,9 +292,12 @@ Agent should:
 - change code
 - run verification
 - summarize what changed
+- commit and push the assigned branch when the run contract authorizes branch-backed delivery
+- create or update the pull request when the run contract authorizes GitHub delivery
 
 Agent should not:
 
+- invent a second feature branch when an assigned branch already exists
 - mark the ticket `Review` directly in the planning backend unless explicitly delegated to do so by the orchestrator
 
 ### 11.4 Review
@@ -299,10 +306,12 @@ Agent should:
 
 - inspect changes
 - produce findings or approval summary
+- degrade to comment-only PR feedback when the reviewer actor is the same GitHub actor as the PR author
 
 Agent should not:
 
-- directly transition the work item to `Done` or invent a `merge` handoff by default
+- change repo contents by default unless the run is explicitly a rework run
+- directly transition the work item to `Done` or invent a merge handoff by default
 
 ### 11.5 Merge
 
@@ -323,6 +332,7 @@ Recommended prompt rules:
 - you are assigned one scoped run
 - your job is to complete the assigned phase in the provided workspace
 - do not mutate global workflow state unless the run explicitly authorizes it
+- if the run includes an assigned branch, do not create a second one
 - return structured outputs and verification evidence
 - if blocked, ask for concrete human input instead of inventing policy
 
