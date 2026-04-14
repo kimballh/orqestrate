@@ -209,6 +209,16 @@ export class RunExecutor {
       });
     }
 
+    const run = this.requireRun(runId);
+    if (run.status !== "waiting_human" || context.currentRun.status !== "waiting_human") {
+      throw new RuntimeError(
+        `Run '${runId}' is not waiting for human input.`,
+        {
+          code: "invalid_run_state_transition",
+        },
+      );
+    }
+
     await context.adapter.submitHumanInput(context.controller, input);
     context.pendingHeartbeat.bytesWritten += Buffer.byteLength(input.message);
     context.currentRun = this.repository.resumeRunFromWaitingHuman({

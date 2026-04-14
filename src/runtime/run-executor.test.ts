@@ -238,6 +238,47 @@ test("failed human input delivery keeps the run in waiting_human", async (t) => 
   await execution;
 });
 
+test("human input rejects before adapter delivery when the run is not waiting", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const adapter = new FakeProviderAdapter();
+  const registry = new RuntimeAdapterRegistry().register("codex", () => adapter);
+  const supervisor = new FakeSessionSupervisor();
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+    },
+  );
+  repository.enqueueRun(createRunInput());
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  await waitForAsyncTurn();
+  supervisor.emitOutput("session-1", "READY\n");
+  await waitForAsyncTurn();
+
+  await assert.rejects(
+    () =>
+      executor.submitHumanInput(claimedRun.runId, {
+        kind: "answer",
+        message: "This should be rejected before delivery.",
+      }),
+    /not waiting for human input/,
+  );
+
+  assert.equal(adapter.humanInputCalls, 0);
+
+  await executor.cancelRun(claimedRun.runId, "Stop after rejected input.");
+  await execution;
+});
+
 type RuntimeFixture = {
   rootDir: string;
   runtimeConfig: {
@@ -368,6 +409,7 @@ class FakeSessionSupervisor implements SessionSupervisor {
 
 class FakeProviderAdapter implements ProviderAdapter {
   readonly kind = "codex" as const;
+  humanInputCalls = 0;
 
   constructor(
     private readonly options: {
@@ -431,6 +473,8 @@ class FakeProviderAdapter implements ProviderAdapter {
     session: RuntimeSessionController,
     input: HumanInput,
   ): Promise<void> {
+    this.humanInputCalls += 1;
+
     if (this.options.failHumanInput === true) {
       throw new Error("fake human input failure");
     }
