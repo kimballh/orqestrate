@@ -140,6 +140,10 @@ export class RuntimeDaemon {
       return;
     }
 
+    if (this.#executor !== null) {
+      this.#executor.shutdown();
+    }
+
     this.#database.close();
     this.#database = null;
     this.#repository = null;

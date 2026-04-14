@@ -73,6 +73,7 @@ test("run executor drives a claimed run to completion and records evidence", asy
 
   supervisor.emitOutput("session-1", "READY\n");
   supervisor.emitOutput("session-1", "PROGRESS\n");
+  await new Promise((resolve) => setTimeout(resolve, 10));
   supervisor.emitExit("session-1", 0, null);
 
   const completedRun = await execution;
@@ -92,6 +93,56 @@ test("run executor drives a claimed run to completion and records evidence", asy
   assert.ok(heartbeatCount.count >= 1);
   assert.match(logContents, /READY/);
   assert.match(logContents, /PROGRESS/);
+});
+
+test("shutdown marks active runs stale and ignores later heartbeat ticks", async (t) => {
+  const { fixture, database, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  let heartbeatTick: (() => void) | null = null;
+  let heartbeatCleared = false;
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+      setInterval: ((callback: () => void) => {
+        heartbeatTick = callback;
+        return { kind: "heartbeat-timer" } as unknown as ReturnType<typeof setInterval>;
+      }) as typeof setInterval,
+      clearInterval: (() => {
+        heartbeatCleared = true;
+      }) as typeof clearInterval,
+    },
+  );
+  repository.enqueueRun(createRunInput());
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  await waitForAsyncTurn();
+
+  supervisor.emitOutput("session-1", "READY\n");
+  await waitForAsyncTurn();
+  assert.equal(repository.getRun(claimedRun.runId)?.status, "running");
+  assert.ok(heartbeatTick !== null);
+
+  executor.shutdown();
+  const staleRun = await execution;
+
+  assert.equal(staleRun.status, "stale");
+  assert.equal(heartbeatCleared, true);
+
+  database.close();
+  assert.doesNotThrow(() => heartbeatTick?.());
 });
 
 test("run executor does not mark a session ready until the adapter or snapshot proves it", async (t) => {

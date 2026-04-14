@@ -73,6 +73,7 @@ const TERMINAL_STATUSES = new Set<RunStatus>([
 
 export class RunExecutor {
   private readonly liveRuns = new LiveRunRegistry<LiveRunContext>();
+  private readonly activeContexts = new Map<string, LiveRunContext>();
   private readonly now: () => string;
   private readonly setIntervalFn: typeof globalThis.setInterval;
   private readonly clearIntervalFn: typeof globalThis.clearInterval;
@@ -123,6 +124,7 @@ export class RunExecutor {
         resolve,
         reject,
       };
+      this.activeContexts.set(run.runId, context);
 
       void this.executeInternal(context).catch((error) => {
         if (context.finishing) {
@@ -141,6 +143,35 @@ export class RunExecutor {
   hasLiveSession(runId: string): boolean {
     const context = this.liveRuns.getByRunId(runId);
     return context !== null && context.controller !== null;
+  }
+
+  shutdown(reason = "Runtime daemon stopped before the live run finished."): void {
+    for (const context of this.activeContexts.values()) {
+      if (context.finishing) {
+        continue;
+      }
+
+      context.finishing = true;
+      this.clearTimers(context);
+      this.liveRuns.removeByRunId(context.run.runId);
+
+      if (!TERMINAL_STATUSES.has(context.currentRun.status)) {
+        context.currentRun = this.repository.markRunStaleOnRecovery({
+          runId: context.run.runId,
+          occurredAt: this.now(),
+          reason,
+        });
+      }
+
+      this.activeContexts.delete(context.run.runId);
+
+      if (context.controller !== null) {
+        void this.supervisor.terminate(context.controller.sessionId, true);
+        context.controller = null;
+      }
+
+      context.resolve(context.currentRun);
+    }
   }
 
   async interruptRun(runId: string): Promise<PersistedRunRecord> {
@@ -292,6 +323,10 @@ export class RunExecutor {
     context: LiveRunContext,
     event: SessionOutputChunk,
   ): Promise<void> {
+    if (context.finishing) {
+      return;
+    }
+
     appendFileSync(context.logFilePath, event.chunk);
     context.pendingHeartbeat.bytesRead += Buffer.byteLength(event.chunk);
 
@@ -357,6 +392,7 @@ export class RunExecutor {
     signal?: Extract<RuntimeSignal, { type: "ready" }>,
   ): Promise<void> {
     if (
+      context.finishing ||
       context.controller === null ||
       context.ready ||
       context.currentRun.status !== "bootstrapping"
@@ -448,6 +484,8 @@ export class RunExecutor {
       context.resolve(context.currentRun);
     } catch (error) {
       context.reject(error);
+    } finally {
+      this.activeContexts.delete(context.run.runId);
     }
   }
 
@@ -559,7 +597,7 @@ export class RunExecutor {
     context: LiveRunContext,
     allowQuietTick: boolean,
   ): void {
-    if (TERMINAL_STATUSES.has(context.currentRun.status)) {
+    if (context.finishing || TERMINAL_STATUSES.has(context.currentRun.status)) {
       return;
     }
 
