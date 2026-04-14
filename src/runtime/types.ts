@@ -1,5 +1,6 @@
 import type {
   AgentProvider,
+  PromptEnvelope,
   ProviderError,
   RunRecord,
   RunStatus,
@@ -58,6 +59,15 @@ export type PersistedRunRecord = RunRecord & {
 export type CreateRunInput = RunSubmissionPayload & {
   priority?: number;
 };
+
+export type ExecutableRunRecord = PersistedRunRecord & {
+  prompt: PromptEnvelope;
+};
+
+export type RunTerminalStatus = Extract<
+  RunStatus,
+  "completed" | "failed" | "canceled" | "stale"
+>;
 
 export type ListRunsFilters = {
   status?: RunStatus;
@@ -149,6 +159,8 @@ export type UpdateWorkspaceAllocationStatusInput = {
 };
 
 export type RuntimeOutcomeSnapshot = {
+  code?: string | null;
+  exitCode?: number | null;
   summary?: string | null;
   verification?: VerificationSummary | null;
   error?: ProviderError | null;

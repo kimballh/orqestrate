@@ -23,7 +23,7 @@ test("openRuntimeDatabase initializes WAL mode and the canonical schema", (t) =>
   const database = openRuntimeDatabase(fixture.runtimeConfig.databasePath);
   t.after(() => database.close());
 
-  assert.equal(getRuntimeSchemaVersion(database.connection), 1);
+  assert.equal(getRuntimeSchemaVersion(database.connection), 2);
   assert.equal(
     database.connection.pragma("journal_mode", { simple: true }),
     "wal",
