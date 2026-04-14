@@ -271,6 +271,21 @@ test("preserves blocked phase and clears terminal phases on transitions", async 
         owner: "reviewer-1",
         runId: "run-2",
         leaseUntil: "2099-04-14T01:05:00.000Z",
+        reviewOutcome: "changes_requested",
+        attemptCount: 3,
+      },
+    }),
+    createWorkItem({
+      id: "ISSUE-3",
+      status: "implement",
+      phase: "implement",
+      orchestration: {
+        state: "completed",
+        owner: null,
+        runId: "run-3",
+        leaseUntil: null,
+        reviewOutcome: "changes_requested",
+        attemptCount: 2,
       },
     }),
   ]);
@@ -304,6 +319,30 @@ test("preserves blocked phase and clears terminal phases on transitions", async 
   assert.equal(done.phase, "none");
   assert.equal(done.orchestration.owner, null);
   assert.equal(done.orchestration.leaseUntil, null);
+  assert.equal(done.orchestration.reviewOutcome, "none");
+  assert.equal(done.orchestration.attemptCount, 0);
+
+  const movedToReview = await backend.transitionWorkItem({
+    id: "ISSUE-3",
+    nextStatus: "review",
+    nextPhase: "review",
+    state: "completed",
+    runId: "run-3",
+  });
+
+  assert.equal(movedToReview.phase, "review");
+  assert.equal(movedToReview.orchestration.reviewOutcome, "none");
+  assert.equal(movedToReview.orchestration.attemptCount, 0);
+
+  const claimedReview = await backend.claimWorkItem({
+    id: "ISSUE-3",
+    phase: "review",
+    owner: "reviewer-2",
+    runId: "run-4",
+    leaseUntil: "2099-04-14T01:10:00.000Z",
+  });
+
+  assert.equal(claimedReview.orchestration.attemptCount, 1);
 });
 
 test("appends comments, updates timestamps, and returns local deep links", async (t) => {
@@ -386,6 +425,29 @@ test("rejects malformed issue files, duplicate identifiers, and stale indexes", 
   await assert.rejects(
     () => duplicateBackend.validateConfig(),
     /Duplicate issue identifier/i,
+  );
+
+  const invalidErrorRoot = await createTempPlanningRoot();
+  t.after(async () => {
+    await rm(invalidErrorRoot, { recursive: true, force: true });
+  });
+
+  await writeIssueFile(
+    invalidErrorRoot,
+    "BAD-ERROR",
+    `${JSON.stringify({
+      ...createWorkItem({ id: "BAD-ERROR" }),
+      orchestration: {
+        ...createWorkItem({ id: "BAD-ERROR" }).orchestration,
+        lastError: { oops: true },
+      },
+    }, null, 2)}\n`,
+  );
+
+  const invalidErrorBackend = createBackend(invalidErrorRoot);
+  await assert.rejects(
+    () => invalidErrorBackend.validateConfig(),
+    /providerFamily/i,
   );
 
   const staleRoot = await createTempPlanningRoot();

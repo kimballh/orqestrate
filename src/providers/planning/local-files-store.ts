@@ -17,6 +17,8 @@ import { pathToFileURL } from "node:url";
 import type { PlanningLocalFilesProviderConfig } from "../../config/types.js";
 import {
   ORCHESTRATION_STATES,
+  PROVIDER_ERROR_CODES,
+  PROVIDER_FAMILIES,
   REVIEW_OUTCOMES,
   WORK_ITEM_STATUSES,
   WORK_PHASES,
@@ -338,9 +340,7 @@ export class LocalFilesPlanningStore {
               : input.runId,
           leaseUntil: null,
           reviewOutcome:
-            input.reviewOutcome === undefined
-              ? record.orchestration.reviewOutcome ?? null
-              : input.reviewOutcome,
+            input.reviewOutcome === undefined ? "none" : input.reviewOutcome,
           blockedReason:
             input.blockedReason === undefined
               ? input.nextStatus === "blocked"
@@ -353,6 +353,10 @@ export class LocalFilesPlanningStore {
                 ? record.orchestration.lastError ?? null
                 : null
               : input.lastError,
+          attemptCount:
+            resolvedPhase === record.phase
+              ? record.orchestration.attemptCount
+              : 0,
         },
       };
     });
@@ -992,7 +996,34 @@ function readNullableProviderError(
     throw new Error(`${source}.${fieldName} must be an object or null.`);
   }
 
-  return value as ProviderError;
+  const errorSource = `${source}.${fieldName}`;
+
+  return {
+    providerFamily: readEnumValue(
+      value.providerFamily,
+      PROVIDER_FAMILIES,
+      "providerFamily",
+      errorSource,
+    ),
+    providerKind: readNonEmptyString(
+      value.providerKind,
+      "providerKind",
+      errorSource,
+    ),
+    code: readEnumValue(
+      value.code,
+      PROVIDER_ERROR_CODES,
+      "code",
+      errorSource,
+    ),
+    message: readNonEmptyString(value.message, "message", errorSource),
+    retryable: readBoolean(value.retryable, "retryable", errorSource),
+    details: readNullableProviderErrorDetails(
+      value.details,
+      "details",
+      errorSource,
+    ),
+  };
 }
 
 function assertBlockedByReferences(recordsById: Map<string, WorkItemRecord>): void {
@@ -1245,6 +1276,51 @@ function readNullableEnumValue<const TValues extends readonly string[]>(
   }
 
   return readEnumValue(value, allowedValues, fieldName, source);
+}
+
+function readBoolean(
+  value: unknown,
+  fieldName: string,
+  source: string,
+): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`${source}.${fieldName} must be a boolean.`);
+  }
+
+  return value;
+}
+
+function readNullableProviderErrorDetails(
+  value: unknown,
+  fieldName: string,
+  source: string,
+): Record<string, string | number | boolean | null> | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`${source}.${fieldName} must be an object or null.`);
+  }
+
+  const details: Record<string, string | number | boolean | null> = {};
+
+  for (const [detailKey, detailValue] of Object.entries(value)) {
+    if (
+      detailValue !== null &&
+      typeof detailValue !== "string" &&
+      typeof detailValue !== "number" &&
+      typeof detailValue !== "boolean"
+    ) {
+      throw new Error(
+        `${source}.${fieldName}.${detailKey} must be a string, number, boolean, or null.`,
+      );
+    }
+
+    details[detailKey] = detailValue;
+  }
+
+  return details;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
