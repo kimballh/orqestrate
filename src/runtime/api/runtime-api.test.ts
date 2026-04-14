@@ -7,6 +7,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { RuntimeDaemon } from "../daemon.js";
+import { RuntimeAdapterRegistry } from "../runtime-adapter-registry.js";
 import { RuntimeApiServer } from "./server.js";
 import {
   createRunInput,
@@ -154,6 +155,7 @@ test("runtime API server does not unlink a live Unix socket when a second server
   const socketPath = path.join(fixture.runtimeConfig.stateDir, "runtime.sock");
 
   const firstDaemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    adapterRegistry: new RuntimeAdapterRegistry(),
     sessionSupervisor: new FakeSessionSupervisor(),
     dispatcherIntervalMs: 5,
   });
@@ -165,6 +167,7 @@ test("runtime API server does not unlink a live Unix socket when a second server
   });
   await firstServer.start();
   const secondDaemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    adapterRegistry: new RuntimeAdapterRegistry(),
     sessionSupervisor: new FakeSessionSupervisor(),
     dispatcherIntervalMs: 5,
   });
@@ -244,6 +247,7 @@ async function createApiFixture(
 
   const supervisor = new FakeSessionSupervisor();
   const daemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    adapterRegistry: new RuntimeAdapterRegistry(),
     sessionSupervisor: supervisor,
     dispatcherIntervalMs: 5,
   });

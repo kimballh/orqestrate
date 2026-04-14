@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { RuntimeDaemon } from "./daemon.js";
+import { RuntimeAdapterRegistry } from "./runtime-adapter-registry.js";
 import {
   createRunInput,
   createRuntimeFixture,
@@ -18,6 +19,7 @@ test("runtime daemon dispatches queued runs under capacity and backfills after c
 
   const supervisor = new FakeSessionSupervisor();
   const daemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    adapterRegistry: new RuntimeAdapterRegistry(),
     sessionSupervisor: supervisor,
     dispatcherIntervalMs: 5,
   });
@@ -47,4 +49,11 @@ test("runtime daemon dispatches queued runs under capacity and backfills after c
   supervisor.emitOutput("session-2", "READY\n");
   supervisor.emitExit("session-2", 0, null);
   await waitForRunStatus(daemon, "run-002", "completed");
+});
+
+test("runtime daemon registers the built-in Codex adapter by default", (t) => {
+  const fixture = createRuntimeFixture(t);
+  const daemon = new RuntimeDaemon(fixture.runtimeConfig);
+
+  assert.deepEqual(daemon.adapterRegistry.listProviders(), ["codex"]);
 });
