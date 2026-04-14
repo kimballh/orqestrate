@@ -9,7 +9,7 @@ It pulls together the earlier design docs into one end-to-end view:
 - orchestrator behavior
 - runtime daemon behavior
 - workspace and persistence boundaries
-- local-first deployment shape
+- deployment topology and profile variants
 
 The target outcome is a system that can run as:
 
@@ -264,9 +264,9 @@ The system should use:
 
 That gives open-source users:
 
-- a local-only profile
-- a SaaS profile
-- a hybrid profile
+- a SaaS profile for the initial MVP
+- a local-only profile as an optional fallback
+- a hybrid profile for incremental adoption
 
 with one stable config format.
 
@@ -716,9 +716,9 @@ Both the orchestrator and runtime should normalize errors instead of leaking pro
 
 Normalized issues make retries, UI messaging, and operator notes much easier.
 
-## 20. Local-first deployment shape
+## 20. Local-only deployment shape
 
-The system should ship with a fully usable local mode.
+The system should support a fully usable local-only mode without making it the primary MVP target.
 
 ### 20.1 Local profile
 

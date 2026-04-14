@@ -338,14 +338,14 @@ Characteristics:
 - private orchestrator/runtime
 - webhook-driven wakeups plus poll-based reconciliation
 
-### 8.3 Local-only SaaS development mode
+### 8.3 Local polling deployment
 
-This is a good developer setup:
+This is a valid deployment shape when webhook ingress is unavailable:
 
 - no public ingress
 - orchestrator polls Linear directly
 - runtime stays local
-- useful before standing up webhook hosting
+- useful when webhook hosting is deferred or intentionally omitted
 
 ## 9. Network boundary rules
 

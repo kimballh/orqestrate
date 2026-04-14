@@ -1,18 +1,18 @@
 # Orqestrate Agent Harness
 
-This directory is the first-pass design for a Codex orchestration harness.
+This directory is the first-pass product architecture for Orqestrate.
 
-The first provider pair is:
+The initial MVP target is:
 
-- Linear as the human-facing workflow system and dispatch control plane
+- Linear as the planning system and dispatch control plane
 - Notion as the artifact store and run-history surface
-- an orchestrator service to poll actionable tickets and dispatch one phase at a time
+- an autonomous orchestrator service that claims actionable tickets and dispatches one phase at a time
 
-But the architecture is now intentionally providerized so the same harness can later support:
+The architecture is intentionally providerized so the same harness can later support:
 
 - other planning systems like Asana
 - other context systems like Google Drive
-- fully local deployments using file-backed providers for both
+- local-only deployments using file-backed providers for both
 
 ## Scope
 
@@ -33,7 +33,7 @@ The orchestrator does not parallelize those phases, and it does not split a sing
 - Make claiming and retries safe enough for a poll-based orchestrator.
 - Leave room for human intervention at every phase.
 - Keep provider-native details behind backend adapters so planning/context systems can be swapped without rewriting the core.
-- Support a zero-dependency local profile using local files for both planning and context.
+- Support optional local-only profiles using file-backed planning and context providers.
 
 ## Source of truth
 
@@ -51,13 +51,12 @@ This mirrors one of the most important lessons from OMX: do not overload one fie
 
 ## Documents
 
-- [architecture.md](./architecture.md) - end-to-end implementation review diagram covering config, providers, orchestrator, runtime, persistence, and local-first deployment
+- [architecture.md](./architecture.md) - end-to-end implementation review diagram covering config, providers, orchestrator, runtime, persistence, and deployment profiles
 - [domain_model.md](./domain_model.md) - canonical shared records, enums, authority boundaries, and serialization rules for cross-layer contracts
 - [agent_contract.md](./agent_contract.md) - explicit responsibility split between the code agent, orchestrator, and runtime daemon
 - [example_prompts.md](./example_prompts.md) - first-pass prompt templates for design, plan, implement, review, merge, and GitHub PR review loops
 - [quality_policy.md](./quality_policy.md) - current verification, testing, and CI expectations for local runs and future enforcement
 - [prompt_customization.md](./prompt_customization.md) - layered prompt overrides, prompt packs, capability fragments, and prompt testing model
-- [working_mode.md](./working_mode.md) - current human-orchestrated operating model using Linear, Notion, and local docs while Orqestrate is being built
 - [deployment_topology.md](./deployment_topology.md) - public webhook ingress vs private orchestrator/runtime deployment boundary and service topology
 - [provider_architecture.md](./provider_architecture.md) - abstract planning/context backend model, provider registry, and local-files built-ins
 - [config_model.md](./config_model.md) - `config.toml` schema with named provider instances and profiles
@@ -78,7 +77,9 @@ Use:
 
 - abstract `PlanningBackend` and `ContextBackend` families
 - `config.toml` with named providers and profiles
-- a built-in `local_files` provider for both planning and context
+- `planning.linear` as the initial MVP planning backend
+- `context.notion` as the initial MVP context backend
+- built-in `local_files` providers as optional secondary backends
 - Linear statuses for the coarse lifecycle
 - Linear custom fields for machine phase, lease, run id, and review outcome
 - Linear labels only for routing hints like `uiux`, `frontend`, `backend`, `infra`, `docs`

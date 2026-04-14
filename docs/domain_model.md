@@ -21,12 +21,20 @@ The goal is to let downstream tickets depend on stable type names instead of pro
 
 ## 2. Vocabulary resolution
 
-The repo currently contains two planning vocabularies:
+The canonical planning vocabulary for the initial MVP uses the Linear workflow statuses:
 
-- current working-mode statuses in [working_mode.md](./working_mode.md): `Backlog`, `Design`, `Plan`, `Implement`, `Review`, `Blocked`, `Done`, `Canceled`
-- older draft orchestration wording in docs like [linear_model.md](./linear_model.md): `Needs Design`, `Needs Plan`, `Ready`, `In Progress`, `In Review`, `Ready to Merge`
+- `Backlog`
+- `Design`
+- `Plan`
+- `Implement`
+- `Review`
+- `Blocked`
+- `Done`
+- `Canceled`
 
-For the first concrete contract, the current working-mode vocabulary wins.
+Some older draft docs still reference pre-v1 wording like `Needs Design`, `Needs Plan`, `Ready`, `In Progress`, `In Review`, or `Ready to Merge`.
+
+For the first concrete contract, the Linear MVP vocabulary wins.
 
 Canonical planning status values are:
 
