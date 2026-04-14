@@ -1,4 +1,4 @@
-# Orqestrate Codex Harness
+# Orqestrate Agent Harness
 
 This directory is the first-pass design for a Codex orchestration harness.
 
