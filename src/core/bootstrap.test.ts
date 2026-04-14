@@ -65,19 +65,31 @@ test("bootstraps the docs example local profile through the built-in registry", 
   );
 });
 
-test("bootstraps the docs example saas profile through the built-in registry", async () => {
+test("fails clearly when the docs example saas profile still uses placeholder Notion ids", async () => {
   const config = await loadExampleConfig("saas", {
     LINEAR_API_KEY: "linear-token",
     LINEAR_WEBHOOK_SECRET: "webhook-secret",
     NOTION_TOKEN: "notion-token",
   });
-  const result = await bootstrapActiveProfile(config, {
-    runHealthChecks: false,
-  });
 
-  assert.equal(result.report.profileName, "saas");
-  assert.ok(result.planning instanceof LinearPlanningBackend);
-  assert.ok(result.context instanceof NotionContextBackend);
+  await assert.rejects(
+    () =>
+      bootstrapActiveProfile(config, {
+        runHealthChecks: false,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof ProviderBootstrapError);
+      assert.equal(error.code, "provider_validation_failed");
+      assert.equal(error.family, "context");
+      assert.equal(error.providerName, "notion_main");
+      assert.match(error.message, /failed validation/i);
+      assert.match(
+        error.cause instanceof Error ? error.cause.message : "",
+        /artifacts_database_id/,
+      );
+      return true;
+    },
+  );
 });
 
 test("bootstraps the docs example hybrid profile through the built-in registry", async () => {
