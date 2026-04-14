@@ -156,6 +156,8 @@ test("run ledgers, evidence, and context bundles are persisted and summarized", 
   assert.equal(finalizedRun.status, "completed");
   assert.ok(storedArtifact);
   assert.equal(storedArtifact.verificationEvidencePresent, true);
+  assert.doesNotMatch(bundle.contextText, /No verification evidence captured yet\./);
+  assert.match(bundle.contextText, /Verification evidence file:/);
   assert.match(bundle.contextText, /Implemented the local-files backend\./);
   assert.match(bundle.contextText, /# Recent Run History/);
   assert.match(bundle.contextText, /run-1/);
@@ -172,6 +174,24 @@ test("run ledgers, evidence, and context bundles are persisted and summarized", 
   assert.match(evidence, /# Evidence/);
   assert.match(evidence, /## .* - Verification/);
   assert.match(evidence, /npm run check/);
+});
+
+test("rejects unsafe run ids before writing outside the backend root", async () => {
+  const backend = createBackend();
+  const escapedRunPath = path.join(backend.config.root, "..", "escaped.json");
+
+  await assert.rejects(
+    () =>
+      backend.createRunLedgerEntry({
+        runId: "../escaped",
+        workItem: WORK_ITEM,
+        phase: "implement",
+        status: "running",
+      }),
+    /filesystem-safe/,
+  );
+
+  await assert.rejects(() => access(escapedRunPath));
 });
 
 test("configured template overrides seed artifact and evidence content", async () => {

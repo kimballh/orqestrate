@@ -37,6 +37,9 @@ const EVIDENCE_TEMPLATE_KEYS = [
   "evidence_template",
   "evidence",
 ] as const;
+const VERIFICATION_SECTION_HEADING = "Verification";
+const VERIFICATION_SECTION_START = "<!-- orqestrate:verification:start -->";
+const VERIFICATION_SECTION_END = "<!-- orqestrate:verification:end -->";
 const SECTION_DEFINITIONS = [
   {
     phase: "design",
@@ -325,11 +328,33 @@ export class LocalFilesContextBackend extends UnimplementedContextBackend<Contex
     const artifact = await this.readArtifactRecord(paths.artifactMetadataPath);
 
     if (artifact !== null) {
+      const artifactMarkdown =
+        (await readFile(paths.artifactMarkdownPath, "utf8").catch(() => null)) ?? null;
       const nextArtifact: ArtifactRecord = {
         ...artifact,
         verificationEvidencePresent: true,
         updatedAt: timestamp,
       };
+
+      if (artifactMarkdown !== null) {
+        const verificationSummary = renderVerificationSection({
+          evidencePath,
+          latestSection: input.section,
+          latestTimestamp: timestamp,
+        });
+        const nextMarkdown = upsertSectionBody(
+          artifactMarkdown,
+          VERIFICATION_SECTION_HEADING,
+          verificationSummary,
+          {
+            startMarker: VERIFICATION_SECTION_START,
+            endMarker: VERIFICATION_SECTION_END,
+            nextHeading: "# Decision Log",
+          },
+        );
+
+        await writeFile(paths.artifactMarkdownPath, `${nextMarkdown.trimEnd()}\n`, "utf8");
+      }
 
       await this.writeArtifactRecord(paths.artifactMetadataPath, nextArtifact);
     }
@@ -358,10 +383,12 @@ export class LocalFilesContextBackend extends UnimplementedContextBackend<Contex
   }
 
   private getRunPath(runId: string): string {
+    assertSafeRunId(runId);
     return path.join(this.runsDir, `${runId}.json`);
   }
 
   private getEvidencePath(runId: string): string {
+    assertSafeRunId(runId);
     return path.join(this.evidenceDir, `${runId}.md`);
   }
 
@@ -400,9 +427,11 @@ export class LocalFilesContextBackend extends UnimplementedContextBackend<Contex
         endMarker(section.phase),
         "",
       ]),
-      "# Verification",
+      `# ${VERIFICATION_SECTION_HEADING}`,
       "",
+      VERIFICATION_SECTION_START,
       "No verification evidence captured yet.",
+      VERIFICATION_SECTION_END,
       "",
       "# Decision Log",
       "",
@@ -578,27 +607,10 @@ function upsertManagedSection(
   heading: string,
   content: string,
 ): string {
-  const existingSection = document.includes(startMarker(phase))
-    ? document
-    : [
-        document.trimEnd(),
-        "",
-        `# ${heading}`,
-        "",
-        startMarker(phase),
-        "Pending content.",
-        endMarker(phase),
-      ].join("\n");
-  const replacement = [
-    startMarker(phase),
-    content.length > 0 ? content : "_No content provided._",
-    endMarker(phase),
-  ].join("\n");
-  const pattern = new RegExp(
-    `${escapeRegExp(startMarker(phase))}[\\s\\S]*?${escapeRegExp(endMarker(phase))}`,
-  );
-
-  return existingSection.replace(pattern, replacement);
+  return upsertSectionBody(document, heading, content, {
+    startMarker: startMarker(phase),
+    endMarker: endMarker(phase),
+  });
 }
 
 function startMarker(phase: WorkPhase): string {
@@ -641,6 +653,91 @@ function renderTemplate(
   return template.replace(/{{\s*([A-Za-z0-9_.-]+)\s*}}/g, (_, rawKey: string) => {
     return variables[rawKey] ?? "";
   });
+}
+
+function renderVerificationSection(input: {
+  evidencePath: string;
+  latestSection: string;
+  latestTimestamp: string;
+}): string {
+  return [
+    `- Verification evidence file: \`${input.evidencePath}\``,
+    `- Latest evidence update: \`${input.latestTimestamp}\``,
+    `- Latest evidence section: ${input.latestSection}`,
+    "- Detailed verification output lives in the append-only evidence file.",
+  ].join("\n");
+}
+
+function upsertSectionBody(
+  document: string,
+  heading: string,
+  content: string,
+  options: {
+    startMarker: string;
+    endMarker: string;
+    nextHeading?: string;
+  },
+): string {
+  const withSection = document.includes(options.startMarker)
+    ? document
+    : insertSectionMarkers(document, heading, options);
+  const replacement = [
+    options.startMarker,
+    content.length > 0 ? content : "_No content provided._",
+    options.endMarker,
+  ].join("\n");
+  const markerPattern = new RegExp(
+    `${escapeRegExp(options.startMarker)}[\\s\\S]*?${escapeRegExp(options.endMarker)}`,
+  );
+
+  return withSection.replace(markerPattern, replacement);
+}
+
+function insertSectionMarkers(
+  document: string,
+  heading: string,
+  options: {
+    startMarker: string;
+    endMarker: string;
+    nextHeading?: string;
+  },
+): string {
+  const sectionHeading = `# ${heading}`;
+  const nextHeading = options.nextHeading ?? "";
+  const fallbackBody = "_No content provided._";
+  const escapedHeading = escapeRegExp(sectionHeading);
+  const escapedNextHeading = nextHeading.length > 0 ? escapeRegExp(nextHeading) : "";
+  const sectionPattern =
+    nextHeading.length > 0
+      ? new RegExp(`(${escapedHeading}\\n\\n)([\\s\\S]*?)(\\n(?=${escapedNextHeading}))`)
+      : new RegExp(`(${escapedHeading}\\n\\n)([\\s\\S]*)`);
+
+  if (sectionPattern.test(document)) {
+    return document.replace(sectionPattern, (_match, prefix: string, body: string, suffix = "") => {
+      const trimmedBody = body.trimEnd();
+      const sectionBody = trimmedBody.length > 0 ? trimmedBody : fallbackBody;
+
+      return `${prefix}${options.startMarker}\n${sectionBody}\n${options.endMarker}${suffix}`;
+    });
+  }
+
+  return [
+    document.trimEnd(),
+    "",
+    sectionHeading,
+    "",
+    options.startMarker,
+    fallbackBody,
+    options.endMarker,
+  ].join("\n");
+}
+
+function assertSafeRunId(runId: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(runId)) {
+    throw new Error(
+      `Run id '${runId}' is not filesystem-safe. Use only letters, numbers, dots, underscores, and hyphens.`,
+    );
+  }
 }
 
 function toWorkItemKey(workItemId: string): string {
