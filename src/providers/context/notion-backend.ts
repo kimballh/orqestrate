@@ -1,7 +1,10 @@
 import type { ContextNotionProviderConfig } from "../../config/types.js";
 import type {
+  AppendEvidenceInput,
   ContextBundle,
+  CreateRunLedgerEntryInput,
   EnsureArtifactInput,
+  FinalizeRunLedgerEntryInput,
   LoadContextBundleInput,
   WritePhaseArtifactInput,
 } from "../../core/context-backend.js";
@@ -9,6 +12,9 @@ import type { ProviderHealthCheckResult } from "../../core/provider-backend.js";
 import type {
   ArtifactRecord,
   ArtifactState,
+  ProviderError,
+  RunLedgerRecord,
+  RunStatus,
   WorkItemRecord,
   WorkPhase,
   WorkPhaseOrNone,
@@ -48,6 +54,20 @@ type NotionArtifactSchema = {
   verificationEvidencePropertyName: string;
 };
 
+type NotionRunSchema = {
+  titlePropertyName: string;
+  runIdPropertyName: string;
+  issueIdPropertyName: string;
+  linearUrlPropertyName: string | null;
+  phasePropertyName: string;
+  statusPropertyName: string;
+  startedAtPropertyName: string;
+  endedAtPropertyName: string | null;
+  artifactUrlPropertyName: string | null;
+  summaryPropertyName: string | null;
+  errorPropertyName: string | null;
+};
+
 const SECTION_DEFINITIONS: readonly ArtifactSectionDefinition[] = [
   {
     phase: "design",
@@ -75,6 +95,10 @@ const SECTION_DEFINITIONS: readonly ArtifactSectionDefinition[] = [
     placeholder: "Pending merge notes.",
   },
 ];
+const VERIFICATION_SECTION_HEADING = "Verification";
+const VERIFICATION_SECTION_START = "<!-- orqestrate:verification:start -->";
+const VERIFICATION_SECTION_END = "<!-- orqestrate:verification:end -->";
+const RECENT_RUN_LIMIT = 3;
 
 export type ResolvedNotionContextConfig = {
   tokenEnv: string;
@@ -116,6 +140,8 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
   private targets: NotionContextTargets | null;
   private artifactDataSource: NotionDataSource | null;
   private artifactSchema: NotionArtifactSchema | null;
+  private runDataSource: NotionDataSource | null;
+  private runSchema: NotionRunSchema | null;
 
   constructor(
     config: ContextNotionProviderConfig,
@@ -128,6 +154,8 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     this.targets = null;
     this.artifactDataSource = null;
     this.artifactSchema = null;
+    this.runDataSource = null;
+    this.runSchema = null;
     this.clientFactory =
       options.clientFactory ??
       ((resolvedConfig) => new NotionClient({ authToken: resolvedConfig.token }));
@@ -162,14 +190,20 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
       this.targets = { artifacts, runs };
       this.artifactDataSource = await client.retrieveDataSource(artifacts.dataSourceId);
       this.artifactSchema = resolveArtifactSchema(this.artifactDataSource);
+      this.runDataSource = await client.retrieveDataSource(runs.dataSourceId);
+      this.runSchema = resolveRunSchema(this.runDataSource);
 
       return {
         ok: true,
-        message: `Authenticated to Notion as '${identity.name ?? identity.id}', resolved both configured data sources, and validated the artifacts schema.`,
+        message: `Authenticated to Notion as '${identity.name ?? identity.id}', resolved both configured data sources, and validated the artifacts and runs schemas.`,
       };
     } catch (error) {
       if (error instanceof Error) {
         this.targets = null;
+        this.artifactDataSource = null;
+        this.artifactSchema = null;
+        this.runDataSource = null;
+        this.runSchema = null;
         return {
           ok: false,
           message: error.message,
@@ -259,17 +293,29 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     }
 
     const markdown = await this.getClient().retrievePageMarkdown(artifact.artifactId);
+    const recentRuns = await this.loadRecentRunsForWorkItem(input.workItem.id);
+    const references = [
+      {
+        kind: "artifact",
+        title: artifact.title,
+        url: artifact.url ?? null,
+      },
+      ...recentRuns.map((run) => ({
+        kind: "run_ledger",
+        title: `Run ${run.runId} (${run.status})`,
+        url: run.url ?? null,
+      })),
+    ];
 
     return {
       artifact,
-      contextText: markdown.markdown.trim(),
-      references: [
-        {
-          kind: "artifact",
-          title: artifact.title,
-          url: artifact.url ?? null,
-        },
-      ],
+      contextText: [
+        markdown.markdown.trim(),
+        recentRuns.length > 0 ? renderRunHistoryDigest(recentRuns) : "",
+      ]
+        .filter((part) => part.length > 0)
+        .join("\n\n"),
+      references,
     };
   }
 
@@ -335,6 +381,215 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
           updatedAt,
         }
       : nextArtifact;
+  }
+
+  override async createRunLedgerEntry(
+    input: CreateRunLedgerEntryInput,
+  ): Promise<RunLedgerRecord> {
+    const existingRun = await this.findRunPageByRunId(input.runId);
+
+    if (existingRun !== null) {
+      throw new Error(`Run ledger '${input.runId}' already exists.`);
+    }
+
+    const client = this.getClient();
+    const runDataSource = await this.getRunDataSource();
+    const runSchema = await this.getRunSchema();
+    const targets = await this.ensureTargets();
+    const artifact = await this.getArtifactByWorkItemId(input.workItem.id);
+    const now = createTimestamp();
+    const createdPage = await client.createPage({
+      parent: {
+        data_source_id: targets.runs.dataSourceId,
+      },
+      properties: buildRunProperties({
+        dataSource: runDataSource,
+        schema: runSchema,
+        runId: input.runId,
+        workItem: input.workItem,
+        phase: input.phase,
+        status: input.status,
+        startedAt: now,
+        endedAt: null,
+        artifact,
+        summary: null,
+        error: null,
+      }),
+    });
+
+    await this.ensureRunScaffold(createdPage.id, {
+      runId: input.runId,
+      workItemId: input.workItem.id,
+      phase: input.phase,
+      status: input.status,
+      startedAt: now,
+      artifactUrl: artifact?.url ?? null,
+    });
+
+    const nextRun = toRunLedgerRecord(
+      createdPage,
+      runDataSource,
+      runSchema,
+      input.runId,
+      input.workItem.id,
+    );
+
+    return runSchema.artifactUrlPropertyName === null
+      ? {
+          ...nextRun,
+          artifactId: artifact?.artifactId ?? null,
+          startedAt: now,
+          updatedAt: now,
+        }
+      : nextRun;
+  }
+
+  override async finalizeRunLedgerEntry(
+    input: FinalizeRunLedgerEntryInput,
+  ): Promise<RunLedgerRecord> {
+    const currentPage = await this.findRunPageByRunId(input.runId);
+
+    if (currentPage === null) {
+      throw new Error(`Run ledger '${input.runId}' does not exist.`);
+    }
+
+    const client = this.getClient();
+    const runDataSource = await this.getRunDataSource();
+    const runSchema = await this.getRunSchema();
+    const now = createTimestamp();
+    const updatedPage = await client.updatePage(currentPage.id, {
+      properties: buildRunUpdateProperties({
+        dataSource: runDataSource,
+        schema: runSchema,
+        status: input.status,
+        endedAt: now,
+        summary: input.summary === undefined ? undefined : input.summary,
+        error: input.error === undefined ? undefined : input.error,
+      }),
+    });
+    const workItemId =
+      readStringPropertyValue(currentPage.properties[runSchema.issueIdPropertyName]) ??
+      "unknown";
+    const nextRun = toRunLedgerRecord(
+      updatedPage,
+      runDataSource,
+      runSchema,
+      input.runId,
+      workItemId,
+    );
+
+    return {
+      ...nextRun,
+      summary: input.summary === undefined ? nextRun.summary ?? null : input.summary,
+      error: input.error === undefined ? nextRun.error ?? null : input.error,
+      endedAt: now,
+      updatedAt: updatedPage.lastEditedTime ?? now,
+    };
+  }
+
+  override async appendEvidence(input: AppendEvidenceInput): Promise<void> {
+    const runPage = await this.findRunPageByRunId(input.runId);
+
+    if (runPage === null) {
+      throw new Error(`Run ledger '${input.runId}' does not exist.`);
+    }
+
+    const client = this.getClient();
+    const runSchema = await this.getRunSchema();
+    const currentMarkdown = await client.retrievePageMarkdown(runPage.id);
+    const startedAt =
+      readDatePropertyValue(runPage.properties[runSchema.startedAtPropertyName]) ??
+      runPage.createdTime ??
+      createTimestamp();
+    const artifactUrl =
+      runSchema.artifactUrlPropertyName === null
+        ? null
+        : readStringPropertyValue(runPage.properties[runSchema.artifactUrlPropertyName]);
+    const baseMarkdown =
+      currentMarkdown.markdown.trim() === ""
+        ? renderRunDocument({
+            runId: input.runId,
+            workItemId: input.workItemId,
+            phase: parseWorkPhaseOrNone(
+              readStringPropertyValue(runPage.properties[runSchema.phasePropertyName]),
+            ) === "none"
+              ? "implement"
+              : (parseWorkPhaseOrNone(
+                  readStringPropertyValue(runPage.properties[runSchema.phasePropertyName]),
+                ) as WorkPhase),
+            status: parseRunStatus(
+              readStringPropertyValue(runPage.properties[runSchema.statusPropertyName]),
+            ),
+            startedAt,
+            artifactUrl,
+          })
+        : currentMarkdown.markdown;
+    const timestamp = createTimestamp();
+    const evidenceBlock = [
+      `## ${timestamp} - ${input.section}`,
+      "",
+      input.content.trim(),
+      "",
+    ].join("\n");
+
+    await client.updatePageMarkdown(runPage.id, {
+      type: "replace_content",
+      newString: `${baseMarkdown.trimEnd()}\n\n${evidenceBlock}`,
+    });
+
+    const artifact = await this.getArtifactByWorkItemId(input.workItemId);
+
+    if (artifact === null) {
+      return;
+    }
+
+    const artifactDataSource = await this.getArtifactDataSource();
+    const artifactSchema = await this.getArtifactSchema();
+    const artifactMarkdown = await client.retrievePageMarkdown(artifact.artifactId);
+    const verificationSummary = renderVerificationSection({
+      runId: input.runId,
+      runUrl: runPage.url,
+      latestSection: input.section,
+      latestTimestamp: timestamp,
+    });
+    const nextArtifactMarkdown = upsertSectionBody(
+      artifactMarkdown.markdown.trim() === ""
+        ? renderArtifactDocument({
+            ...createMinimalWorkItem(input.workItemId, {
+              identifier: null,
+              title: artifact.title,
+              url: artifact.url ?? null,
+            }),
+          })
+        : artifactMarkdown.markdown,
+      VERIFICATION_SECTION_HEADING,
+      verificationSummary,
+      {
+        startMarker: VERIFICATION_SECTION_START,
+        endMarker: VERIFICATION_SECTION_END,
+        nextHeading: "# Decision Log",
+      },
+    );
+
+    await client.updatePageMarkdown(artifact.artifactId, {
+      type: "replace_content",
+      newString: nextArtifactMarkdown,
+    });
+
+    await client.updatePage(artifact.artifactId, {
+      properties: {
+        [artifactSchema.verificationEvidencePropertyName]: serializePropertyValue(
+          artifactDataSource,
+          artifactSchema.verificationEvidencePropertyName,
+          true,
+        ),
+        [artifactSchema.lastUpdatedPropertyName]: serializePropertyValue(
+          artifactDataSource,
+          artifactSchema.lastUpdatedPropertyName,
+          timestamp,
+        ),
+      },
+    });
   }
 
   private ensureRuntime(): {
@@ -456,6 +711,31 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     return this.artifactSchema;
   }
 
+  private async getRunDataSource(): Promise<NotionDataSource> {
+    if (this.runDataSource !== null) {
+      return this.runDataSource;
+    }
+
+    const targets = await this.ensureTargets();
+    const dataSource = await this.getClient().retrieveDataSource(
+      targets.runs.dataSourceId,
+    );
+
+    this.runDataSource = dataSource;
+
+    return dataSource;
+  }
+
+  private async getRunSchema(): Promise<NotionRunSchema> {
+    if (this.runSchema !== null) {
+      return this.runSchema;
+    }
+
+    this.runSchema = resolveRunSchema(await this.getRunDataSource());
+
+    return this.runSchema;
+  }
+
   private async findArtifactPageByWorkItemId(
     workItemId: string,
   ): Promise<NotionPage | null> {
@@ -483,6 +763,55 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     return results.results[0] ?? null;
   }
 
+  private async findRunPageByRunId(runId: string): Promise<NotionPage | null> {
+    const schema = await this.getRunSchema();
+    const runDataSource = await this.getRunDataSource();
+    const targets = await this.ensureTargets();
+    const runIdPropertyType =
+      runDataSource.properties[schema.runIdPropertyName]?.type ?? "unknown";
+    const results = await this.getClient().queryDataSourcePages({
+      dataSourceId: targets.runs.dataSourceId,
+      filter: buildExactMatchFilter(
+        schema.runIdPropertyName,
+        runIdPropertyType,
+        runId,
+      ),
+      pageSize: 2,
+    });
+
+    if (results.results.length > 1) {
+      throw new Error(
+        `Notion runs data source returned multiple pages for run '${runId}'. Expected a single durable run ledger row.`,
+      );
+    }
+
+    return results.results[0] ?? null;
+  }
+
+  private async loadRecentRunsForWorkItem(
+    workItemId: string,
+  ): Promise<RunLedgerRecord[]> {
+    const schema = await this.getRunSchema();
+    const runDataSource = await this.getRunDataSource();
+    const targets = await this.ensureTargets();
+    const issueIdPropertyType =
+      runDataSource.properties[schema.issueIdPropertyName]?.type ?? "unknown";
+    const results = await this.getClient().queryDataSourcePages({
+      dataSourceId: targets.runs.dataSourceId,
+      filter: buildExactMatchFilter(
+        schema.issueIdPropertyName,
+        issueIdPropertyType,
+        workItemId,
+      ),
+      pageSize: RECENT_RUN_LIMIT * 4,
+    });
+
+    return results.results
+      .map((page) => toRunLedgerRecord(page, runDataSource, schema, page.id, workItemId))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, RECENT_RUN_LIMIT);
+  }
+
   private async ensureArtifactScaffold(
     artifactId: string,
     workItem: WorkItemRecord,
@@ -497,6 +826,30 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     await client.updatePageMarkdown(artifactId, {
       type: "replace_content",
       newString: renderArtifactDocument(workItem),
+    });
+  }
+
+  private async ensureRunScaffold(
+    runPageId: string,
+    input: {
+      runId: string;
+      workItemId: string;
+      phase: WorkPhase;
+      status: RunStatus;
+      startedAt: string;
+      artifactUrl: string | null;
+    },
+  ): Promise<void> {
+    const client = this.getClient();
+    const markdown = await client.retrievePageMarkdown(runPageId);
+
+    if (hasRunScaffold(markdown.markdown)) {
+      return;
+    }
+
+    await client.updatePageMarkdown(runPageId, {
+      type: "replace_content",
+      newString: renderRunDocument(input),
     });
   }
 }
@@ -596,6 +949,61 @@ function resolveArtifactSchema(dataSource: NotionDataSource): NotionArtifactSche
     implementationNotesPropertyName: "Implementation Notes Present",
     reviewSummaryPropertyName: "Review Summary Present",
     verificationEvidencePropertyName: "Verification Evidence Present",
+  };
+}
+
+function resolveRunSchema(dataSource: NotionDataSource): NotionRunSchema {
+  const titlePropertyName =
+    Object.entries(dataSource.properties).find(
+      ([, property]) => property.type === "title",
+    )?.[0] ?? null;
+
+  if (titlePropertyName === null) {
+    throw new Error(
+      `Notion runs data source '${dataSource.id}' must expose a title property.`,
+    );
+  }
+
+  assertPropertyType(dataSource, "Run ID", ["rich_text"]);
+  assertPropertyType(dataSource, "Linear Issue ID", ["rich_text"]);
+  assertPropertyType(dataSource, "Phase", ["rich_text", "select"]);
+  assertPropertyType(dataSource, "Status", ["rich_text", "select", "status"]);
+  assertPropertyType(dataSource, "Started At", ["date"]);
+
+  if ("Linear URL" in dataSource.properties) {
+    assertPropertyType(dataSource, "Linear URL", ["url"]);
+  }
+
+  if ("Ended At" in dataSource.properties) {
+    assertPropertyType(dataSource, "Ended At", ["date"]);
+  }
+
+  if ("Artifact Page" in dataSource.properties) {
+    assertPropertyType(dataSource, "Artifact Page", ["url", "rich_text"]);
+  }
+
+  if ("Summary" in dataSource.properties) {
+    assertPropertyType(dataSource, "Summary", ["rich_text"]);
+  }
+
+  if ("Error" in dataSource.properties) {
+    assertPropertyType(dataSource, "Error", ["rich_text"]);
+  }
+
+  return {
+    titlePropertyName,
+    runIdPropertyName: "Run ID",
+    issueIdPropertyName: "Linear Issue ID",
+    linearUrlPropertyName:
+      "Linear URL" in dataSource.properties ? "Linear URL" : null,
+    phasePropertyName: "Phase",
+    statusPropertyName: "Status",
+    startedAtPropertyName: "Started At",
+    endedAtPropertyName: "Ended At" in dataSource.properties ? "Ended At" : null,
+    artifactUrlPropertyName:
+      "Artifact Page" in dataSource.properties ? "Artifact Page" : null,
+    summaryPropertyName: "Summary" in dataSource.properties ? "Summary" : null,
+    errorPropertyName: "Error" in dataSource.properties ? "Error" : null,
   };
 }
 
@@ -701,6 +1109,142 @@ function buildArtifactProperties(input: {
   return properties;
 }
 
+function buildRunProperties(input: {
+  dataSource: NotionDataSource;
+  schema: NotionRunSchema;
+  runId: string;
+  workItem: WorkItemRecord;
+  phase: WorkPhase;
+  status: RunStatus;
+  startedAt: string;
+  endedAt: string | null;
+  artifact: ArtifactRecord | null;
+  summary: string | null;
+  error: ProviderError | null;
+}): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    [input.schema.titlePropertyName]: serializePropertyValue(
+      input.dataSource,
+      input.schema.titlePropertyName,
+      buildRunTitle(input.runId, input.workItem),
+    ),
+    [input.schema.runIdPropertyName]: serializePropertyValue(
+      input.dataSource,
+      input.schema.runIdPropertyName,
+      input.runId,
+    ),
+    [input.schema.issueIdPropertyName]: serializePropertyValue(
+      input.dataSource,
+      input.schema.issueIdPropertyName,
+      input.workItem.id,
+    ),
+    [input.schema.phasePropertyName]: serializePropertyValue(
+      input.dataSource,
+      input.schema.phasePropertyName,
+      input.phase,
+    ),
+    [input.schema.statusPropertyName]: serializePropertyValue(
+      input.dataSource,
+      input.schema.statusPropertyName,
+      input.status,
+    ),
+    [input.schema.startedAtPropertyName]: serializePropertyValue(
+      input.dataSource,
+      input.schema.startedAtPropertyName,
+      input.startedAt,
+    ),
+  };
+
+  if (input.schema.linearUrlPropertyName !== null) {
+    properties[input.schema.linearUrlPropertyName] = serializePropertyValue(
+      input.dataSource,
+      input.schema.linearUrlPropertyName,
+      input.workItem.url ?? null,
+    );
+  }
+
+  if (input.schema.endedAtPropertyName !== null) {
+    properties[input.schema.endedAtPropertyName] = serializePropertyValue(
+      input.dataSource,
+      input.schema.endedAtPropertyName,
+      input.endedAt,
+    );
+  }
+
+  if (input.schema.artifactUrlPropertyName !== null) {
+    properties[input.schema.artifactUrlPropertyName] = serializePropertyValue(
+      input.dataSource,
+      input.schema.artifactUrlPropertyName,
+      serializeArtifactReference(
+        input.dataSource,
+        input.schema.artifactUrlPropertyName,
+        input.artifact,
+      ),
+    );
+  }
+
+  if (input.schema.summaryPropertyName !== null) {
+    properties[input.schema.summaryPropertyName] = serializePropertyValue(
+      input.dataSource,
+      input.schema.summaryPropertyName,
+      input.summary,
+    );
+  }
+
+  if (input.schema.errorPropertyName !== null) {
+    properties[input.schema.errorPropertyName] = serializePropertyValue(
+      input.dataSource,
+      input.schema.errorPropertyName,
+      serializeProviderError(input.error),
+    );
+  }
+
+  return properties;
+}
+
+function buildRunUpdateProperties(input: {
+  dataSource: NotionDataSource;
+  schema: NotionRunSchema;
+  status: RunStatus;
+  endedAt: string;
+  summary?: string | null;
+  error?: ProviderError | null;
+}): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    [input.schema.statusPropertyName]: serializePropertyValue(
+      input.dataSource,
+      input.schema.statusPropertyName,
+      input.status,
+    ),
+  };
+
+  if (input.schema.endedAtPropertyName !== null) {
+    properties[input.schema.endedAtPropertyName] = serializePropertyValue(
+      input.dataSource,
+      input.schema.endedAtPropertyName,
+      input.endedAt,
+    );
+  }
+
+  if (input.summary !== undefined && input.schema.summaryPropertyName !== null) {
+    properties[input.schema.summaryPropertyName] = serializePropertyValue(
+      input.dataSource,
+      input.schema.summaryPropertyName,
+      input.summary,
+    );
+  }
+
+  if (input.error !== undefined && input.schema.errorPropertyName !== null) {
+    properties[input.schema.errorPropertyName] = serializePropertyValue(
+      input.dataSource,
+      input.schema.errorPropertyName,
+      serializeProviderError(input.error),
+    );
+  }
+
+  return properties;
+}
+
 function toArtifactRecord(
   page: NotionPage,
   schema: NotionArtifactSchema,
@@ -745,6 +1289,61 @@ function toArtifactRecord(
     ),
     updatedAt,
     createdAt: page.createdTime ?? updatedAt,
+  };
+}
+
+function toRunLedgerRecord(
+  page: NotionPage,
+  dataSource: NotionDataSource,
+  schema: NotionRunSchema,
+  fallbackRunId: string,
+  fallbackWorkItemId: string,
+): RunLedgerRecord {
+  const updatedAt =
+    page.lastEditedTime ??
+    readDatePropertyValue(page.properties[schema.endedAtPropertyName ?? ""]) ??
+    readDatePropertyValue(page.properties[schema.startedAtPropertyName]) ??
+    page.createdTime ??
+    createTimestamp();
+
+  return {
+    runId:
+      readStringPropertyValue(page.properties[schema.runIdPropertyName]) ??
+      fallbackRunId,
+    workItemId:
+      readStringPropertyValue(page.properties[schema.issueIdPropertyName]) ??
+      fallbackWorkItemId,
+    artifactId:
+      schema.artifactUrlPropertyName === null
+        ? null
+        : readArtifactReferenceId(
+            page.properties[schema.artifactUrlPropertyName],
+            dataSource.properties[schema.artifactUrlPropertyName]?.type ?? null,
+          ),
+    phase: parseRunPhase(
+      readStringPropertyValue(page.properties[schema.phasePropertyName]),
+    ),
+    status: parseRunStatus(
+      readStringPropertyValue(page.properties[schema.statusPropertyName]),
+    ),
+    summary:
+      schema.summaryPropertyName === null
+        ? null
+        : readStringPropertyValue(page.properties[schema.summaryPropertyName]),
+    verification: null,
+    error:
+      schema.errorPropertyName === null
+        ? null
+        : parseProviderError(
+            readStringPropertyValue(page.properties[schema.errorPropertyName]),
+          ),
+    startedAt: readDatePropertyValue(page.properties[schema.startedAtPropertyName]),
+    endedAt:
+      schema.endedAtPropertyName === null
+        ? null
+        : readDatePropertyValue(page.properties[schema.endedAtPropertyName]),
+    url: page.url ?? null,
+    updatedAt,
   };
 }
 
@@ -960,12 +1559,80 @@ function parseArtifactState(value: string | null): ArtifactState {
   }
 }
 
+function parseRunPhase(value: string | null): WorkPhase {
+  switch (value) {
+    case "design":
+    case "plan":
+    case "implement":
+    case "review":
+    case "merge":
+      return value;
+    default:
+      return "implement";
+  }
+}
+
+function parseRunStatus(value: string | null): RunStatus {
+  switch (value) {
+    case "queued":
+    case "admitted":
+    case "launching":
+    case "bootstrapping":
+    case "running":
+    case "waiting_human":
+    case "stopping":
+    case "completed":
+    case "failed":
+    case "canceled":
+    case "stale":
+      return value;
+    default:
+      return "queued";
+  }
+}
+
 function buildArtifactTitle(workItem: WorkItemRecord): string {
   if (workItem.identifier !== undefined && workItem.identifier !== null) {
     return `${workItem.identifier} - ${workItem.title}`;
   }
 
   return workItem.title;
+}
+
+function buildRunTitle(runId: string, workItem: WorkItemRecord): string {
+  const workItemLabel =
+    workItem.identifier ?? workItem.id;
+
+  return `${runId} - ${workItemLabel}`;
+}
+
+function serializeArtifactReference(
+  dataSource: NotionDataSource,
+  propertyName: string,
+  artifact: ArtifactRecord | null,
+): string | null {
+  if (artifact === null) {
+    return null;
+  }
+
+  const propertyType = dataSource.properties[propertyName]?.type ?? null;
+
+  if (propertyType === "rich_text") {
+    return artifact.artifactId;
+  }
+
+  return artifact.url ?? null;
+}
+
+function readArtifactReferenceId(
+  value: unknown,
+  propertyType: string | null,
+): string | null {
+  if (propertyType !== "rich_text") {
+    return null;
+  }
+
+  return readStringPropertyValue(value);
 }
 
 function renderArtifactDocument(workItem: WorkItemRecord): string {
@@ -984,13 +1651,43 @@ function renderArtifactDocument(workItem: WorkItemRecord): string {
       endMarker(section.phase),
       "",
     ]),
-    "# Verification",
+    `# ${VERIFICATION_SECTION_HEADING}`,
     "",
+    VERIFICATION_SECTION_START,
     "No verification evidence captured yet.",
+    VERIFICATION_SECTION_END,
     "",
     "# Decision Log",
     "",
     `- Artifact created at ${createdAt}`,
+  ].join("\n");
+}
+
+function renderRunDocument(input: {
+  runId: string;
+  workItemId: string;
+  phase: WorkPhase;
+  status: RunStatus;
+  startedAt: string;
+  artifactUrl: string | null;
+}): string {
+  return [
+    "# Run Summary",
+    "",
+    `- Run ID: \`${input.runId}\``,
+    `- Work Item ID: \`${input.workItemId}\``,
+    `- Phase: \`${input.phase}\``,
+    `- Status: \`${input.status}\``,
+    `- Started At: \`${input.startedAt}\``,
+    ...(input.artifactUrl === null ? [] : [`- Artifact Page: ${input.artifactUrl}`]),
+    "",
+    "# Evidence",
+    "",
+    "No evidence captured yet.",
+    "",
+    "# Decision Log",
+    "",
+    `- Run ledger created at ${input.startedAt}`,
   ].join("\n");
 }
 
@@ -1007,7 +1704,13 @@ function hasArtifactScaffold(markdown: string): boolean {
     (section) =>
       markdown.includes(startMarker(section.phase)) &&
       markdown.includes(endMarker(section.phase)),
-  );
+  ) &&
+    markdown.includes(VERIFICATION_SECTION_START) &&
+    markdown.includes(VERIFICATION_SECTION_END);
+}
+
+function hasRunScaffold(markdown: string): boolean {
+  return markdown.includes("# Run Summary") && markdown.includes("# Evidence");
 }
 
 function renderDefaultContextSection(workItem: WorkItemRecord): string[] {
@@ -1029,6 +1732,31 @@ function renderDefaultContextSection(workItem: WorkItemRecord): string[] {
   }
 
   return lines;
+}
+
+function renderRunHistoryDigest(runs: RunLedgerRecord[]): string {
+  return [
+    "# Recent Run History",
+    "",
+    ...runs.map((run) => {
+      const lines = [
+        `- Run ID: \`${run.runId}\``,
+        `  Phase: \`${run.phase}\``,
+        `  Status: \`${run.status}\``,
+        `  Updated At: \`${run.updatedAt}\``,
+      ];
+
+      if (run.summary !== undefined && run.summary !== null) {
+        lines.push(`  Summary: ${run.summary}`);
+      }
+
+      if (run.error !== undefined && run.error !== null) {
+        lines.push(`  Error: ${run.error.message}`);
+      }
+
+      return lines.join("\n");
+    }),
+  ].join("\n");
 }
 
 function getSectionDefinition(phase: WorkPhase): ArtifactSectionDefinition {
@@ -1130,6 +1858,101 @@ function insertSectionMarkers(
 
 function createTimestamp(): string {
   return new Date().toISOString();
+}
+
+function renderVerificationSection(input: {
+  runId: string;
+  runUrl: string | null;
+  latestSection: string;
+  latestTimestamp: string;
+}): string {
+  return [
+    `- Latest evidence run: \`${input.runId}\``,
+    ...(input.runUrl === null ? [] : [`- Run ledger page: ${input.runUrl}`]),
+    `- Latest evidence update: \`${input.latestTimestamp}\``,
+    `- Latest evidence section: ${input.latestSection}`,
+    "- Detailed verification output lives on the run ledger page.",
+  ].join("\n");
+}
+
+function serializeProviderError(error: ProviderError | null): string | null {
+  return error === null ? null : JSON.stringify(error);
+}
+
+function parseProviderError(value: string | null): ProviderError | null {
+  if (value === null) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+
+    if (typeof parsed !== "object" || parsed === null) {
+      return null;
+    }
+
+    const error = parsed as Record<string, unknown>;
+
+    if (
+      typeof error.providerFamily !== "string" ||
+      typeof error.providerKind !== "string" ||
+      typeof error.code !== "string" ||
+      typeof error.message !== "string" ||
+      typeof error.retryable !== "boolean"
+    ) {
+      return null;
+    }
+
+    return {
+      providerFamily: error.providerFamily as ProviderError["providerFamily"],
+      providerKind: error.providerKind,
+      code: error.code as ProviderError["code"],
+      message: error.message,
+      retryable: error.retryable,
+      details:
+        "details" in error && typeof error.details === "object"
+          ? (error.details as ProviderError["details"])
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function createMinimalWorkItem(
+  workItemId: string,
+  overrides: Partial<Pick<WorkItemRecord, "identifier" | "title" | "url">> = {},
+): WorkItemRecord {
+  const timestamp = createTimestamp();
+
+  return {
+    id: workItemId,
+    identifier: overrides.identifier === undefined ? workItemId : overrides.identifier,
+    title: overrides.title ?? workItemId,
+    description: null,
+    status: "implement",
+    phase: "implement",
+    priority: null,
+    labels: [],
+    url: overrides.url ?? null,
+    parentId: null,
+    dependencyIds: [],
+    blockedByIds: [],
+    blocksIds: [],
+    artifactUrl: null,
+    updatedAt: timestamp,
+    createdAt: timestamp,
+    orchestration: {
+      state: "idle",
+      owner: null,
+      runId: null,
+      leaseUntil: null,
+      reviewOutcome: "none",
+      blockedReason: null,
+      lastError: null,
+      attemptCount: 0,
+    },
+  };
 }
 
 function escapeRegExp(value: string): string {
