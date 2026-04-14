@@ -13,6 +13,7 @@ import {
   type LinearSdkIssueLabelLike,
   type LinearSdkIssueLike,
   type LinearSdkIssueRelationLike,
+  type LinearSdkIssueSearchResultLike,
   type LinearSdkProjectLike,
   type LinearSdkTeamLike,
   type LinearSdkViewerLike,
@@ -127,7 +128,7 @@ test("normalizes authentication failures into actionable health-check messages",
   assert.match(result.message ?? "", /configured api token/i);
 });
 
-test("maps Linear issues into canonical work items and preserves dependency semantics", async () => {
+test("maps Linear issues into canonical work items using search-result harness fields", async () => {
   const backend = createBackend(
     {},
     createIssueSdkClient([
@@ -169,7 +170,7 @@ test("maps Linear issues into canonical work items and preserves dependency sema
           { type: "blocks", issueId: "issue-blocker-open" },
           { type: "blocks", issueId: "issue-blocker-done" },
         ],
-        metadata: {
+        searchMetadata: {
           harness_phase: "implement",
           harness_state: "waiting_human",
           harness_owner: "orchestrator-1",
@@ -208,7 +209,7 @@ test("maps Linear issues into canonical work items and preserves dependency sema
   );
 });
 
-test("lists actionable Linear work items with local-files parity filters and ordering", async () => {
+test("lists actionable Linear work items with search-result harness fields and ordering", async () => {
   const backend = createBackend(
     {},
     createIssueSdkClient([
@@ -225,7 +226,7 @@ test("lists actionable Linear work items with local-files parity filters and ord
         state: workflowState("implement"),
         priority: 1,
         updatedAt: "2026-04-13T10:00:00.000Z",
-        metadata: {
+        searchMetadata: {
           harness_lease_until: "2099-01-01T00:00:00.000Z",
         },
       }),
@@ -236,7 +237,7 @@ test("lists actionable Linear work items with local-files parity filters and ord
         state: workflowState("review"),
         priority: 1,
         updatedAt: "2026-04-13T09:00:00.000Z",
-        metadata: {
+        searchMetadata: {
           harness_phase: "none",
         },
       }),
@@ -406,6 +407,14 @@ function createIssueSdkClient(
 
       return paginateArray(filtered, variables);
     },
+    searchIssues: async (term, variables) => {
+      const filtered = issues
+        .filter((issue) => matchesIssueFilter(issue, variables?.filter))
+        .filter((issue) => matchesSearchTerm(issue, term))
+        .map((issue) => buildFakeIssueSearchResult(issue, issuesById));
+
+      return paginateArray(filtered, variables);
+    },
   };
 }
 
@@ -445,7 +454,7 @@ function createFakeIssue(
     labels: [],
     relations: [],
     inverseRelations: [],
-    metadata: undefined,
+    searchMetadata: undefined,
     ...overrides,
   };
 }
@@ -495,7 +504,6 @@ function buildFakeIssue(
     updatedAt: issue.updatedAt,
     teamId: issue.teamId,
     projectId: issue.projectId ?? undefined,
-    metadata: issue.metadata,
     state: Promise.resolve(issue.state),
     parent: issue.parentId
       ? Promise.resolve(buildFakeIssue(issuesById.get(issue.parentId)!, issuesById))
@@ -530,6 +538,16 @@ function buildFakeIssue(
         ),
         variables,
       ),
+  };
+}
+
+function buildFakeIssueSearchResult(
+  issue: FakeIssueDefinition,
+  issuesById: Map<string, FakeIssueDefinition>,
+): LinearSdkIssueSearchResultLike {
+  return {
+    ...buildFakeIssue(issue, issuesById),
+    metadata: issue.searchMetadata,
   };
 }
 
@@ -600,6 +618,19 @@ function matchesIssueFilter(issue: FakeIssueDefinition, filter: unknown): boolea
   return true;
 }
 
+function matchesSearchTerm(issue: FakeIssueDefinition, term: string): boolean {
+  const normalizedTerm = term.trim().toLowerCase();
+
+  if (normalizedTerm === "") {
+    return true;
+  }
+
+  return (
+    issue.identifier.toLowerCase().includes(normalizedTerm) ||
+    issue.title.toLowerCase().includes(normalizedTerm)
+  );
+}
+
 function readNestedString(
   source: Record<string, unknown>,
   path: string[],
@@ -666,5 +697,5 @@ type FakeIssueDefinition = {
     type: string;
     issueId: string;
   }>;
-  metadata?: unknown;
+  searchMetadata?: unknown;
 };

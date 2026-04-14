@@ -15,7 +15,7 @@ export function mapLinearIssueToWorkItem(
   issue: LinearHydratedIssueRecord,
   adapter: LinearPlanningConfigAdapter,
 ): WorkItemRecord {
-  const harness = readLinearHarnessFields(issue.metadata);
+  const harness = readLinearHarnessFields(issue.harnessFieldsSource);
   const status = resolveCanonicalStatus(issue.state, adapter);
   const phase = resolvePhase(status, harness.phase);
   const relations = mapRelations(issue);

@@ -47,7 +47,7 @@ export interface LinearSdkIssueRelationLike {
   relatedIssueId?: string | undefined;
 }
 
-export interface LinearSdkIssueLike {
+export interface LinearSdkIssueNodeLike {
   id: string;
   identifier: string;
   title: string;
@@ -58,7 +58,6 @@ export interface LinearSdkIssueLike {
   updatedAt: Date | string;
   teamId?: string | undefined;
   projectId?: string | undefined;
-  metadata?: unknown;
   state?: Awaitable<unknown> | undefined;
   parent?: Awaitable<unknown> | undefined;
   labels?(
@@ -72,10 +71,28 @@ export interface LinearSdkIssueLike {
   ): Awaitable<LinearConnectionLike<LinearSdkIssueRelationLike>>;
 }
 
+export interface LinearSdkIssueLike extends LinearSdkIssueNodeLike {}
+
+export interface LinearSdkIssueSearchResultLike extends LinearSdkIssueNodeLike {
+  metadata?: unknown;
+}
+
 export type LinearConnectionVariables = {
   first?: number;
   after?: string;
   includeArchived?: boolean;
+};
+
+export type LinearSearchIssueVariables = {
+  first?: number;
+  after?: string;
+  before?: string;
+  last?: number;
+  includeArchived?: boolean;
+  orderBy?: string;
+  includeComments?: boolean;
+  teamId?: string;
+  filter?: unknown;
 };
 
 export interface LinearSdkTeamLike {
@@ -103,6 +120,10 @@ export interface LinearSdkClientLike {
     orderBy?: string;
     filter?: unknown;
   }): Awaitable<LinearConnectionLike<LinearSdkIssueLike>>;
+  searchIssues?(
+    term: string,
+    variables?: LinearSearchIssueVariables,
+  ): Awaitable<LinearConnectionLike<LinearSdkIssueSearchResultLike>>;
 }
 
 export type LinearViewerRecord = {
@@ -152,7 +173,7 @@ export type LinearHydratedIssueRecord = {
   state: LinearWorkflowStateRecord;
   labels: string[];
   parent: LinearIssueReferenceRecord | null;
-  metadata: unknown;
+  harnessFieldsSource: unknown;
   relations: LinearIssueRelationRecord[];
   inverseRelations: LinearIssueRelationRecord[];
 };
@@ -267,7 +288,9 @@ export class LinearPlanningClient {
         return null;
       }
 
-      return this.hydrateIssue(issue);
+      const harnessFieldsSource = await this.loadHarnessFieldsSource(issue);
+
+      return this.hydrateIssue(issue, harnessFieldsSource);
     } catch (error) {
       if (isNotFoundError(error, id)) {
         return null;
@@ -281,12 +304,13 @@ export class LinearPlanningClient {
   }
 
   private async hydrateIssue(
-    issue: LinearSdkIssueLike,
+    issue: LinearSdkIssueNodeLike,
+    harnessFieldsSource: unknown,
   ): Promise<LinearHydratedIssueRecord> {
     const [state, parent, labels, relations, inverseRelations] =
       await Promise.all([
         resolveLinkedResource<LinearSdkWorkflowStateLike>(issue.state),
-        resolveLinkedResource<LinearSdkIssueLike>(issue.parent),
+        resolveLinkedResource<LinearSdkIssueNodeLike>(issue.parent),
         collectConnectionNodes<LinearSdkIssueLabelLike>(
           issue.labels ? (variables) => issue.labels!(variables) : undefined,
         ),
@@ -327,7 +351,7 @@ export class LinearPlanningClient {
       state: resolvedState,
       labels: labels.map((label) => label.name),
       parent: await this.toIssueReference(parent, null),
-      metadata: issue.metadata ?? issue,
+      harnessFieldsSource,
       relations: await Promise.all(
         relations.map((relation) =>
           this.toRelationRecord(relation, currentReference),
@@ -349,13 +373,13 @@ export class LinearPlanningClient {
       relation.issueId === currentReference.id
         ? currentReference
         : this.toIssueReference(
-            await resolveLinkedResource<LinearSdkIssueLike>(relation.issue),
+            await resolveLinkedResource<LinearSdkIssueNodeLike>(relation.issue),
             relation.issueId ?? null,
           ),
       relation.relatedIssueId === currentReference.id
         ? currentReference
         : this.toIssueReference(
-            await resolveLinkedResource<LinearSdkIssueLike>(relation.relatedIssue),
+            await resolveLinkedResource<LinearSdkIssueNodeLike>(relation.relatedIssue),
             relation.relatedIssueId ?? null,
           ),
     ]);
@@ -369,7 +393,7 @@ export class LinearPlanningClient {
   }
 
   private async toIssueReference(
-    issue: LinearSdkIssueLike | undefined,
+    issue: LinearSdkIssueNodeLike | undefined,
     fallbackId: string | null,
   ): Promise<LinearIssueReferenceRecord> {
     if (issue === undefined) {
@@ -391,6 +415,39 @@ export class LinearPlanningClient {
       status: toWorkflowStateRecord(state),
       url: toNullableString(issue.url),
     };
+  }
+
+  private async loadHarnessFieldsSource(
+    issue: LinearSdkIssueLike,
+  ): Promise<unknown> {
+    const searchIssues = this.sdkClient.searchIssues;
+
+    if (searchIssues === undefined) {
+      return null;
+    }
+
+    try {
+      const response = await searchIssues(issue.identifier, {
+        first: 10,
+        includeArchived: false,
+        teamId: issue.teamId,
+        filter: buildIssueSearchFilter({
+          teamId: issue.teamId ?? null,
+          projectId: issue.projectId ?? null,
+        }),
+      });
+      const match = response.nodes.find(
+        (candidate) =>
+          candidate.id === issue.id || candidate.identifier === issue.identifier,
+      );
+
+      return match?.metadata ?? null;
+    } catch (error) {
+      throw LinearProviderFailure.from(
+        error,
+        `Failed to load harness fields for Linear issue '${issue.identifier}'.`,
+      );
+    }
   }
 }
 
@@ -471,6 +528,31 @@ function buildIssueListFilter(input: {
   }
 
   return filter;
+}
+
+function buildIssueSearchFilter(input: {
+  teamId: string | null;
+  projectId?: string | null;
+}): Record<string, unknown> | undefined {
+  const filter: Record<string, unknown> = {};
+
+  if (input.teamId) {
+    filter.team = {
+      id: {
+        eq: input.teamId,
+      },
+    };
+  }
+
+  if (input.projectId) {
+    filter.project = {
+      id: {
+        eq: input.projectId,
+      },
+    };
+  }
+
+  return Object.keys(filter).length === 0 ? undefined : filter;
 }
 
 async function collectConnectionNodes<TNode>(
