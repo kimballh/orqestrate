@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
 
+export * from "./domain-model.js";
+
 export function main(): void {
   console.log(
     "Orqestrate scaffold is installed. Start from docs/, then implement against the tracked Linear backlog."

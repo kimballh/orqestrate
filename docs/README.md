@@ -52,6 +52,7 @@ This mirrors one of the most important lessons from OMX: do not overload one fie
 ## Documents
 
 - [architecture.md](./architecture.md) - end-to-end implementation review diagram covering config, providers, orchestrator, runtime, persistence, and local-first deployment
+- [domain_model.md](./domain_model.md) - canonical shared records, enums, authority boundaries, and serialization rules for cross-layer contracts
 - [agent_contract.md](./agent_contract.md) - explicit responsibility split between the code agent, orchestrator, and runtime daemon
 - [example_prompts.md](./example_prompts.md) - first-pass prompt templates for design, plan, implement, review, merge, and GitHub PR review loops
 - [quality_policy.md](./quality_policy.md) - current verification, testing, and CI expectations for local runs and future enforcement

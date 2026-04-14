@@ -23,46 +23,42 @@ The rule is:
 
 Recommended first-pass statuses:
 
-1. `Triage`
-2. `Needs Design`
-3. `Needs Plan`
-4. `Ready`
-5. `In Progress`
-6. `In Review`
-7. `Blocked`
-8. `Ready to Merge`
-9. `Done`
+1. `Backlog`
+2. `Design`
+3. `Plan`
+4. `Implement`
+5. `Review`
+6. `Blocked`
+7. `Done`
+8. `Canceled`
 
 ### Status semantics
 
-`Triage`
+`Backlog`
 - New issue.
-- Orchestrator should ignore it unless explicitly asked to act on triage tickets.
+- Orchestrator should ignore it unless explicitly asked to act on backlog tickets.
 
-`Needs Design`
+`Design`
 - The next required artifact is a design note or UI/UX artifact.
 
-`Needs Plan`
+`Plan`
 - The next required artifact is an implementation plan.
 
-`Ready`
+`Implement`
 - Design and planning requirements are satisfied.
-- The next active machine phase is implementation.
+- Implementation is active or ready to be claimed.
 
-`In Progress`
-- Implementation is running or was recently claimed.
-
-`In Review`
+`Review`
 - Implementation exists and an automated or human review is required.
 
 `Blocked`
 - Work cannot advance without a dependency, decision, or external action.
 
-`Ready to Merge`
-- Review passed and the next remaining step is merge/release handling.
-
 `Done`
 - Work is complete from the harness perspective.
+
+`Canceled`
+- Work was intentionally stopped and should not be claimed again without a human reopening it.
 
 ## 3. Proposed custom fields
 
@@ -97,7 +93,7 @@ Allowed values:
 - `running`
 - `waiting_human`
 - `failed`
-- `complete`
+- `completed`
 
 Meaning:
 
@@ -107,7 +103,7 @@ Meaning:
 - `running`: an agent is actively executing the current phase
 - `waiting_human`: machine paused for human input
 - `failed`: last attempt failed and needs operator attention or retry logic
-- `complete`: current phase finished successfully
+- `completed`: current phase finished successfully
 
 ### `harness_owner`
 
@@ -222,14 +218,16 @@ Those should be status or structured fields.
 
 | Linear status | Expected `harness_phase` | Meaning |
 | --- | --- | --- |
-| `Needs Design` | `design` | next artifact is design |
-| `Needs Plan` | `plan` | next artifact is implementation plan |
-| `Ready` | `implement` | implementation can start |
-| `In Progress` | `implement` | implementation is active |
-| `In Review` | `review` | review is active |
-| `Ready to Merge` | `merge` | merge or finalization is active |
+| `Backlog` | `none` | not currently actionable |
+| `Design` | `design` | next artifact is design |
+| `Plan` | `plan` | next artifact is implementation plan |
+| `Implement` | `implement` | implementation can start or is active |
+| `Review` | `review` | review is active |
 | `Blocked` | current phase preserved | work paused |
 | `Done` | `none` | no active orchestration phase |
+| `Canceled` | `none` | intentionally inactive |
+
+`merge` remains a reserved future phase. If the workflow gains a first-class merge handoff later, it should be modeled through `harness_phase` before adding another planning status.
 
 ## 6. Pollable selectors
 
@@ -237,59 +235,57 @@ These are the main selectors the orchestrator should poll.
 
 ### Design queue
 
-- status = `Needs Design`
+- status = `Design`
 - `harness_phase = design`
 - `harness_state IN (queued, failed)` or lease expired
 
 ### Plan queue
 
-- status = `Needs Plan`
+- status = `Plan`
 - `harness_phase = plan`
 - `harness_state IN (queued, failed)` or lease expired
 
 ### Implementation queue
 
-- status = `Ready`
+- status = `Implement`
 - `harness_phase = implement`
 - `harness_state IN (queued, failed)` or lease expired
 
 ### Review queue
 
-- status = `In Review`
+- status = `Review`
 - `harness_phase = review`
 - `harness_state IN (queued, failed)` or lease expired
 
 ### Merge queue
 
-- status = `Ready to Merge`
-- `harness_phase = merge`
-- `harness_state IN (queued, failed)` or lease expired
+- no default merge queue yet
+- reserve `harness_phase = merge` for a future workflow revision instead of inventing a planning status early
 
 ## 7. Transition rules
 
 Recommended first-pass transitions:
 
-1. `Triage -> Needs Design`
-2. `Triage -> Needs Plan`
-3. `Triage -> Ready`
-4. `Needs Design -> Needs Plan`
-5. `Needs Design -> Ready`
-6. `Needs Plan -> Ready`
-7. `Ready -> In Progress`
-8. `In Progress -> In Review`
-9. `In Progress -> Blocked`
-10. `In Review -> In Progress` when rework is needed
-11. `In Review -> Ready to Merge` when approved
-12. `Ready to Merge -> Done`
-13. `Blocked -> Needs Design | Needs Plan | Ready | In Progress | In Review`
+1. `Backlog -> Design`
+2. `Backlog -> Plan`
+3. `Backlog -> Implement`
+4. `Design -> Plan`
+5. `Design -> Implement`
+6. `Plan -> Implement`
+7. `Implement -> Review`
+8. `Implement -> Blocked`
+9. `Review -> Implement` when rework is needed
+10. `Review -> Done` when approved in the current working mode
+11. `Blocked -> Design | Plan | Implement | Review`
+12. `Design | Plan | Implement | Review | Blocked -> Canceled`
 
 ## 8. State update examples
 
 ### Claiming implementation work
 
-When the orchestrator claims a `Ready` ticket:
+When the orchestrator claims an `Implement` ticket:
 
-- status stays `Ready` briefly or moves to `In Progress`
+- status stays `Implement`
 - `harness_phase = implement`
 - `harness_state = claimed`
 - `harness_owner = orchestrator-instance-123`
@@ -298,14 +294,14 @@ When the orchestrator claims a `Ready` ticket:
 
 After the worker actually starts:
 
-- status = `In Progress`
+- status = `Implement`
 - `harness_state = running`
 
 ### Completing review with rework
 
 If review fails:
 
-- status = `In Progress`
+- status = `Implement`
 - `harness_phase = implement`
 - `harness_state = queued`
 - `review_outcome = changes_requested`
@@ -315,9 +311,9 @@ If review fails:
 
 If review passes:
 
-- status = `Ready to Merge`
-- `harness_phase = merge`
-- `harness_state = queued`
+- status = `Done`
+- `harness_phase = none`
+- `harness_state = completed`
 - `review_outcome = approved`
 
 ## 9. Practical recommendation
