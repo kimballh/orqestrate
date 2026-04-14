@@ -44,6 +44,8 @@ Workspace mode: {{workspace_mode}}
 Write scope: {{write_scope}}
 Expected outputs: {{expected_outputs}}
 Verification required: {{verification_required}}
+Required repo checks: {{required_repo_checks}}
+Test expectations: {{test_expectations}}
 Authorized capabilities: {{authorized_capabilities}}
 ```
 
@@ -67,6 +69,8 @@ Default rules:
 - Use local files, local commands, and provided context first.
 - If blocked, ask for the smallest concrete human decision needed to continue.
 - Do not claim work is done unless verification or direct evidence supports it.
+- Run the required repo checks unless the run contract explicitly says not to.
+- If behavior changes, add or update automated tests unless that is not practical yet; if not, explain the gap explicitly.
 - Return a structured result with summary, verification, and any requested human input.
 
 You do not own:
@@ -142,6 +146,7 @@ Deliverables:
 - scope and non-goals
 - risk list
 - verification plan
+- automated test plan or explicit test-gap rationale
 
 Return your result in this shape:
 
@@ -175,6 +180,7 @@ Constraints:
 Deliverables:
 - completed implementation
 - verification evidence
+- automated tests added or updated for behavior changes, or explicit rationale for the gap
 - clear change summary
 - explicit blocker if you cannot complete the work
 
@@ -215,6 +221,7 @@ Constraints:
 Deliverables:
 - findings ordered by severity, or explicit no-findings statement
 - verification gaps
+- missing or weak test coverage called out explicitly when relevant
 - approval summary if no blocking findings remain
 
 Return your result in this shape:

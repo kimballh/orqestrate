@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "check": "npm run typecheck && npm run build",
     "dev": "tsx src/index.ts",
     "setup": "bash ./scripts/codex-setup.sh",
     "start": "node --enable-source-maps dist/index.js",

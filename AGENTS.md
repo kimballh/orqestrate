@@ -134,6 +134,12 @@ Use:
 
 When a decision is likely to matter again, prefer writing it into `docs/` rather than leaving it only in a ticket comment.
 
+Quality and verification policy lives in:
+
+- `docs/quality_policy.md`
+
+Treat that document as normative for what "done" means in this repository.
+
 ## Phase behavior
 
 ### Design
@@ -153,7 +159,7 @@ Do not implement code changes unless explicitly asked.
 When the user asks for `plan`:
 
 - read the Linear issue and current artifact context
-- produce an implementation plan with scope, risks, and verification
+- produce an implementation plan with scope, risks, verification, and test strategy
 - update the Notion artifact
 - leave a concise Linear comment linking to the plan
 
@@ -166,10 +172,17 @@ When the user asks for `implement`:
 - read the Linear issue
 - read the current Notion artifact if one exists
 - make the code changes locally
-- run practical verification
+- run the required repo checks plus the strongest practical targeted verification
+- add or update automated tests when behavior changes unless doing so is not practical yet
 - update local docs when the change affects durable project knowledge
 - update the Notion artifact with implementation summary and evidence
 - leave a concise Linear comment with outcome and verification summary
+
+If you do not add automated coverage for a behavior change, explain the gap explicitly in:
+
+- the local summary
+- the Notion artifact
+- the Linear comment when concise enough
 
 ### Review
 
@@ -178,6 +191,7 @@ When the user asks for `review`:
 - read the Linear issue
 - inspect the code or PR state relevant to the review
 - produce findings or an explicit no-findings result
+- treat missing or weak verification as a first-class review concern
 - update the Notion artifact with the review output
 - leave a concise Linear comment summarizing findings
 
