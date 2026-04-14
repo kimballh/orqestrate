@@ -392,7 +392,10 @@ export type PromptSourceRef = {
   kind:
     | "base_pack"
     | "role_prompt"
+    | "phase_prompt"
+    | "capability"
     | "overlay"
+    | "experiment"
     | "artifact"
     | "operator_note"
     | "system_generated";
@@ -417,6 +420,7 @@ Rules:
 - prompt assembly happens before runtime submission
 - `contractId` and digests are stable identifiers downstream systems can persist safely
 - attachments are typed references, not unstructured prose
+- prompt source refs should be symbolic and portable, such as `prompt-pack:default/roles/implement.md`, not absolute filesystem paths
 - runtime providers must not infer prompt structure by scraping human-readable summaries
 
 ### 6.3 Run submission payload

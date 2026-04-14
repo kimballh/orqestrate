@@ -126,7 +126,10 @@ export type PromptAttachmentKind = (typeof PROMPT_ATTACHMENT_KINDS)[number];
 export const PROMPT_SOURCE_KINDS = [
   "base_pack",
   "role_prompt",
+  "phase_prompt",
+  "capability",
   "overlay",
+  "experiment",
   "artifact",
   "operator_note",
   "system_generated",

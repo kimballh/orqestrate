@@ -185,27 +185,29 @@ This gives users a stable way to swap prompt assets without code edits.
 
 ## 8. Run-time prompt assembly
 
-At run creation time, the orchestrator or runtime should assemble the final prompt from:
+At run creation time, the orchestrator should assemble the final prompt from:
 
 - role
 - phase
 - authorized capabilities
-- selected overlays
+- configured organization and project overlays
+- run-specific additions
 - optional experiment variant
 
 Recommended assembly input:
 
 ```ts
 type PromptAssemblyRequest = {
+  promptPackName?: string;
   role: "design" | "plan" | "implement" | "review" | "merge";
   phase: "design" | "plan" | "implement" | "review" | "merge";
-  capabilities: string[];
-  overlays: {
-    organization?: string[];
-    project?: string[];
-  };
+  capabilities?: string[];
   experiment?: string | null;
-  runContext: AgentRunContext;
+  runAdditions?: Array<{
+    label: string;
+    markdown: string;
+  }>;
+  context: AgentRunContext;
 };
 ```
 
@@ -213,16 +215,39 @@ Recommended output:
 
 ```ts
 type PromptAssemblyResult = {
-  promptText: string;
-  sources: Array<{
-    kind: "base" | "role" | "phase" | "capability" | "overlay" | "experiment";
-    path: string;
+  prompt: {
+    contractId: string;
+    systemPrompt: string;
+    userPrompt: string;
+    attachments: PromptAttachment[];
+    sources: Array<{
+      kind:
+        | "base_pack"
+        | "role_prompt"
+        | "phase_prompt"
+        | "capability"
+        | "overlay"
+        | "experiment"
+        | "artifact"
+        | "operator_note"
+        | "system_generated";
+      ref: string;
+    }>;
+    digests: {
+      system: string;
+      user: string;
+    };
+  };
+  resolvedLayers: Array<{
+    kind: PromptSourceKind;
+    ref: string;
+    path?: string;
+    digest: string;
   }>;
-  digest: string;
 };
 ```
 
-The `sources` list matters for traceability and debugging.
+The `sources` list matters for traceability and debugging, and the public refs should stay symbolic so they can be persisted safely across machines and workspaces.
 
 ## 9. Capability fragments
 
