@@ -617,4 +617,10 @@ Before coding, verify:
 - the exact `issueUpdate` input shape for writing those values
 - the enum-option ids or write format for `harness_phase`, `harness_state`, and `review_outcome`
 
+2026-04-14 update:
+
+- public schema introspection and the shipped `@linear/sdk@81.0.0` types show no verifiable machine-owned custom-field fields on `Issue`
+- `IssueCreateInput` and `IssueUpdateInput` likewise expose no write shape for those fields
+- until that binding exists, the Linear backend must not pretend it can safely make actionable scheduling decisions from leased / claimed state
+
 Once that adapter is pinned down, the rest of the harness API contract is stable enough to implement.

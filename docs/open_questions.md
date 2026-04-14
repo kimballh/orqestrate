@@ -16,9 +16,9 @@ These are the next decisions to settle before implementing the service.
 
 ## 1b. Linear custom-field adapter
 
-- What is the exact GraphQL selection set for issue custom-field values in the current Linear schema?
-- What is the exact `issueUpdate` input shape for writing machine-owned custom fields?
-- Should the harness bind to raw GraphQL documents directly or use the Linear TypeScript SDK as the typed adapter layer?
+- 2026-04-14 verification against the public GraphQL schema and `@linear/sdk@81.0.0` showed that `Issue`, `IssueCreateInput`, and `IssueUpdateInput` do not expose a verifiable machine-owned custom-field read/write surface.
+- Remaining decision: does Linear expose those harness fields through a private/beta API, or does Orqestrate need a different control-plane store for phase, lease, run, and review state?
+- If a supported Linear binding does exist later, should the harness bind to raw GraphQL documents directly or use the Linear TypeScript SDK as the typed adapter layer?
 
 ## 2. Required vs optional design phase
 
