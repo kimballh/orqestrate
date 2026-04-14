@@ -10,7 +10,7 @@ Current mode is:
 - single-agent local execution
 - Linear for planning
 - Notion for long-form context
-- `docs/` for durable repo-local context
+- `docs/` for durable repo-local context during implementation and dedicated documentation work
 
 The user acts as the orchestrator and manually chooses which ticket and which phase to run next.
 
@@ -92,6 +92,11 @@ Use `docs/` for:
 
 If something will matter again even when external tools are unavailable, it belongs in `docs/`.
 
+For the current ticket workflow:
+
+- `design` and `plan` should normally update Notion artifacts and Linear comments, not repo-tracked docs
+- repo-tracked docs should normally be updated during `implement` or through dedicated documentation tickets
+
 ## 6. Per-ticket execution flow
 
 For each run:
@@ -102,10 +107,40 @@ For each run:
 4. Perform the assigned work.
 5. Update the durable artifact:
    - Notion for long-form artifact
-   - `docs/` if repo-level knowledge changed
+   - `docs/` if repo-level knowledge changed during implementation or explicit documentation work
 6. Keep the Linear status aligned with the assigned phase or blocker outcome when appropriate.
 7. Add a concise Linear comment.
 8. Return a local summary with verification and remaining risks.
+
+### 6.1 Phase and workspace policy
+
+`Design`
+
+- should be branchless by default
+- should not modify repo-tracked files
+- should not create commits or pull requests
+- should write its artifact to Notion and summarize in Linear
+
+`Plan`
+
+- should be branchless by default
+- should not modify repo-tracked files
+- should not create commits or pull requests
+- should write its artifact to Notion and summarize in Linear
+
+`Implement`
+
+- should run in a dedicated worktree or branch-backed workspace
+- should treat the current checked-out branch as the assigned branch unless the user says otherwise
+- should not invent a second feature branch for the same ticket
+- should commit the completed implementation
+- should push the branch
+- should create a pull request if one does not already exist
+
+`Review`
+
+- should review the branch or PR produced by implementation
+- should be read-only by default unless the user explicitly asks for rework
 
 ## 7. Build streams
 
