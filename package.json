@@ -13,7 +13,7 @@
     "dev": "tsx src/runtime/main.ts --config docs/config.example.toml",
     "setup": "bash ./scripts/codex-setup.sh",
     "start": "node --enable-source-maps dist/runtime/main.js --config docs/config.example.toml",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test $(find src -name '*.test.ts' | sort)",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
