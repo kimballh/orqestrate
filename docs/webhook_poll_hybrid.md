@@ -179,7 +179,7 @@ Purpose:
 
 Selector:
 
-- statuses in `Needs Design`, `Needs Plan`, `Ready`, `In Review`, `Ready to Merge`
+- statuses in `Design`, `Plan`, `Implement`, `Review`
 - `harness_state` in `queued`, `failed`, or lease expired
 
 ### 6.2 Lease sweeper
@@ -249,7 +249,7 @@ One advantage of the hybrid model is that human intervention becomes first-class
 
 Examples:
 
-- human changes status from `Blocked` to `Ready`
+- human changes status from `Blocked` to `Implement`
 - human adds `uiux`
 - human comments with approval or clarification
 - human sets `harness_state` back to `queued`

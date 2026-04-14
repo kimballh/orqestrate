@@ -39,7 +39,7 @@ Official references:
 The orchestrator should resolve and cache this metadata at startup:
 
 - Linear team ids the harness is allowed to act on
-- workflow state ids for `Needs Design`, `Needs Plan`, `Ready`, `In Progress`, `In Review`, `Blocked`, `Ready to Merge`, and `Done`
+- workflow state ids for `Backlog`, `Design`, `Plan`, `Implement`, `Review`, `Blocked`, `Done`, and `Canceled`
 - label ids only if the implementation uses ids instead of label names
 - custom field definitions and option ids for all machine-owned harness fields
 
@@ -89,7 +89,7 @@ query ActionableSweep($first: Int = 25, $after: String) {
     filter: {
       state: {
         name: {
-          in: ["Needs Design", "Needs Plan", "Ready", "In Review", "Ready to Merge"]
+          in: ["Design", "Plan", "Implement", "Review"]
         }
       }
     }
@@ -201,7 +201,7 @@ Suggested normalized shape:
 ```ts
 type HarnessFields = {
   phase: "none" | "design" | "plan" | "implement" | "review" | "merge";
-  state: "idle" | "queued" | "claimed" | "running" | "waiting_human" | "failed" | "complete";
+  state: "idle" | "queued" | "claimed" | "running" | "waiting_human" | "failed" | "completed";
   owner: string | null;
   runId: string | null;
   leaseUntil: string | null;
@@ -306,7 +306,7 @@ const input = {
 Design note:
 
 - for `design`, `plan`, and `review`, you may keep the human-facing state unchanged during the `claimed` transition if that is easier for operators to reason about
-- for `implement`, moving to `In Progress` at claim time is usually the clearest operator experience
+- for `implement`, keeping the planning status at `Implement` and letting `harness_state` show `claimed` or `running` is usually the clearest operator experience
 
 ### 5.3 Transition from claimed to running
 
@@ -430,7 +430,7 @@ const input = {
   stateId: doneStateId,
   ...adapter.buildTerminalPatch({
     phase: "none",
-    state: "complete",
+    state: "completed",
     owner: null,
     runId: currentRunId,
     leaseUntil: null,

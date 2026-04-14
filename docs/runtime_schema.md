@@ -39,13 +39,15 @@ Do not add more tables until the first runtime loop exists.
 
 The `runs` table is the canonical current-state record for each submitted run.
 
+The persistence schema should materialize the canonical `RunRecord` and `RunSubmissionPayload` from `src/domain-model.ts`. Column names may stay storage-oriented, but the TypeScript surface above the database should match the shared contract.
+
 Suggested SQLite DDL:
 
 ```sql
 CREATE TABLE runs (
   run_id TEXT PRIMARY KEY,
-  issue_id TEXT NOT NULL,
-  issue_identifier TEXT,
+  work_item_id TEXT NOT NULL,
+  work_item_identifier TEXT,
   phase TEXT NOT NULL CHECK (phase IN ('design', 'plan', 'implement', 'review', 'merge')),
   provider TEXT NOT NULL CHECK (provider IN ('codex', 'claude')),
   status TEXT NOT NULL CHECK (
@@ -59,7 +61,7 @@ CREATE TABLE runs (
       'stopping',
       'completed',
       'failed',
-      'cancelled',
+      'canceled',
       'stale'
     )
   ),
@@ -96,7 +98,7 @@ CREATE TABLE runs (
 );
 
 CREATE INDEX runs_status_priority_idx ON runs(status, priority, created_at);
-CREATE INDEX runs_issue_idx ON runs(issue_id, phase, status);
+CREATE INDEX runs_work_item_idx ON runs(work_item_id, phase, status);
 CREATE INDEX runs_provider_status_idx ON runs(provider, status, created_at);
 CREATE INDEX runs_repo_status_idx ON runs(repo_root, status, created_at);
 ```
@@ -209,31 +211,14 @@ Rules:
 ## 7. TypeScript enums
 
 ```ts
-export type ProviderKind = "codex" | "claude";
+import type {
+  AgentProvider,
+  RunStatus,
+  WorkPhase,
+  WorkspaceMode,
+} from "../src/domain-model.js";
 
-export type RunPhase =
-  | "design"
-  | "plan"
-  | "implement"
-  | "review"
-  | "merge";
-
-export type RunStatus =
-  | "queued"
-  | "admitted"
-  | "launching"
-  | "bootstrapping"
-  | "running"
-  | "waiting_human"
-  | "stopping"
-  | "completed"
-  | "failed"
-  | "cancelled"
-  | "stale";
-
-export type WorkspaceMode = "shared_readonly" | "ephemeral_worktree";
-
-export type WorkspaceStatus =
+export type WorkspaceAllocationStatus =
   | "preparing"
   | "ready"
   | "in_use"
@@ -255,42 +240,23 @@ export type RunEventSource =
 ## 8. TypeScript records
 
 ```ts
-export type RunRecord = {
-  runId: string;
-  issueId: string;
-  issueIdentifier?: string | null;
-  phase: RunPhase;
-  provider: ProviderKind;
-  status: RunStatus;
+import type {
+  PromptAttachment,
+  RunRecord,
+  RunSubmissionPayload,
+} from "../src/domain-model.js";
+
+export type PersistedRunRecord = RunRecord & {
   priority: number;
-  repoRoot: string;
-  workingDirHint?: string | null;
-  workspaceMode: WorkspaceMode;
-  workspaceAllocationId?: string | null;
-  baseRef?: string | null;
-  promptContract: string;
-  systemPromptHash?: string | null;
-  userPromptHash: string;
-  artifactUrl?: string | null;
-  requestedBy?: string | null;
   runtimeOwner?: string | null;
-  maxWallTimeSec: number;
-  idleTimeoutSec: number;
-  bootstrapTimeoutSec: number;
   attemptCount: number;
   waitingHumanReason?: string | null;
-  outcomeCode?: string | null;
-  exitCode?: number | null;
-  summary?: string | null;
-  verificationJson?: Record<string, unknown> | null;
-  lastError?: string | null;
-  createdAt: string;
-  admittedAt?: string | null;
-  startedAt?: string | null;
   readyAt?: string | null;
-  completedAt?: string | null;
-  lastHeartbeatAt?: string | null;
   version: number;
+};
+
+export type CreateRunInput = RunSubmissionPayload & {
+  priority?: number;
 };
 
 export type RunEventRecord = {
@@ -323,7 +289,7 @@ export type WorkspaceAllocationRecord = {
   workingDir: string;
   branchName?: string | null;
   baseRef?: string | null;
-  status: WorkspaceStatus;
+  status: WorkspaceAllocationStatus;
   claimedByRunId?: string | null;
   createdAt: string;
   readyAt?: string | null;
@@ -372,14 +338,11 @@ This is the first TypeScript interface to freeze.
 
 ```ts
 export type RunLaunchInput = {
-  run: RunRecord;
+  run: PersistedRunRecord;
   workspace: WorkspaceAllocationRecord;
   userPrompt: string;
   systemPrompt?: string | null;
-  attachments?: Array<{
-    kind: "notion_url" | "linear_url" | "file_path" | "text";
-    value: string;
-  }>;
+  attachments?: PromptAttachment[];
 };
 
 export type LaunchSpec = {
@@ -418,7 +381,7 @@ export type HumanInput = {
 };
 
 export type RunOutcome = {
-  finalStatus: "completed" | "failed" | "cancelled" | "stale";
+  finalStatus: "completed" | "failed" | "canceled" | "stale";
   outcomeCode?: string | null;
   summary?: string | null;
   verification?: Record<string, unknown> | null;
@@ -427,7 +390,7 @@ export type RunOutcome = {
 };
 
 export type ProviderAdapter = {
-  kind: ProviderKind;
+  kind: AgentProvider;
   buildLaunchSpec(input: RunLaunchInput): LaunchSpec;
   detectReady(snapshot: SessionSnapshot): boolean;
   classifyOutput(event: OutputEvent): RuntimeSignal[];

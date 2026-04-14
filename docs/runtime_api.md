@@ -66,7 +66,7 @@ Run states:
 - `stopping`
 - `completed`
 - `failed`
-- `cancelled`
+- `canceled`
 - `stale`
 
 Transition rules:
@@ -77,10 +77,10 @@ Transition rules:
 4. `bootstrapping -> running`
 5. `running -> waiting_human`
 6. `waiting_human -> running`
-7. `running -> completed | failed | cancelled | stale`
-8. `waiting_human -> cancelled | stale`
-9. `launching | bootstrapping -> failed | cancelled`
-10. `completed | failed | cancelled | stale` are terminal
+7. `running -> completed | failed | canceled | stale`
+8. `waiting_human -> canceled | stale`
+9. `launching | bootstrapping -> failed | canceled`
+10. `completed | failed | canceled | stale` are terminal
 
 Important distinctions:
 
@@ -94,41 +94,12 @@ Important distinctions:
 
 Every run should be submitted explicitly by the orchestrator.
 
-Suggested request shape:
+Canonical request shape:
 
 ```ts
-type CreateRunRequest = {
-  runId: string;
-  issueId: string;
-  issueIdentifier?: string | null;
-  phase: "design" | "plan" | "implement" | "review" | "merge";
-  provider: "codex" | "claude";
-  priority?: number;
-  repoRoot: string;
-  workingDirHint?: string | null;
-  workspaceMode: "shared_readonly" | "ephemeral_worktree";
-  baseRef?: string | null;
-  prompt: {
-    contract: string;
-    systemPrompt?: string | null;
-    userPrompt: string;
-    attachments?: Array<{
-      kind: "notion_url" | "linear_url" | "file_path" | "text";
-      value: string;
-    }>;
-  };
-  limits: {
-    maxWallTimeSec: number;
-    idleTimeoutSec: number;
-    bootstrapTimeoutSec: number;
-  };
-  metadata?: {
-    artifactUrl?: string | null;
-    linearIssueUrl?: string | null;
-    requestedBy?: string | null;
-    labels?: string[];
-  };
-};
+import type { RunSubmissionPayload } from "../src/domain-model.js";
+
+type CreateRunRequest = RunSubmissionPayload;
 ```
 
 Required policy:
@@ -156,13 +127,16 @@ Response:
 {
   "run": {
     "runId": "run-2026-04-12-001",
-    "issueId": "issue-id",
+    "workItemId": "issue-id",
+    "workItemIdentifier": "ORQ-16",
     "phase": "implement",
     "provider": "codex",
     "status": "queued",
-    "priority": 100,
     "repoRoot": "/repo",
-    "workspaceMode": "ephemeral_worktree",
+    "workspace": {
+      "mode": "ephemeral_worktree"
+    },
+    "promptContractId": "orqestrate/implement/v1",
     "createdAt": "2026-04-12T20:00:00.000Z"
   }
 }
@@ -192,7 +166,7 @@ Supported filters:
 
 - `status`
 - `provider`
-- `issueId`
+- `workItemId`
 - `phase`
 - `repoRoot`
 - `limit`
@@ -359,7 +333,7 @@ Admission rules for a `queued` run:
 - a global slot is available
 - a provider slot is available
 - the repository slot policy allows another run
-- no other non-terminal run exists for the same `issueId`
+- no other non-terminal run exists for the same `workItemId`
 - workspace preparation succeeds
 
 Default scheduling order:
@@ -391,7 +365,7 @@ Recommended `eventType` values:
 - `termination_started`
 - `completed`
 - `failed`
-- `cancelled`
+- `canceled`
 - `stale`
 
 Event payloads may differ by type, but the envelope should stay fixed:
@@ -448,7 +422,7 @@ When these fire:
 
 - bootstrap timeout -> `failed`
 - idle timeout -> `stale` or `failed` depending on heartbeat evidence
-- wall time -> `cancelled` if operator initiated, otherwise `failed`
+- wall time -> `canceled` if operator initiated, otherwise `failed`
 
 ## 11. API compatibility rule
 

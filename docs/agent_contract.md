@@ -291,7 +291,7 @@ Agent should:
 
 Agent should not:
 
-- mark the ticket `In Review` directly in the planning backend unless explicitly delegated to do so by the orchestrator
+- mark the ticket `Review` directly in the planning backend unless explicitly delegated to do so by the orchestrator
 
 ### 11.4 Review
 
@@ -302,7 +302,7 @@ Agent should:
 
 Agent should not:
 
-- directly transition the work item to `Ready to Merge` by default
+- directly transition the work item to `Done` or invent a `merge` handoff by default
 
 ### 11.5 Merge
 

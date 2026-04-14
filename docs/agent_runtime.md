@@ -135,7 +135,7 @@ Suggested top-level run shape:
 ```ts
 type AgentRun = {
   runId: string;
-  issueId: string;
+  workItemId: string;
   phase: "design" | "plan" | "implement" | "review" | "merge";
   provider: "codex" | "claude";
   status:
@@ -148,7 +148,7 @@ type AgentRun = {
     | "stopping"
     | "completed"
     | "failed"
-    | "cancelled"
+    | "canceled"
     | "stale";
   workspace: {
     repoRoot: string;
@@ -160,7 +160,7 @@ type AgentRun = {
   startedAt: string | null;
   completedAt: string | null;
   owner: string | null;
-  promptSpecId: string;
+  promptContractId: string;
   artifactUrl?: string | null;
   lastHeartbeatAt: string | null;
   lastError?: string | null;
@@ -323,7 +323,7 @@ The runtime service should classify these into a small normalized outcome set:
 - `failed_retryable`
 - `failed_terminal`
 - `waiting_human`
-- `cancelled`
+- `canceled`
 - `stale`
 
 ## 11. Heartbeats and health
@@ -358,7 +358,7 @@ Suggested event types:
 - `lease_extended`
 - `completed`
 - `failed`
-- `cancelled`
+- `canceled`
 
 The orchestrator should consume summaries, not raw terminal tails, by default.
 
