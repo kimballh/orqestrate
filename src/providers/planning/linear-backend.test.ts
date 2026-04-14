@@ -54,11 +54,11 @@ test("validates and resolves a scoped Linear backend adapter", async () => {
   await backend.validateConfig();
 
   const healthCheck = await backend.healthCheck();
-  assert.equal(healthCheck.ok, false);
-  assert.match(
-    healthCheck.message ?? "",
-    /do not expose the machine-owned custom fields required for actionable planning reads/i,
-  );
+  assert.deepEqual(healthCheck, {
+    ok: true,
+    message:
+      "Connected to Linear team 'Orqestrate' and project 'Orqestrate Build'.",
+  });
 
   const adapter = await backend.getConfigAdapter();
   const cachedAdapter = await backend.getConfigAdapter();

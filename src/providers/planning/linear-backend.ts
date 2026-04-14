@@ -51,18 +51,10 @@ export class LinearPlanningBackend extends UnimplementedPlanningBackend<Planning
   async healthCheck(): Promise<{ ok: boolean; message?: string }> {
     try {
       const adapter = await this.getConfigAdapter();
-      const actionableReadBlocker = adapter.client.getActionableReadBlocker();
       const scope =
         adapter.project === null
           ? `team '${adapter.team.name}'`
           : `team '${adapter.team.name}' and project '${adapter.project.name}'`;
-
-      if (actionableReadBlocker !== null) {
-        return {
-          ok: false,
-          message: `Connected to Linear ${scope}, but ${actionableReadBlocker}`,
-        };
-      }
 
       return {
         ok: true,
