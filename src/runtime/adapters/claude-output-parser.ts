@@ -58,7 +58,12 @@ export class ClaudeOutputParser {
     };
   }
 
-  clearWaitingHumanDedup(): void {
+  clearWaitingHumanState(): void {
+    if (this.latestBlock?.status === "waiting_human") {
+      this.latestBlock = null;
+      this.#buffer = "";
+    }
+
     this.#lastWaitingHumanKey = null;
   }
 

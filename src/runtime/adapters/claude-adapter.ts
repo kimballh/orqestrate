@@ -115,7 +115,7 @@ export class ClaudeProviderAdapter implements ProviderAdapter {
     session: RuntimeSessionController,
     input: HumanInput,
   ): Promise<void> {
-    this.#parser.clearWaitingHumanDedup();
+    this.#parser.clearWaitingHumanState();
     await session.write(`${renderClaudeHumanInput(input)}\n`);
   }
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { RuntimeDaemon } from "./daemon.js";
+import { RuntimeAdapterRegistry } from "./runtime-adapter-registry.js";
 import {
   createRunInput,
   createRuntimeFixture,
@@ -18,6 +19,7 @@ test("runtime daemon dispatches queued runs under capacity and backfills after c
 
   const supervisor = new FakeSessionSupervisor();
   const daemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    adapterRegistry: new RuntimeAdapterRegistry(),
     sessionSupervisor: supervisor,
     dispatcherIntervalMs: 5,
   });
@@ -48,7 +50,6 @@ test("runtime daemon dispatches queued runs under capacity and backfills after c
   supervisor.emitExit("session-2", 0, null);
   await waitForRunStatus(daemon, "run-002", "completed");
 });
-
 test("runtime daemon uses the built-in Claude adapter for waiting-human resume flows", async (t) => {
   const fixture = createRuntimeFixture(t);
   const supervisor = new FakeSessionSupervisor();
@@ -112,4 +113,11 @@ VERIFICATION:
     passed: true,
     notes: "- `npm run check`\n- passed",
   });
+});
+
+test("runtime daemon registers the built-in runtime adapters by default", (t) => {
+  const fixture = createRuntimeFixture(t);
+  const daemon = new RuntimeDaemon(fixture.runtimeConfig);
+
+  assert.deepEqual(daemon.adapterRegistry.listProviders(), ["claude", "codex"]);
 });

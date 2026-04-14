@@ -58,11 +58,32 @@ Which path should I use?
   assert.ok(first.waitingHumanBlock);
   assert.equal(second.waitingHumanBlock, null);
 
-  parser.clearWaitingHumanDedup();
+  parser.clearWaitingHumanState();
 
   const third = parser.push(waitingBlock);
   assert.ok(third.waitingHumanBlock);
   assert.equal(third.waitingHumanBlock?.requestedHumanInput, "Which path should I use?");
+});
+
+test("ClaudeOutputParser clears stale waiting-human state on resume", () => {
+  const parser = new ClaudeOutputParser();
+  parser.push(`STATUS: waiting_human
+SUMMARY:
+Need a decision.
+
+REQUESTED_HUMAN_INPUT:
+Approve deploy?
+`);
+
+  parser.clearWaitingHumanState();
+
+  const completed = parser.push(`STATUS: completed
+SUMMARY:
+Finished successfully.
+`);
+
+  assert.equal(completed.latestBlock?.status, "completed");
+  assert.equal(completed.latestBlock?.summary, "Finished successfully.");
 });
 
 test("ClaudeOutputParser handles structured blocks split across PTY chunks", () => {
