@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import test from "node:test";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -34,6 +34,9 @@ base_system = "base/system.md"
 [prompt_packs.default.roles]
 design = "roles/design.md"
 implement = "roles/implement.md"
+
+[prompt_packs.default.phases]
+review = "phases/review.md"
 
 [providers.linear_main]
 kind = "planning.linear"
@@ -80,6 +83,10 @@ test("loads the docs example with its default local profile without SaaS env var
   assert.equal(
     config.activeProfile.promptPack.baseSystem,
     path.join(REPO_ROOT, "docs", "prompts", "base", "system.md"),
+  );
+  assert.equal(
+    config.activeProfile.promptPack.phases.implement,
+    path.join(REPO_ROOT, "docs", "prompts", "phases", "implement.md"),
   );
 });
 
@@ -139,6 +146,102 @@ test("normalizes relative filesystem and prompt asset paths against the config l
     config.promptPacks.default.roles.implement,
     path.join(fixture.workspaceDir, "prompts", "roles", "implement.md"),
   );
+  assert.equal(
+    config.promptPacks.default.phases.review,
+    path.join(fixture.workspaceDir, "prompts", "phases", "review.md"),
+  );
+});
+
+test("loads the docs example default prompt pack with non-placeholder prompt assets", async () => {
+  const config = await loadConfig({
+    configPath: path.join(REPO_ROOT, "docs/config.example.toml"),
+    env: {},
+  });
+  const pack = config.promptPacks.default;
+  const assetPaths = [
+    pack.baseSystem,
+    ...Object.values(pack.roles),
+    ...Object.values(pack.phases),
+    ...Object.values(pack.capabilities),
+    ...Object.values(pack.overlays).flat(),
+    ...Object.values(pack.experiments),
+  ];
+
+  assert.deepEqual(Object.keys(pack.roles).sort(), [
+    "design",
+    "implement",
+    "merge",
+    "plan",
+    "review",
+  ]);
+  assert.deepEqual(Object.keys(pack.phases).sort(), ["implement", "review"]);
+  assert.equal(assetPaths.length, new Set(assetPaths).size);
+
+  for (const assetPath of assetPaths) {
+    const contents = readFileSync(assetPath, "utf8");
+    assert.ok(contents.trim().length > 40, `${assetPath} should not be empty`);
+    assert.doesNotMatch(
+      contents,
+      /placeholder/i,
+      `${assetPath} should not contain placeholder text`,
+    );
+  }
+
+  const roleContracts: Record<string, string[]> = {
+    design: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "ARTIFACT: markdown design note",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+    plan: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "ARTIFACT: markdown implementation plan",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+    implement: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "VERIFICATION:",
+      "ARTIFACT:",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+    review: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "ARTIFACT: markdown review report",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+    merge: [
+      "Return your result in this shape:",
+      "STATUS: completed | failed | waiting_human",
+      "SUMMARY:",
+      "DETAILS:",
+      "ARTIFACT: markdown merge summary",
+      "REQUESTED_HUMAN_INPUT: optional blocking question",
+    ],
+  };
+
+  for (const [role, markers] of Object.entries(roleContracts)) {
+    const contents = readFileSync(pack.roles[role], "utf8");
+
+    for (const marker of markers) {
+      assert.match(
+        contents,
+        new RegExp(escapeRegExp(marker)),
+        `${role} role prompt should include '${marker}'`,
+      );
+    }
+  }
 });
 
 test("rejects unsupported provider kinds", () => {
@@ -271,6 +374,7 @@ function writePromptFixtureFiles(promptRoot: string): void {
     "base/system.md": "# Base System\n",
     "roles/design.md": "# Design\n",
     "roles/implement.md": "# Implement\n",
+    "phases/review.md": "# Review Phase\n",
   };
 
   for (const [relativePath, contents] of Object.entries(files)) {
@@ -278,4 +382,8 @@ function writePromptFixtureFiles(promptRoot: string): void {
     mkdirSync(path.dirname(absolutePath), { recursive: true });
     writeFileSync(absolutePath, contents, "utf8");
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

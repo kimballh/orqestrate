@@ -74,6 +74,10 @@ implement = "roles/implement.md"
 review = "roles/review.md"
 merge = "roles/merge.md"
 
+[prompt_packs.default.phases]
+implement = "phases/implement.md"
+review = "phases/review.md"
+
 [providers.linear_main]
 kind = "planning.linear"
 token_env = "LINEAR_API_KEY"
@@ -253,6 +257,10 @@ Leave room for prompt-pack customization too:
 [prompts]
 root = "./prompts"
 active_pack = "default"
+
+[prompt_packs.default.phases]
+implement = "phases/implement.md"
+review = "phases/review.md"
 
 [prompt_packs.default.overlays]
 organization = ["overlays/org/reviewer-qa.md"]
