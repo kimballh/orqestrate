@@ -227,6 +227,12 @@ When the user asks for `review`:
 
 By default, review is read-only with respect to the repo branch unless the user explicitly asks for rework.
 
+If the review run is using the same GitHub actor that authored the PR:
+
+- do not require a formal GitHub review state
+- leave comment-only findings on the PR instead
+- treat those comments as the durable review surface for the run
+
 ## Direct tool use policy
 
 Default rule:

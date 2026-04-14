@@ -141,6 +141,7 @@ For each run:
 
 - should review the branch or PR produced by implementation
 - should be read-only by default unless the user explicitly asks for rework
+- may need to fall back to comment-only PR feedback when the reviewer actor is the same GitHub actor as the PR author
 
 ## 7. Build streams
 

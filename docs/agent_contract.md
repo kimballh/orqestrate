@@ -306,6 +306,7 @@ Agent should:
 
 - inspect changes
 - produce findings or approval summary
+- degrade to comment-only PR feedback when the reviewer actor is the same GitHub actor as the PR author
 
 Agent should not:
 

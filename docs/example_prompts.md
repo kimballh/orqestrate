@@ -379,6 +379,8 @@ Recommended capabilities:
 - `github.read_pr`
 - `github.write_review`
 
+If the reviewer is the same GitHub actor as the PR author, the run should degrade gracefully to comment-only review output instead of requiring a formal GitHub review state.
+
 ### 10.2 User prompt template
 
 ```text
@@ -404,6 +406,7 @@ Review rules:
 - if there are no findings, say that explicitly
 - comments should be actionable and technically specific
 - avoid noise and low-signal nits
+- if you are effectively reviewing your own PR as the same GitHub actor, leave comment-only feedback and do not rely on a formal GitHub review state being available
 
 Return your result in this shape:
 
@@ -413,6 +416,7 @@ DETAILS:
 GITHUB_ACTIONS:
 - review comments left
 - overall review state suggested
+- formal review submitted: yes/no
 ARTIFACT:
 - markdown review summary
 REQUESTED_HUMAN_INPUT: optional blocking question
