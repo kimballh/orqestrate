@@ -18,12 +18,14 @@ The repository is still in an early scaffold stage, so the current enforced base
 
 - `npm run typecheck`
 - `npm run build`
+- `npm run test`
 - `npm run check`
 
 At the moment, `npm run check` is the canonical aggregate command and expands to:
 
 - `npm run typecheck`
 - `npm run build`
+- `npm run test`
 
 As the codebase grows, this command should remain the single CI entrypoint and expand to include linting, tests, and any other required checks.
 
