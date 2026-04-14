@@ -168,6 +168,7 @@ export function parseConfig(
   return {
     sourcePath,
     version,
+    env,
     paths,
     policy,
     prompts,

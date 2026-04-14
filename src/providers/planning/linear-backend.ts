@@ -11,10 +11,12 @@ import { UnimplementedPlanningBackend } from "./unimplemented-planning-backend.j
 
 type LinearPlanningBackendOptions = {
   client?: LinearPlanningClient;
+  apiKey?: string;
 };
 
 export class LinearPlanningBackend extends UnimplementedPlanningBackend<PlanningLinearProviderConfig> {
   private client: LinearPlanningClient | null;
+  private readonly apiKey?: string;
   private configAdapter: LinearPlanningConfigAdapter | null = null;
   private configAdapterPromise: Promise<LinearPlanningConfigAdapter> | null = null;
 
@@ -24,6 +26,7 @@ export class LinearPlanningBackend extends UnimplementedPlanningBackend<Planning
   ) {
     super(config);
     this.client = options.client ?? null;
+    this.apiKey = options.apiKey;
   }
 
   async validateConfig(): Promise<void> {
@@ -75,7 +78,7 @@ export class LinearPlanningBackend extends UnimplementedPlanningBackend<Planning
   private getClient(): LinearPlanningClient {
     if (this.client === null) {
       this.client = new LinearPlanningClient({
-        apiKey: process.env[this.config.tokenEnv],
+        apiKey: this.apiKey,
       });
     }
 

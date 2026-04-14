@@ -129,6 +129,7 @@ export interface ProfileConfig {
 export interface LoadedConfig {
   sourcePath: string;
   version: 1;
+  env: NodeJS.ProcessEnv;
   paths: PathsConfig;
   policy: PolicyConfig;
   prompts: PromptsConfig;

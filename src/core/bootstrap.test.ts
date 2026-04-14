@@ -286,6 +286,76 @@ test("supports extension registrations with non-built-in provider kinds", async 
   assert.equal(context.registration.kind, "context.google_drive");
 });
 
+test("built-in Linear registration uses the loaded config env snapshot instead of process.env", async () => {
+  const config = await loadExampleConfig("hybrid", {
+    LINEAR_API_KEY: "env-snapshot-token",
+    LINEAR_WEBHOOK_SECRET: "webhook-secret",
+  });
+  const originalToken = process.env.LINEAR_API_KEY;
+  delete process.env.LINEAR_API_KEY;
+
+  try {
+    const registry = new ProviderRegistry()
+      .registerPlanning<PlanningLinearProviderConfig>(
+        "planning.linear",
+        ({ provider, loadedConfig }) =>
+          new LinearPlanningBackend(provider, {
+            apiKey: loadedConfig.env[provider.tokenEnv],
+            client: new LinearPlanningClient({
+              sdkClient: {
+                viewer: Promise.resolve({
+                  id: "viewer-1",
+                  name: "Kimball Hill",
+                  displayName: "Kimball Hill",
+                  email: "kimball@example.com",
+                }),
+                teams: async () => ({
+                  nodes: [
+                    {
+                      id: "team-1",
+                      key: "ENG",
+                      name: "Engineering",
+                      displayName: "Engineering",
+                      projects: async () => ({ nodes: [] }),
+                      states: async () => ({
+                        nodes: [
+                          { id: "backlog", name: "Backlog", type: "backlog", teamId: "team-1", archivedAt: null },
+                          { id: "design", name: "Design", type: "unstarted", teamId: "team-1", archivedAt: null },
+                          { id: "plan", name: "Plan", type: "unstarted", teamId: "team-1", archivedAt: null },
+                          { id: "implement", name: "Implement", type: "started", teamId: "team-1", archivedAt: null },
+                          { id: "review", name: "Review", type: "started", teamId: "team-1", archivedAt: null },
+                          { id: "blocked", name: "Blocked", type: "unstarted", teamId: "team-1", archivedAt: null },
+                          { id: "done", name: "Done", type: "completed", teamId: "team-1", archivedAt: null },
+                          { id: "canceled", name: "Canceled", type: "canceled", teamId: "team-1", archivedAt: null },
+                        ],
+                      }),
+                    },
+                  ],
+                }),
+              },
+            }),
+          }),
+      )
+      .registerContext<ContextLocalFilesProviderConfig>(
+        "context.local_files",
+        ({ provider }) => new TrackingContextBackend(provider, []),
+      );
+
+    const result = await bootstrapActiveProfile(config, {
+      registry,
+      runHealthChecks: false,
+    });
+
+    assert.ok(result.planning instanceof LinearPlanningBackend);
+  } finally {
+    if (originalToken === undefined) {
+      delete process.env.LINEAR_API_KEY;
+    } else {
+      process.env.LINEAR_API_KEY = originalToken;
+    }
+  }
+});
+
 async function loadExampleConfig(
   activeProfile?: string,
   env?: NodeJS.ProcessEnv,
@@ -392,6 +462,7 @@ function createFakeLoadedConfig() {
   return {
     sourcePath: "/tmp/config.toml",
     version: 1 as const,
+    env: {},
     paths: {
       stateDir: "/tmp/state",
       dataDir: "/tmp/data",
