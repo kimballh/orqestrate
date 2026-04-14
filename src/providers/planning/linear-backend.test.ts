@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AuthenticationLinearError } from "@linear/sdk";
+import { AuthenticationLinearError, ForbiddenLinearError } from "@linear/sdk";
 
 import type { PlanningLinearProviderConfig } from "../../config/types.js";
 
@@ -343,6 +343,379 @@ test("fails closed when a candidate issue contains malformed machine-state data"
   );
 });
 
+test("claims Linear issues while preserving human labels and description text", async () => {
+  const harness = createMutableIssueSdkHarness([
+    createFakeIssue({
+      id: "issue-28",
+      identifier: "ORQ-28",
+      title: "Implement Linear mutations",
+      state: workflowState("implement"),
+      labels: [{ id: "label-backend", name: "backend" }],
+      description: withMachineState("Implement the write path.", {
+        owner: null,
+        runId: null,
+        leaseUntil: null,
+        artifactUrl: "https://notion.so/orq-28",
+        blockedReason: "stale blocker",
+        lastError: {
+          providerFamily: "planning",
+          providerKind: "planning.linear",
+          code: "validation",
+          message: "stale machine state",
+          retryable: false,
+          details: null,
+        },
+        attemptCount: 0,
+      }),
+    }),
+  ]);
+  const backend = createBackend({}, harness.sdkClient);
+
+  const claimed = await backend.claimWorkItem({
+    id: "issue-28",
+    phase: "implement",
+    owner: "orchestrator-1",
+    runId: "run-28",
+    leaseUntil: "2099-04-14T01:00:00.000Z",
+  });
+
+  assert.equal(claimed.orchestration.state, "claimed");
+  assert.equal(claimed.orchestration.owner, "orchestrator-1");
+  assert.equal(claimed.orchestration.runId, "run-28");
+  assert.equal(claimed.orchestration.leaseUntil, "2099-04-14T01:00:00.000Z");
+  assert.equal(claimed.orchestration.blockedReason, null);
+  assert.equal(claimed.orchestration.lastError, null);
+  assert.equal(claimed.orchestration.attemptCount, 1);
+  assert.equal(claimed.artifactUrl, "https://notion.so/orq-28");
+  assert.equal(claimed.description, "Implement the write path.");
+  assert.deepEqual(claimed.labels.sort(), [
+    "backend",
+    "orq:phase:implement",
+    "orq:review:none",
+    "orq:state:claimed",
+  ]);
+  assert.deepEqual(harness.createdLabelNames.sort(), [
+    "orq:phase:implement",
+    "orq:review:none",
+    "orq:state:claimed",
+  ]);
+});
+
+test("rejects invalid claims for phase mismatches, blockers, and active leases", async () => {
+  const backend = createBackend(
+    {},
+    createIssueSdkClient([
+      createFakeIssue({
+        id: "issue-blocked-claim",
+        identifier: "ORQ-60",
+        title: "Blocked claim",
+        state: workflowState("implement"),
+        inverseRelations: [{ type: "blocks", issueId: "issue-blocker-open" }],
+      }),
+      createFakeIssue({
+        id: "issue-blocker-open",
+        identifier: "ORQ-61",
+        title: "Open blocker",
+        state: workflowState("plan"),
+      }),
+      createFakeIssue({
+        id: "issue-phase-mismatch",
+        identifier: "ORQ-62",
+        title: "Phase mismatch",
+        state: workflowState("plan"),
+      }),
+      createFakeIssue({
+        id: "issue-lease-active",
+        identifier: "ORQ-63",
+        title: "Leased issue",
+        state: workflowState("implement"),
+        labels: [
+          { id: "label-phase-implement", name: "orq:phase:implement" },
+          { id: "label-state-claimed", name: "orq:state:claimed" },
+        ],
+        description: withMachineState("Leased issue.", {
+          owner: "orchestrator-1",
+          runId: "run-active",
+          leaseUntil: "2099-04-14T01:05:00.000Z",
+          artifactUrl: null,
+          blockedReason: null,
+          lastError: null,
+          attemptCount: 1,
+        }),
+      }),
+    ]),
+  );
+
+  await assert.rejects(
+    () =>
+      backend.claimWorkItem({
+        id: "issue-phase-mismatch",
+        phase: "implement",
+        owner: "orchestrator-1",
+        runId: "run-phase",
+        leaseUntil: "2099-04-14T01:00:00.000Z",
+      }),
+    /phase 'plan', not 'implement'/i,
+  );
+
+  await assert.rejects(
+    () =>
+      backend.claimWorkItem({
+        id: "issue-blocked-claim",
+        phase: "implement",
+        owner: "orchestrator-1",
+        runId: "run-blocked",
+        leaseUntil: "2099-04-14T01:00:00.000Z",
+      }),
+    /open blockers/i,
+  );
+
+  await assert.rejects(
+    () =>
+      backend.claimWorkItem({
+        id: "issue-lease-active",
+        phase: "implement",
+        owner: "orchestrator-2",
+        runId: "run-lease",
+        leaseUntil: "2099-04-14T01:00:00.000Z",
+      }),
+    /active lease/i,
+  );
+});
+
+test("enforces ownership for running and lease renewal updates", async () => {
+  const harness = createMutableIssueSdkHarness([
+    createFakeIssue({
+      id: "issue-64",
+      identifier: "ORQ-64",
+      title: "Lease ownership",
+      state: workflowState("implement"),
+      labels: [
+        { id: "label-phase-implement", name: "orq:phase:implement" },
+        { id: "label-state-claimed", name: "orq:state:claimed" },
+        { id: "label-review-none", name: "orq:review:none" },
+      ],
+      description: withMachineState("Claimed implementation.", {
+        owner: "orchestrator-1",
+        runId: "run-64",
+        leaseUntil: "2099-04-14T01:00:00.000Z",
+        artifactUrl: null,
+        blockedReason: null,
+        lastError: null,
+        attemptCount: 2,
+      }),
+    }),
+  ]);
+  const backend = createBackend({}, harness.sdkClient);
+
+  await assert.rejects(
+    () =>
+      backend.markWorkItemRunning({
+        id: "issue-64",
+        owner: "orchestrator-2",
+        runId: "run-64",
+        leaseUntil: "2099-04-14T01:05:00.000Z",
+      }),
+    /owned by/i,
+  );
+
+  const running = await backend.markWorkItemRunning({
+    id: "issue-64",
+    owner: "orchestrator-1",
+    runId: "run-64",
+    leaseUntil: "2099-04-14T01:05:00.000Z",
+  });
+
+  assert.equal(running.orchestration.state, "running");
+  assert.equal(running.orchestration.leaseUntil, "2099-04-14T01:05:00.000Z");
+
+  await assert.rejects(
+    () =>
+      backend.renewLease({
+        id: "issue-64",
+        owner: "orchestrator-1",
+        runId: "run-other",
+        leaseUntil: "2099-04-14T01:10:00.000Z",
+      }),
+    /leased to run/i,
+  );
+
+  const renewed = await backend.renewLease({
+    id: "issue-64",
+    owner: "orchestrator-1",
+    runId: "run-64",
+    leaseUntil: "2099-04-14T01:10:00.000Z",
+  });
+
+  assert.equal(renewed.orchestration.leaseUntil, "2099-04-14T01:10:00.000Z");
+  assert.equal(renewed.orchestration.state, "running");
+});
+
+test("preserves blocked phases and clears terminal phases on Linear transitions", async () => {
+  const harness = createMutableIssueSdkHarness([
+    createFakeIssue({
+      id: "issue-70",
+      identifier: "ORQ-70",
+      title: "Blocked implementation",
+      state: workflowState("implement"),
+      labels: [
+        { id: "label-phase-implement", name: "orq:phase:implement" },
+        { id: "label-state-running", name: "orq:state:running" },
+        { id: "label-review-none", name: "orq:review:none" },
+      ],
+      description: withMachineState("Implementation details.", {
+        owner: "orchestrator-1",
+        runId: "run-70",
+        leaseUntil: "2099-04-14T01:00:00.000Z",
+        artifactUrl: null,
+        blockedReason: null,
+        lastError: null,
+        attemptCount: 2,
+      }),
+    }),
+    createFakeIssue({
+      id: "issue-71",
+      identifier: "ORQ-71",
+      title: "Completed review",
+      state: workflowState("review"),
+      labels: [
+        { id: "label-phase-review", name: "orq:phase:review" },
+        { id: "label-state-running-review", name: "orq:state:running" },
+        { id: "label-review-cr", name: "orq:review:changes_requested" },
+      ],
+      description: withMachineState("Review details.", {
+        owner: "reviewer-1",
+        runId: "run-71",
+        leaseUntil: "2099-04-14T01:05:00.000Z",
+        artifactUrl: null,
+        blockedReason: null,
+        lastError: null,
+        attemptCount: 3,
+      }),
+    }),
+    createFakeIssue({
+      id: "issue-72",
+      identifier: "ORQ-72",
+      title: "Move into review",
+      state: workflowState("implement"),
+      labels: [
+        { id: "label-phase-implement-72", name: "orq:phase:implement" },
+        { id: "label-state-completed-72", name: "orq:state:completed" },
+        { id: "label-review-cr-72", name: "orq:review:changes_requested" },
+      ],
+      description: withMachineState("Implementation done.", {
+        owner: null,
+        runId: "run-72",
+        leaseUntil: null,
+        artifactUrl: null,
+        blockedReason: null,
+        lastError: null,
+        attemptCount: 2,
+      }),
+    }),
+  ]);
+  const backend = createBackend({}, harness.sdkClient);
+
+  const blocked = await backend.transitionWorkItem({
+    id: "issue-70",
+    nextStatus: "blocked",
+    nextPhase: "none",
+    state: "waiting_human",
+    blockedReason: "missing credentials",
+    runId: "run-70",
+  });
+
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.phase, "implement");
+  assert.equal(blocked.orchestration.owner, null);
+  assert.equal(blocked.orchestration.leaseUntil, null);
+  assert.equal(blocked.orchestration.blockedReason, "missing credentials");
+
+  const done = await backend.transitionWorkItem({
+    id: "issue-71",
+    nextStatus: "done",
+    nextPhase: "none",
+    state: "completed",
+    runId: "run-71",
+  });
+
+  assert.equal(done.phase, "none");
+  assert.equal(done.orchestration.owner, null);
+  assert.equal(done.orchestration.leaseUntil, null);
+  assert.equal(done.orchestration.reviewOutcome, "none");
+  assert.equal(done.orchestration.attemptCount, 0);
+
+  const movedToReview = await backend.transitionWorkItem({
+    id: "issue-72",
+    nextStatus: "review",
+    nextPhase: "review",
+    state: "completed",
+    runId: "run-72",
+  });
+
+  assert.equal(movedToReview.phase, "review");
+  assert.equal(movedToReview.orchestration.reviewOutcome, "none");
+  assert.equal(movedToReview.orchestration.attemptCount, 0);
+});
+
+test("creates explicit Linear comments through the planning backend", async () => {
+  const harness = createMutableIssueSdkHarness([
+    createFakeIssue({
+      id: "issue-80",
+      identifier: "ORQ-80",
+      title: "Comment target",
+      state: workflowState("plan"),
+    }),
+  ]);
+  const backend = createBackend({}, harness.sdkClient);
+
+  await backend.appendComment({
+    id: "issue-80",
+    body: "Implemented claim + transition writes.",
+  });
+
+  assert.deepEqual(harness.comments, [
+    {
+      issueId: "issue-80",
+      body: "Implemented claim + transition writes.",
+    },
+  ]);
+});
+
+test("surfaces provider label-creation permission failures clearly", async () => {
+  const harness = createMutableIssueSdkHarness(
+    [
+      createFakeIssue({
+        id: "issue-81",
+        identifier: "ORQ-81",
+        title: "Label creation failure",
+        state: workflowState("implement"),
+      }),
+    ],
+    {
+      createIssueLabelError: new ForbiddenLinearError({
+        response: {
+          status: 403,
+          error: "Forbidden",
+        },
+      } as never),
+    },
+  );
+  const backend = createBackend({}, harness.sdkClient);
+
+  await assert.rejects(
+    () =>
+      backend.claimWorkItem({
+        id: "issue-81",
+        phase: "implement",
+        owner: "orchestrator-1",
+        runId: "run-81",
+        leaseUntil: "2099-04-14T01:00:00.000Z",
+      }),
+    /do not have permission/i,
+  );
+});
+
 test("returns null for missing issues and builds deep links from the hydrated issue url", async () => {
   const backend = createBackend(
     {},
@@ -417,9 +790,43 @@ function createSdkClient(options: {
 function createIssueSdkClient(
   issues: FakeIssueDefinition[],
 ): LinearSdkClientLike {
-  const issuesById = new Map(issues.map((issue) => [issue.id, issue]));
+  return createMutableIssueSdkHarness(issues).sdkClient;
+}
 
-  return {
+function createMutableIssueSdkHarness(
+  issues: FakeIssueDefinition[],
+  options: {
+    createIssueLabelError?: Error;
+  } = {},
+): {
+  sdkClient: LinearSdkClientLike;
+  comments: Array<{ issueId: string; body: string }>;
+  createdLabelNames: string[];
+} {
+  const mutableIssues = new Map(
+    issues.map((issue) => [issue.id, structuredClone(issue)] as const),
+  );
+  const labelsById = new Map<string, FakeLabelDefinition>();
+  const comments: Array<{ issueId: string; body: string }> = [];
+  const createdLabelNames: string[] = [];
+  let mutationCounter = 0;
+
+  for (const issue of mutableIssues.values()) {
+    for (const label of issue.labels) {
+      labelsById.set(label.id, {
+        id: label.id,
+        name: label.name,
+        teamId: label.teamId ?? "team-orq",
+        archivedAt: null,
+      });
+    }
+  }
+
+  const workflowStatesById = new Map(
+    createRequiredStates().map((state) => [state.id, state] as const),
+  );
+
+  const sdkClient: LinearSdkClientLike = {
     ...createSdkClient({
       teams: [
         createSdkTeam({
@@ -437,25 +844,131 @@ function createIssueSdkClient(
       ],
     }),
     issue: async (id) => {
-      const issue = issuesById.get(id);
+      const issue = mutableIssues.get(id);
 
       if (!issue) {
         throw new Error(`Linear issue '${id}' was not found.`);
       }
 
-      return buildFakeIssue(issue, issuesById);
+      return buildFakeIssue(issue, mutableIssues);
     },
     issues: async (variables) => {
-      const filtered = issues
+      const filtered = [...mutableIssues.values()]
         .filter((issue) => matchesIssueFilter(issue, variables?.filter))
         .sort(
           (left, right) =>
             Date.parse(left.updatedAt) - Date.parse(right.updatedAt),
         )
-        .map((issue) => buildFakeIssue(issue, issuesById));
+        .map((issue) => buildFakeIssue(issue, mutableIssues));
 
       return paginateArray(filtered, variables);
     },
+    updateIssue: async (id, input) => {
+      const issue = mutableIssues.get(id);
+
+      if (!issue) {
+        throw new Error(`Linear issue '${id}' was not found.`);
+      }
+
+      if (input.stateId) {
+        const nextState = workflowStatesById.get(input.stateId);
+
+        if (!nextState) {
+          throw new Error(`Unknown workflow state '${input.stateId}'.`);
+        }
+
+        issue.state = nextState;
+      }
+
+      if (input.labelIds) {
+        issue.labels = input.labelIds.map((labelId) => {
+          const label = labelsById.get(labelId);
+
+          if (!label) {
+            throw new Error(`Unknown issue label '${labelId}'.`);
+          }
+
+          return {
+            id: label.id,
+            name: label.name,
+            teamId: label.teamId ?? undefined,
+          };
+        });
+      }
+
+      if (Object.prototype.hasOwnProperty.call(input, "description")) {
+        issue.description = input.description ?? null;
+      }
+
+      mutationCounter += 1;
+      issue.updatedAt = `2026-04-14T00:00:${String(mutationCounter).padStart(2, "0")}.000Z`;
+
+      return { success: true };
+    },
+    createComment: async (input) => {
+      comments.push({
+        issueId: input.issueId ?? "",
+        body: input.body ?? "",
+      });
+
+      return { success: true };
+    },
+    issueLabels: async () =>
+      paginateArray(
+        [...labelsById.values()].map((label) => ({
+          id: label.id,
+          name: label.name,
+          teamId: label.teamId ?? undefined,
+          archivedAt: label.archivedAt,
+        })),
+      ),
+    createIssueLabel: async (input) => {
+      if (options.createIssueLabelError) {
+        throw options.createIssueLabelError;
+      }
+
+      const normalizedName = input.name.trim().toLowerCase();
+      const existing = [...labelsById.values()].find(
+        (label) => label.name.trim().toLowerCase() === normalizedName,
+      );
+
+      if (existing) {
+        return {
+          success: true,
+          issueLabel: Promise.resolve({
+            id: existing.id,
+            name: existing.name,
+            teamId: existing.teamId ?? undefined,
+            archivedAt: existing.archivedAt,
+          }),
+        };
+      }
+
+      const createdLabel = {
+        id: `label-created-${labelsById.size + 1}`,
+        name: input.name,
+        teamId: input.teamId ?? null,
+        archivedAt: null,
+      } satisfies FakeLabelDefinition;
+      labelsById.set(createdLabel.id, createdLabel);
+      createdLabelNames.push(createdLabel.name);
+
+      return {
+        success: true,
+        issueLabel: Promise.resolve({
+          id: createdLabel.id,
+          name: createdLabel.name,
+          teamId: createdLabel.teamId ?? undefined,
+          archivedAt: createdLabel.archivedAt,
+        }),
+      };
+    },
+  };
+
+  return {
+    sdkClient,
+    comments,
+    createdLabelNames,
   };
 }
 
@@ -721,4 +1234,11 @@ type FakeIssueDefinition = {
     type: string;
     issueId: string;
   }>;
+};
+
+type FakeLabelDefinition = {
+  id: string;
+  name: string;
+  teamId: string | null;
+  archivedAt: string | null;
 };
