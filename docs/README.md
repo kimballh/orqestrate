@@ -95,3 +95,9 @@ Avoid:
 - using Notion as the high-frequency locking or heartbeat store
 
 Those choices make the system harder to poll, harder to reconcile, and harder for humans to reason about.
+
+## Current scaffold
+
+- `npm run dev` starts the local runtime daemon against `docs/config.example.toml`
+- `npm start` runs the built runtime daemon with the same example profile
+- the first runtime scaffold now lives under `src/runtime/` with SQLite-backed persistence for runs, events, heartbeats, and workspace allocations

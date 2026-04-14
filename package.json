@@ -8,21 +8,23 @@
     "node": ">=20.18.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node ./scripts/copy-runtime-assets.mjs",
     "check": "npm run typecheck && npm run build && npm run test",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/runtime/main.ts --config docs/config.example.toml",
     "setup": "bash ./scripts/codex-setup.sh",
-    "start": "node --enable-source-maps dist/index.js",
+    "start": "node --enable-source-maps dist/runtime/main.js --config docs/config.example.toml",
     "test": "tsx --test $(find src -name '*.test.ts' | sort)",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@linear/sdk": "^81.0.0",
+    "better-sqlite3": "^12.4.1",
     "smol-toml": "^1.6.1"
   }
 }

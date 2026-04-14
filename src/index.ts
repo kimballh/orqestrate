@@ -4,6 +4,7 @@ export * from "./config/index.js";
 export * from "./core/index.js";
 export * from "./domain-model.js";
 export * from "./providers/index.js";
+export * from "./runtime/index.js";
 
 export function main(): void {
   console.log(
