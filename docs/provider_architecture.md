@@ -229,8 +229,17 @@ Recommended structure:
       ISSUE-002.json
     comments/
       ISSUE-001.md
+    locks/
+      ISSUE-001.lock/
     index.json
 ```
+
+Recommended behavior:
+
+- `issues/*.json` stays authoritative and stores the full canonical `WorkItemRecord`
+- `index.json` is a write-through listing surface that duplicates the fields needed for scans and lease checks
+- `comments/*.md` is append-only operator history
+- `locks/*.lock/` is an advisory per-issue mutation lock so concurrent local writers serialize cleanly
 
 Recommended `issues/*.json` shape:
 
