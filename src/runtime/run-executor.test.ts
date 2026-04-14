@@ -69,6 +69,8 @@ test("run executor drives a claimed run to completion and records evidence", asy
   const execution = executor.executeClaimedRun(claimedRun);
   await waitForAsyncTurn();
 
+  assert.equal(repository.getRun(claimedRun.runId)?.status, "bootstrapping");
+
   supervisor.emitOutput("session-1", "READY\n");
   supervisor.emitOutput("session-1", "PROGRESS\n");
   supervisor.emitExit("session-1", 0, null);
@@ -90,6 +92,38 @@ test("run executor drives a claimed run to completion and records evidence", asy
   assert.ok(heartbeatCount.count >= 1);
   assert.match(logContents, /READY/);
   assert.match(logContents, /PROGRESS/);
+});
+
+test("run executor does not mark a session ready until the adapter or snapshot proves it", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+    },
+  );
+  repository.enqueueRun(createRunInput());
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  await waitForAsyncTurn();
+
+  assert.equal(repository.getRun(claimedRun.runId)?.status, "bootstrapping");
+
+  await executor.cancelRun(claimedRun.runId, "Stop the bootstrap test.");
+  await execution;
 });
 
 test("run executor resumes waiting-human runs and supports cancellation", async (t) => {
@@ -140,6 +174,68 @@ test("run executor resumes waiting-human runs and supports cancellation", async 
   assert.ok(events.some((event) => event.eventType === "waiting_human"));
   assert.ok(events.some((event) => event.eventType === "human_input_received"));
   assert.ok(events.some((event) => event.eventType === "cancel_requested"));
+});
+
+test("cancel before launch reaches a terminal canceled state", (t) => {
+  const { repository } = createRepositoryFixture(t);
+  const queuedRun = repository.enqueueRun(createRunInput());
+
+  const canceledRun = repository.cancelRunBeforeLaunch({
+    runId: queuedRun.runId,
+    reason: "Human canceled before launch.",
+    requestedBy: "Kimball Hill",
+    occurredAt: "2026-04-14T18:10:00.000Z",
+  });
+  const events = repository.listRunEvents(queuedRun.runId);
+
+  assert.equal(canceledRun.status, "canceled");
+  assert.equal(canceledRun.outcome?.code, "canceled_before_launch");
+  assert.ok(events.some((event) => event.eventType === "cancel_requested"));
+  assert.ok(events.some((event) => event.eventType === "run_canceled"));
+});
+
+test("failed human input delivery keeps the run in waiting_human", async (t) => {
+  const { repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter({ failHumanInput: true }),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    createRuntimeFixture(t).runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+    },
+  );
+  repository.enqueueRun(createRunInput());
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  await waitForAsyncTurn();
+
+  supervisor.emitOutput("session-1", "NEEDS_HUMAN\n");
+  await waitForAsyncTurn();
+
+  await assert.rejects(
+    () =>
+      executor.submitHumanInput(claimedRun.runId, {
+        kind: "answer",
+        message: "This should fail to deliver.",
+      }),
+    /fake human input failure/,
+  );
+
+  assert.equal(repository.getRun(claimedRun.runId)?.status, "waiting_human");
+
+  await executor.cancelRun(claimedRun.runId, "Stop after failed input.");
+  await execution;
 });
 
 type RuntimeFixture = {
@@ -273,6 +369,12 @@ class FakeSessionSupervisor implements SessionSupervisor {
 class FakeProviderAdapter implements ProviderAdapter {
   readonly kind = "codex" as const;
 
+  constructor(
+    private readonly options: {
+      failHumanInput?: boolean;
+    } = {},
+  ) {}
+
   buildLaunchSpec(input: { cwd: string }): LaunchSpec {
     return {
       command: "fake-agent",
@@ -329,6 +431,10 @@ class FakeProviderAdapter implements ProviderAdapter {
     session: RuntimeSessionController,
     input: HumanInput,
   ): Promise<void> {
+    if (this.options.failHumanInput === true) {
+      throw new Error("fake human input failure");
+    }
+
     await session.write(`${input.message}\n`);
   }
 

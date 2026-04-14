@@ -172,18 +172,11 @@ export class RunExecutor {
     }
 
     if (context === null || context.controller === null) {
-      return this.repository.finalizeRun({
+      return this.repository.cancelRunBeforeLaunch({
         runId,
-        status: "canceled",
         occurredAt: this.now(),
-        outcome: {
-          code: "canceled_before_launch",
-          summary: reason,
-        },
-        payload: {
-          reason,
-          requestedBy: requestedBy ?? null,
-        },
+        reason,
+        requestedBy: requestedBy ?? null,
       });
     }
 
@@ -216,6 +209,8 @@ export class RunExecutor {
       });
     }
 
+    await context.adapter.submitHumanInput(context.controller, input);
+    context.pendingHeartbeat.bytesWritten += Buffer.byteLength(input.message);
     context.currentRun = this.repository.resumeRunFromWaitingHuman({
       runId,
       occurredAt: this.now(),
@@ -224,9 +219,7 @@ export class RunExecutor {
         author: input.author ?? null,
       },
     });
-    await context.adapter.submitHumanInput(context.controller, input);
-    context.pendingHeartbeat.bytesWritten += Buffer.byteLength(input.message);
-    return this.requireRun(runId);
+    return context.currentRun;
   }
 
   private async executeInternal(context: LiveRunContext): Promise<void> {
@@ -277,12 +270,7 @@ export class RunExecutor {
     this.startHeartbeatLoop(context);
     this.startBootstrapTimer(context);
     await context.adapter.submitInitialPrompt(context.controller, context.run.prompt);
-    await this.maybeMarkReady(context, {
-      type: "ready",
-      payload: {
-        detection: "initial_probe",
-      },
-    });
+    await this.maybeMarkReady(context);
   }
 
   private async handleOutput(
@@ -362,6 +350,14 @@ export class RunExecutor {
     }
 
     const snapshot = await context.controller.snapshot();
+    if (
+      context.ready ||
+      context.currentRun.status !== "bootstrapping" ||
+      TERMINAL_STATUSES.has(context.currentRun.status)
+    ) {
+      return;
+    }
+
     const isReady =
       signal !== undefined || context.adapter.detectReady(snapshot);
 

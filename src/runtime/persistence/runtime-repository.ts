@@ -575,6 +575,60 @@ export class RuntimeRepository {
     });
   }
 
+  cancelRunBeforeLaunch(input: {
+    runId: string;
+    reason: string;
+    requestedBy?: string | null;
+    occurredAt?: string;
+  }): PersistedRunRecord {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+    const cancelRun = this.database.transaction(
+      (transactionInput: typeof input): PersistedRunRecord => {
+        const current = this.getRunOrThrow(transactionInput.runId);
+
+        if (!["queued", "admitted"].includes(current.status)) {
+          throw new RuntimeError(
+            `Run '${transactionInput.runId}' cannot be canceled before launch from '${current.status}'.`,
+            {
+              code: "invalid_run_state_transition",
+            },
+          );
+        }
+
+        const next = this.buildNextRunState(current, {
+          status: "canceled",
+          completedAt: occurredAt,
+          waitingHumanReason: null,
+          outcome: mergeOutcome(current.outcome, {
+            code: "canceled_before_launch",
+            summary: transactionInput.reason,
+          }),
+        });
+
+        this.persistRun(next);
+        this.insertRunEvent(next.runId, occurredAt, {
+          eventType: "cancel_requested",
+          source: "api",
+          payload: {
+            reason: transactionInput.reason,
+            requestedBy: transactionInput.requestedBy ?? null,
+          },
+        });
+        this.insertRunEvent(next.runId, occurredAt, {
+          eventType: "run_canceled",
+          payload: {
+            status: "canceled",
+            reason: transactionInput.reason,
+          },
+        });
+
+        return this.getRunOrThrow(next.runId);
+      },
+    );
+
+    return cancelRun(input);
+  }
+
   markRunStaleOnRecovery(input: {
     runId: string;
     reason: string;
