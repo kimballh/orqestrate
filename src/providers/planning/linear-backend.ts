@@ -100,12 +100,6 @@ export class LinearPlanningBackend extends UnimplementedPlanningBackend<Planning
     }
 
     const adapter = await this.getConfigAdapter();
-    const actionableReadBlocker = adapter.client.getActionableReadBlocker();
-
-    if (actionableReadBlocker !== null) {
-      throw new Error(actionableReadBlocker);
-    }
-
     const candidateIds = await adapter.client.listIssueIds({
       teamId: adapter.team.id,
       projectId: adapter.project?.id ?? null,

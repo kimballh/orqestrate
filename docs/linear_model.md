@@ -60,9 +60,18 @@ Recommended first-pass statuses:
 `Canceled`
 - Work was intentionally stopped and should not be claimed again without a human reopening it.
 
-## 3. Proposed custom fields
+## 3. Proposed machine-owned state
 
 These fields should be machine-owned unless a human is intentionally overriding the orchestrator.
+
+Current ORQ-53 storage contract:
+
+- enum-like fields are stored in provider-owned Linear labels:
+  - `orq:phase:*`
+  - `orq:state:*`
+  - `orq:review:*`
+- structured fields are stored in a reserved JSON block at the end of the issue description
+- description updates must preserve all human-authored text outside that reserved block
 
 ### `harness_phase`
 

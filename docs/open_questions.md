@@ -14,11 +14,11 @@ These are the next decisions to settle before implementing the service.
 - Is a lightweight local durable queue enough?
 - Do we want strict delivery dedupe or only short-window issue-id coalescing?
 
-## 1b. Linear custom-field adapter
+## 1b. Linear machine-state storage follow-up
 
-- 2026-04-14 verification against the public GraphQL schema and `@linear/sdk@81.0.0` showed that `Issue`, `IssueCreateInput`, and `IssueUpdateInput` do not expose a verifiable machine-owned custom-field read/write surface.
-- Remaining decision: does Linear expose those harness fields through a private/beta API, or does Orqestrate need a different control-plane store for phase, lease, run, and review state?
-- If a supported Linear binding does exist later, should the harness bind to raw GraphQL documents directly or use the Linear TypeScript SDK as the typed adapter layer?
+- ORQ-53 implemented the current workaround: provider-owned `orq:*` labels for enum state plus a reserved description JSON block for structured machine-owned state.
+- Remaining decision: should Orqestrate keep this hybrid storage model long-term, or migrate if Linear later ships a supported machine-owned field surface?
+- If a supported native binding appears later, should the harness bind to raw GraphQL documents directly or use the Linear TypeScript SDK as the typed adapter layer?
 
 ## 2. Required vs optional design phase
 

@@ -185,16 +185,16 @@ If the implementation wants a faster reconciliation path than a full actionable 
 
 That is an optimization, not a requirement for v1.
 
-## 4. Custom-field adapter contract
+## 4. Hybrid machine-state adapter contract
 
 This is the most important structural boundary in the whole design.
 
-The orchestrator core should never know how Linear custom fields are physically represented in GraphQL.
+The orchestrator core should never know how Linear machine-owned state is physically stored.
 
 Instead, it should depend on an adapter with two responsibilities:
 
-1. read Linear issue custom-field data into a normalized internal shape
-2. build Linear `issueUpdate` input patches from normalized internal changes
+1. read Linear issue labels plus the reserved description machine-state block into a normalized internal shape
+2. build label and description updates from normalized internal changes
 
 Suggested normalized shape:
 
@@ -216,7 +216,7 @@ type HarnessFields = {
 Required adapter interface:
 
 ```ts
-type LinearHarnessAdapter = {
+type LinearMachineStateAdapter = {
   read(issue: unknown): HarnessFields;
   buildClaimPatch(input: {
     phase: HarnessFields["phase"];
@@ -238,7 +238,16 @@ type LinearHarnessAdapter = {
 };
 ```
 
-Do not inline custom-field write shapes in the scheduler, poller, or phase runners.
+Storage contract for v1:
+
+- enum-like state lives in provider-owned labels:
+  - `orq:phase:*`
+  - `orq:state:*`
+  - `orq:review:*`
+- structured state lives in a reserved JSON block at the end of the issue description
+- machine-state writes must preserve all human-authored description text outside the reserved block
+
+Do not inline label or description write shapes in the scheduler, poller, or phase runners.
 
 ## 5. Mutation sequence
 
@@ -605,22 +614,15 @@ Do not:
 - poll each issue individually
 - encode lifecycle meaning in labels
 - let Notion become the source of claim or lease truth
-- spread custom-field GraphQL details through orchestration logic
+- spread provider-local label or description details through orchestration logic
 
 ## 9. Remaining implementation risk
-
-The only intentionally unresolved surface in this spec is the exact Linear custom-field binding.
-
-Before coding, verify:
-
-- the query selection for reading issue custom-field values
-- the exact `issueUpdate` input shape for writing those values
-- the enum-option ids or write format for `harness_phase`, `harness_state`, and `review_outcome`
 
 2026-04-14 update:
 
 - public schema introspection and the shipped `@linear/sdk@81.0.0` types show no verifiable machine-owned custom-field fields on `Issue`
 - `IssueCreateInput` and `IssueUpdateInput` likewise expose no write shape for those fields
-- until that binding exists, the Linear backend must not pretend it can safely make actionable scheduling decisions from leased / claimed state
+- ORQ-53 resolves actionable listing by using provider-owned labels plus a reserved description JSON block instead of waiting on native custom-field support
+- remaining follow-up work is write-path coverage for claim, lease renewal, and terminal transitions on top of that hybrid storage model
 
-Once that adapter is pinned down, the rest of the harness API contract is stable enough to implement.
+The provider-neutral harness API contract is stable; the remaining work is provider-local mutation sequencing on top of the hybrid storage contract.

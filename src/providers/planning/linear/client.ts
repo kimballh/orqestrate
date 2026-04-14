@@ -153,7 +153,6 @@ export type LinearHydratedIssueRecord = {
   state: LinearWorkflowStateRecord;
   labels: string[];
   parent: LinearIssueReferenceRecord | null;
-  harnessFieldsSource: unknown;
   relations: LinearIssueRelationRecord[];
   inverseRelations: LinearIssueRelationRecord[];
 };
@@ -173,8 +172,6 @@ export type LinearPlanningClientOptions = {
 };
 
 const LINEAR_PAGE_SIZE = 250;
-const ACTIONABLE_READ_BLOCKER =
-  "Current Linear public GraphQL schema and @linear/sdk@81.0.0 do not expose the machine-owned custom fields required for actionable planning reads.";
 
 export class LinearPlanningClient {
   private readonly sdkClient: LinearSdkClientLike;
@@ -213,10 +210,6 @@ export class LinearPlanningClient {
     } catch (error) {
       throw LinearProviderFailure.from(error, "Failed to load Linear teams.");
     }
-  }
-
-  getActionableReadBlocker(): string | null {
-    return ACTIONABLE_READ_BLOCKER;
   }
 
   async listIssueIds(input: {
@@ -334,7 +327,6 @@ export class LinearPlanningClient {
       state: resolvedState,
       labels: labels.map((label) => label.name),
       parent: await this.toIssueReference(parent, null),
-      harnessFieldsSource: null,
       relations: await Promise.all(
         relations.map((relation) =>
           this.toRelationRecord(relation, currentReference),

@@ -6,7 +6,7 @@ import type {
   LinearWorkflowStateRecord,
 } from "./client.js";
 import type { LinearPlanningConfigAdapter } from "./config-adapter.js";
-import { readLinearHarnessFields } from "./harness-fields.js";
+import { readLinearMachineState } from "./machine-state/index.js";
 
 const TERMINAL_STATUSES = new Set<WorkItemStatus>(["done", "canceled"]);
 const TERMINAL_LINEAR_STATE_TYPES = new Set(["completed", "canceled"]);
@@ -15,16 +15,16 @@ export function mapLinearIssueToWorkItem(
   issue: LinearHydratedIssueRecord,
   adapter: LinearPlanningConfigAdapter,
 ): WorkItemRecord {
-  const harness = readLinearHarnessFields(issue.harnessFieldsSource);
+  const machineState = readLinearMachineState(issue);
   const status = resolveCanonicalStatus(issue.state, adapter);
-  const phase = resolvePhase(status, harness.phase);
+  const phase = resolvePhase(status, machineState.phase);
   const relations = mapRelations(issue);
 
   return {
     id: issue.id,
     identifier: issue.identifier,
     title: issue.title,
-    description: issue.description,
+    description: machineState.description,
     status,
     phase,
     priority: issue.priority,
@@ -34,18 +34,18 @@ export function mapLinearIssueToWorkItem(
     dependencyIds: relations.dependencyIds,
     blockedByIds: relations.blockedByIds,
     blocksIds: relations.blocksIds,
-    artifactUrl: harness.artifactUrl,
+    artifactUrl: machineState.artifactUrl,
     updatedAt: issue.updatedAt,
     createdAt: issue.createdAt,
     orchestration: {
-      state: harness.state ?? "idle",
-      owner: harness.owner,
-      runId: harness.runId,
-      leaseUntil: harness.leaseUntil,
-      reviewOutcome: harness.reviewOutcome ?? "none",
-      blockedReason: harness.blockedReason,
-      lastError: harness.lastError,
-      attemptCount: harness.attemptCount ?? 0,
+      state: machineState.state ?? "idle",
+      owner: machineState.owner,
+      runId: machineState.runId,
+      leaseUntil: machineState.leaseUntil,
+      reviewOutcome: machineState.reviewOutcome ?? "none",
+      blockedReason: machineState.blockedReason,
+      lastError: machineState.lastError,
+      attemptCount: machineState.attemptCount,
     },
   };
 }
