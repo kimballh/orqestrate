@@ -160,10 +160,12 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
       const runs = await this.resolveTarget("runs", runtimeConfig.runsDatabaseId);
 
       this.targets = { artifacts, runs };
+      this.artifactDataSource = await client.retrieveDataSource(artifacts.dataSourceId);
+      this.artifactSchema = resolveArtifactSchema(this.artifactDataSource);
 
       return {
         ok: true,
-        message: `Authenticated to Notion as '${identity.name ?? identity.id}' and resolved both configured data sources.`,
+        message: `Authenticated to Notion as '${identity.name ?? identity.id}', resolved both configured data sources, and validated the artifacts schema.`,
       };
     } catch (error) {
       if (error instanceof Error) {
@@ -194,7 +196,9 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     const existingArtifact = await this.getArtifactByWorkItemId(input.workItem.id);
 
     if (existingArtifact !== null) {
-      return existingArtifact;
+      await this.ensureArtifactScaffold(existingArtifact.artifactId, input.workItem);
+      const refreshedArtifact = await this.getArtifactByWorkItemId(input.workItem.id);
+      return refreshedArtifact ?? existingArtifact;
     }
 
     const client = this.getClient();
@@ -222,12 +226,10 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
       }),
     });
 
-    await client.updatePageMarkdown(createdPage.id, {
-      type: "replace_content",
-      newString: renderArtifactDocument(input.workItem),
-    });
+    await this.ensureArtifactScaffold(createdPage.id, input.workItem);
 
-    return toArtifactRecord(createdPage, artifactSchema, input.workItem.id);
+    const hydratedArtifact = await this.getArtifactByWorkItemId(input.workItem.id);
+    return hydratedArtifact ?? toArtifactRecord(createdPage, artifactSchema, input.workItem.id);
   }
 
   override async getArtifactByWorkItemId(
@@ -479,6 +481,23 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     }
 
     return results.results[0] ?? null;
+  }
+
+  private async ensureArtifactScaffold(
+    artifactId: string,
+    workItem: WorkItemRecord,
+  ): Promise<void> {
+    const client = this.getClient();
+    const markdown = await client.retrievePageMarkdown(artifactId);
+
+    if (hasArtifactScaffold(markdown.markdown)) {
+      return;
+    }
+
+    await client.updatePageMarkdown(artifactId, {
+      type: "replace_content",
+      newString: renderArtifactDocument(workItem),
+    });
   }
 }
 
@@ -973,6 +992,22 @@ function renderArtifactDocument(workItem: WorkItemRecord): string {
     "",
     `- Artifact created at ${createdAt}`,
   ].join("\n");
+}
+
+function hasArtifactScaffold(markdown: string): boolean {
+  if (markdown.trim() === "") {
+    return false;
+  }
+
+  if (!markdown.includes("# Context")) {
+    return false;
+  }
+
+  return SECTION_DEFINITIONS.every(
+    (section) =>
+      markdown.includes(startMarker(section.phase)) &&
+      markdown.includes(endMarker(section.phase)),
+  );
 }
 
 function renderDefaultContextSection(workItem: WorkItemRecord): string[] {

@@ -132,18 +132,9 @@ test("healthCheck authenticates and resolves both configured data sources", asyn
           },
         },
         dataSources: {
-          [ARTIFACTS_DATA_SOURCE_ID]: createDataSource(
-            ARTIFACTS_DATA_SOURCE_ID,
-            {
-              Title: "title",
-              "Linear Issue ID": "rich_text",
-            },
-            {
-              title: "Issue Artifacts",
-              url: "https://notion.so/data-source/artifacts",
-              parentDatabaseId: ARTIFACTS_DATABASE_ID,
-            },
-          ),
+          [ARTIFACTS_DATA_SOURCE_ID]: createArtifactDataSource({
+            url: "https://notion.so/data-source/artifacts",
+          }),
           [RUNS_DATA_SOURCE_ID]: createDataSource(
             RUNS_DATA_SOURCE_ID,
             {
@@ -166,6 +157,7 @@ test("healthCheck authenticates and resolves both configured data sources", asyn
 
   assert.equal(result.ok, true);
   assert.match(result.message ?? "", /Authenticated to Notion as 'Orqestrate Bot'/);
+  assert.match(result.message ?? "", /validated the artifacts schema/i);
   assert.deepEqual(backend.getResolvedConfig(), {
     tokenEnv: "NOTION_TOKEN",
     token: "notion-token",
@@ -265,6 +257,61 @@ test("healthCheck fails clearly when a database exposes multiple data sources", 
   assert.match(result.message ?? "", /exactly one data source/i);
 });
 
+test("healthCheck fails clearly when the artifacts schema is missing required properties", async () => {
+  const backend = createBackend(
+    {},
+    {
+      client: new FakeNotionClient({
+        databases: {
+          [ARTIFACTS_DATABASE_ID]: {
+            id: ARTIFACTS_DATABASE_ID,
+            title: "Issue Artifacts",
+            url: "https://notion.so/artifacts",
+            dataSources: [{ id: ARTIFACTS_DATA_SOURCE_ID, name: "Issue Artifacts" }],
+          },
+          [RUNS_DATABASE_ID]: {
+            id: RUNS_DATABASE_ID,
+            title: "Harness Runs",
+            url: "https://notion.so/runs",
+            dataSources: [{ id: RUNS_DATA_SOURCE_ID, name: "Harness Runs" }],
+          },
+        },
+        dataSources: {
+          [ARTIFACTS_DATA_SOURCE_ID]: createDataSource(
+            ARTIFACTS_DATA_SOURCE_ID,
+            {
+              Title: "title",
+            },
+            {
+              title: "Issue Artifacts",
+              url: "https://notion.so/data-source/artifacts",
+              parentDatabaseId: ARTIFACTS_DATABASE_ID,
+            },
+          ),
+          [RUNS_DATA_SOURCE_ID]: createDataSource(
+            RUNS_DATA_SOURCE_ID,
+            {
+              "Run ID": "rich_text",
+              Status: "rich_text",
+            },
+            {
+              title: "Harness Runs",
+              url: "https://notion.so/data-source/runs",
+              parentDatabaseId: RUNS_DATABASE_ID,
+            },
+          ),
+        },
+      }),
+    },
+  );
+
+  await backend.validateConfig();
+  const result = await backend.healthCheck();
+
+  assert.equal(result.ok, false);
+  assert.match(result.message ?? "", /Linear Issue ID/);
+});
+
 test("ensureArtifact creates a durable page once and reuses it on later lookups", async () => {
   const client = createArtifactAwareClient();
   const backend = createBackend({}, { client });
@@ -285,6 +332,67 @@ test("ensureArtifact creates a durable page once and reuses it on later lookups"
   const markdown = await client.retrievePageMarkdown(first.artifactId);
   assert.match(markdown.markdown, /^# Context/m);
   assert.match(markdown.markdown, /orqestrate:phase:plan:start/);
+});
+
+test("ensureArtifact repairs an existing artifact when the markdown scaffold is missing", async () => {
+  const pageId = "page-existing";
+  const client = createArtifactAwareClient({
+    pages: {
+      [pageId]: createArtifactPage({
+        id: pageId,
+        properties: {
+          Title: {
+            title: [
+              {
+                type: "text",
+                text: {
+                  content: "ORQ-30 - Implement Notion artifact lifecycle and context loading adapter",
+                },
+              },
+            ],
+          },
+          "Linear Issue ID": {
+            rich_text: [
+              {
+                type: "text",
+                text: {
+                  content: WORK_ITEM.id,
+                },
+              },
+            ],
+          },
+          "Current Phase": {
+            rich_text: [{ type: "text", text: { content: "none" } }],
+          },
+          "Artifact State": {
+            rich_text: [{ type: "text", text: { content: "draft" } }],
+          },
+          "Last Updated At": {
+            date: { start: "2026-04-14T18:00:00.000Z" },
+          },
+          "Design Ready": { checkbox: false },
+          "Plan Ready": { checkbox: false },
+          "Implementation Notes Present": { checkbox: false },
+          "Review Summary Present": { checkbox: false },
+          "Verification Evidence Present": { checkbox: false },
+        },
+      }),
+    },
+    pageMarkdown: {
+      [pageId]: "",
+    },
+  });
+  const backend = createBackend({}, { client });
+
+  await backend.validateConfig();
+
+  const artifact = await backend.ensureArtifact({ workItem: WORK_ITEM });
+  const markdown = await client.retrievePageMarkdown(pageId);
+
+  assert.equal(client.createdPageIds.length, 0);
+  assert.equal(artifact.artifactId, pageId);
+  assert.match(markdown.markdown, /^# Context/m);
+  assert.match(markdown.markdown, /orqestrate:phase:review:start/);
 });
 
 test("writePhaseArtifact updates the managed section and loadContextBundle returns the markdown artifact", async () => {
@@ -380,17 +488,9 @@ context = "notion_main"
       },
     },
     dataSources: {
-      [ARTIFACTS_DATA_SOURCE_ID]: createDataSource(
-        ARTIFACTS_DATA_SOURCE_ID,
-        {
-          Title: "title",
-        },
-        {
-          title: "Issue Artifacts",
-          url: null,
-          parentDatabaseId: ARTIFACTS_DATABASE_ID,
-        },
-      ),
+      [ARTIFACTS_DATA_SOURCE_ID]: createArtifactDataSource({
+        url: null,
+      }),
       [RUNS_DATA_SOURCE_ID]: createDataSource(
         RUNS_DATA_SOURCE_ID,
         {
@@ -471,7 +571,12 @@ function createBackend(
   );
 }
 
-function createArtifactAwareClient() {
+function createArtifactAwareClient(
+  overrides: {
+    pages?: Record<string, NotionPage>;
+    pageMarkdown?: Record<string, string>;
+  } = {},
+) {
   return new FakeNotionClient({
     databases: {
       [ARTIFACTS_DATABASE_ID]: {
@@ -488,30 +593,7 @@ function createArtifactAwareClient() {
       },
     },
     dataSources: {
-      [ARTIFACTS_DATA_SOURCE_ID]: createDataSource(
-        ARTIFACTS_DATA_SOURCE_ID,
-        {
-          Title: "title",
-          "Linear Issue ID": "rich_text",
-          "Linear URL": "url",
-          "Current Phase": "rich_text",
-          "Current Status Snapshot": "rich_text",
-          "Artifact State": "rich_text",
-          "Review Outcome": "rich_text",
-          Summary: "rich_text",
-          "Last Updated At": "date",
-          "Design Ready": "checkbox",
-          "Plan Ready": "checkbox",
-          "Implementation Notes Present": "checkbox",
-          "Review Summary Present": "checkbox",
-          "Verification Evidence Present": "checkbox",
-        },
-        {
-          title: "Issue Artifacts",
-          url: "https://notion.so/data-source/artifacts",
-          parentDatabaseId: ARTIFACTS_DATABASE_ID,
-        },
-      ),
+      [ARTIFACTS_DATA_SOURCE_ID]: createArtifactDataSource(),
       [RUNS_DATA_SOURCE_ID]: createDataSource(
         RUNS_DATA_SOURCE_ID,
         {
@@ -525,7 +607,59 @@ function createArtifactAwareClient() {
         },
       ),
     },
+    pages: overrides.pages,
+    pageMarkdown: overrides.pageMarkdown,
   });
+}
+
+function createArtifactDataSource(
+  overrides: {
+    title?: string | null;
+    url?: string | null;
+    parentDatabaseId?: string | null;
+  } = {},
+) {
+  return createDataSource(
+    ARTIFACTS_DATA_SOURCE_ID,
+    {
+      Title: "title",
+      "Linear Issue ID": "rich_text",
+      "Linear URL": "url",
+      "Current Phase": "rich_text",
+      "Current Status Snapshot": "rich_text",
+      "Artifact State": "rich_text",
+      "Review Outcome": "rich_text",
+      Summary: "rich_text",
+      "Last Updated At": "date",
+      "Design Ready": "checkbox",
+      "Plan Ready": "checkbox",
+      "Implementation Notes Present": "checkbox",
+      "Review Summary Present": "checkbox",
+      "Verification Evidence Present": "checkbox",
+    },
+    {
+      title: "Issue Artifacts",
+      url: "https://notion.so/data-source/artifacts",
+      parentDatabaseId: ARTIFACTS_DATABASE_ID,
+      ...overrides,
+    },
+  );
+}
+
+function createArtifactPage(input: {
+  id: string;
+  properties: Record<string, unknown>;
+}) {
+  return {
+    id: input.id,
+    object: "page",
+    url: `https://notion.so/${input.id}`,
+    createdTime: "2026-04-14T18:00:00.000Z",
+    lastEditedTime: "2026-04-14T18:00:00.000Z",
+    parentType: "data_source_id",
+    parentId: ARTIFACTS_DATA_SOURCE_ID,
+    properties: hydrateProperties(createArtifactDataSource(), input.properties),
+  } satisfies NotionPage;
 }
 
 function createFixtureWorkspace() {
