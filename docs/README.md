@@ -99,8 +99,10 @@ Those choices make the system harder to poll, harder to reconcile, and harder fo
 
 ## Current scaffold
 
-- `npm run setup` installs dependencies and materializes the source-controlled local example into the repo-root `.harness/local/*` roots
-- `npm run dev` starts the local runtime daemon against `config.example.toml`
-- `npm start` runs the built runtime daemon with the same example profile
+- `npm run orq:init` creates `./config.toml` from the canonical `config.example.toml`
+- `npm run orq:bootstrap` validates the selected profile and seeds the local example roots when the active profile is `local`
+- `npm run setup` installs dependencies, creates a local starter `config.toml`, and bootstraps the zero-credential local profile
+- `npm run dev` starts the local runtime daemon against `./config.toml`
+- `npm start` runs the built runtime daemon with the same default config path
 - `examples/local/` contains the canonical planning seed pack and local context templates that drive the zero-credential bootstrap path
 - the first runtime scaffold now lives under `src/runtime/` with SQLite-backed persistence for runs, events, heartbeats, and workspace allocations

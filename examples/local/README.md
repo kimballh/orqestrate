@@ -5,6 +5,7 @@ This directory is the canonical local-first seed pack for Orqestrate.
 It is used by:
 
 - `npm run bootstrap:local`
+- `npm run orq:bootstrap`
 - `npm run setup`
 - local bootstrap tests that validate the file-backed planning and context providers
 
@@ -19,10 +20,17 @@ It is used by:
 Run:
 
 ```bash
-npm run setup
+npm run orq:init -- --profile local
+npm run orq:bootstrap
 ```
 
-That installs dependencies, materializes the planning seed into `.harness/local/planning`, and prepares the writable local context root at `.harness/local/context`.
+That creates `config.toml`, materializes the planning seed into `.harness/local/planning`, and prepares the writable local context root at `.harness/local/context`.
+
+If you want the full contributor bootstrap in one step, run:
+
+```bash
+npm run setup
+```
 
 Then start the runtime with:
 

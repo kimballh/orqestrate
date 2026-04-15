@@ -49,11 +49,12 @@ else
   npm install
 fi
 
-npm run bootstrap:local
+npm run orq:init -- --force --profile local
+npm run orq:bootstrap -- --force
 
 echo
 echo "Orqestrate worktree bootstrap complete."
 echo "Useful next steps:"
-echo "  npm run bootstrap:local -- --force   # re-seed the local example roots"
+echo "  npm run orq:bootstrap -- --force     # re-seed and re-validate the local profile"
 echo "  npm run typecheck"
 echo "  npm run build"

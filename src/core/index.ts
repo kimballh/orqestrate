@@ -6,3 +6,4 @@ export * from "./planning-backend.js";
 export * from "./prompt-assembly.js";
 export * from "./provider-backend.js";
 export * from "./provider-registry.js";
+export * from "./setup.js";
