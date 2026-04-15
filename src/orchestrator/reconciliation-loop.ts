@@ -1,3 +1,4 @@
+import type { MergePolicyConfig } from "../config/types.js";
 import type { WorkItemRecord } from "../domain-model.js";
 import { GitHubCliClient } from "../github/client.js";
 import { classifyPullRequestReviewLoop } from "../github/review-loop.js";
@@ -35,6 +36,7 @@ export type ReconciliationLoopDependencies = {
   runtimeObserver: RuntimeObserver;
   owner: string;
   leaseDurationMs: number;
+  mergePolicy?: MergePolicyConfig;
   fastIntervalMs?: number;
   driftIntervalMs?: number;
   now?: () => Date;
@@ -43,7 +45,10 @@ export type ReconciliationLoopDependencies = {
   listTrackedWorkItems?: () => Promise<WorkItemRecord[]>;
   createGitHubClient?: (
     cwd: string,
-  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
+  ) => Pick<
+    GitHubCliClient,
+    "readPullRequest" | "readPullRequestMergeReadiness" | "findOpenPullRequestForBranch"
+  >;
   getOriginRemoteUrl?: (cwd: string) => Promise<string>;
 };
 
@@ -59,7 +64,10 @@ export class ReconciliationLoop {
   private readonly driftIntervalMs: number;
   private readonly createGitHubClient: (
     cwd: string,
-  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
+  ) => Pick<
+    GitHubCliClient,
+    "readPullRequest" | "readPullRequestMergeReadiness" | "findOpenPullRequestForBranch"
+  >;
   private readonly getOriginRemoteUrl: ((cwd: string) => Promise<string>) | undefined;
   private readonly trackedWorkItemIds = new Set<string>();
   private readonly observations = new Map<string, LeaseObservation>();
@@ -75,6 +83,8 @@ export class ReconciliationLoop {
       runtimeObserver: dependencies.runtimeObserver,
       owner: dependencies.owner,
       leaseDurationMs: dependencies.leaseDurationMs,
+      mergePolicy: dependencies.mergePolicy,
+      createGitHubClient: dependencies.createGitHubClient,
       now: dependencies.now,
     });
     this.listTrackedWorkItems = dependencies.listTrackedWorkItems ?? null;

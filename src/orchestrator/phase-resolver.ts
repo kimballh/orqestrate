@@ -43,13 +43,14 @@ export function resolvePhase(workItem: WorkItemRecord): PhaseResolution {
     };
   }
 
-  if (workItem.phase === "merge") {
+  if (
+    workItem.status === "review" &&
+    workItem.phase === "merge" &&
+    workItem.orchestration.reviewOutcome === "approved"
+  ) {
     return {
-      actionable: false,
-      reason: "reserved_phase",
-      message: `Work item '${workItem.id}' is in reserved phase 'merge'.`,
-      phase: workItem.phase,
-      expectedPhase: expectedPhase,
+      actionable: true,
+      phase: "merge",
     };
   }
 

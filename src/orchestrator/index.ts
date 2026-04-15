@@ -4,6 +4,8 @@ export * from "./execute-run.js";
 export * from "./identity.js";
 export * from "./linear-issue-wakeup.js";
 export * from "./lease-renewer.js";
+export * from "./merge-completion.js";
+export * from "./merge-policy.js";
 export * from "./outcome-application.js";
 export * from "./outcome-writeback.js";
 export * from "./phase-resolver.js";

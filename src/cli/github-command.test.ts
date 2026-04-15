@@ -306,10 +306,310 @@ test("github review-write appends machine markers to review bodies", async () =>
   });
 });
 
+test("github pr-merge dry-run reports merge readiness through policy", async () => {
+  const result = await invokeCli(["github", "pr-merge", "--dry-run"], {
+    loadRun: async () =>
+      createRun({
+        grantedCapabilities: ["github.merge_pr"],
+      }),
+    loadConfig: async () =>
+      ({
+        policy: {
+          merge: {
+            allowedMethods: ["squash"],
+            requireHumanApproval: false,
+          },
+        },
+      }) as never,
+    createClient: () =>
+      ({
+        readPullRequest: async () => ({
+          viewerLogin: "reviewer",
+          pullRequest: {
+            id: "PR_kwDO44",
+            number: 44,
+            title: "Implement ORQ-44",
+            url: "https://github.com/kimballh/orqestrate/pull/42",
+            state: "OPEN",
+            isDraft: false,
+            body: "Body",
+            baseRefName: "main",
+            headRefName: "hillkimball/orq-44",
+            reviewDecision: "APPROVED",
+            authorLogin: "kimballh",
+          },
+          files: [],
+          reviews: [],
+          threads: [],
+        }),
+        readPullRequestMergeReadiness: async () => ({
+          pullRequest: {
+            id: "PR_kwDO44",
+            number: 44,
+            url: "https://github.com/kimballh/orqestrate/pull/42",
+            state: "OPEN",
+            isDraft: false,
+            reviewDecision: "APPROVED",
+            mergeStateStatus: "CLEAN",
+            mergeable: "MERGEABLE",
+            merged: false,
+            mergedAt: null,
+            headRefOid: "abc123",
+          },
+          statusCheckRollupState: "SUCCESS",
+          requiredChecks: [],
+        }),
+      }) as never,
+  });
+
+  assert.equal(result.exitCode, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.decision.disposition, "ready_to_execute");
+  assert.equal(parsed.decision.mergeMethod, "squash");
+});
+
+test("github pr-merge executes a bounded merge when policy allows it", async () => {
+  let matchedHeadCommit = "";
+  const result = await invokeCli(
+    ["github", "pr-merge", "--method", "squash", "--human-approved"],
+    {
+      loadRun: async () =>
+        createRun({
+          grantedCapabilities: ["github.merge_pr"],
+        }),
+      loadConfig: async () =>
+        ({
+          policy: {
+            merge: {
+              allowedMethods: ["squash"],
+              requireHumanApproval: false,
+            },
+          },
+        }) as never,
+      createClient: () =>
+        ({
+          readPullRequest: async () => ({
+            viewerLogin: "reviewer",
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              title: "Implement ORQ-44",
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: false,
+              body: "Body",
+              baseRefName: "main",
+              headRefName: "hillkimball/orq-44",
+              reviewDecision: "APPROVED",
+              authorLogin: "kimballh",
+            },
+            files: [],
+            reviews: [],
+            threads: [],
+          }),
+          readPullRequestMergeReadiness: async () => ({
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: false,
+              reviewDecision: "APPROVED",
+              mergeStateStatus: "CLEAN",
+              mergeable: "MERGEABLE",
+              merged: false,
+              mergedAt: null,
+              headRefOid: "abc123",
+            },
+            statusCheckRollupState: "SUCCESS",
+            requiredChecks: [],
+          }),
+          mergePullRequest: async ({ matchHeadCommit }: { matchHeadCommit: string }) => {
+            matchedHeadCommit = matchHeadCommit;
+            return {
+              method: "squash",
+              pullRequest: {
+                id: "PR_kwDO44",
+                number: 44,
+                url: "https://github.com/kimballh/orqestrate/pull/42",
+                state: "MERGED",
+                isDraft: false,
+                reviewDecision: "APPROVED",
+                mergeStateStatus: "CLEAN",
+                mergeable: "MERGEABLE",
+                merged: true,
+                mergedAt: "2026-04-15T22:00:00.000Z",
+                headRefOid: "abc123",
+              },
+            };
+          },
+        }) as never,
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(matchedHeadCommit, "abc123");
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.merge.pullRequest.state, "MERGED");
+});
+
+test("github pr-merge accepts a non-default allowed merge method", async () => {
+  let mergeMethod = "";
+  const result = await invokeCli(
+    ["github", "pr-merge", "--method", "rebase"],
+    {
+      loadRun: async () =>
+        createRun({
+          grantedCapabilities: ["github.merge_pr"],
+        }),
+      loadConfig: async () =>
+        ({
+          policy: {
+            merge: {
+              allowedMethods: ["squash", "rebase"],
+              requireHumanApproval: false,
+            },
+          },
+        }) as never,
+      createClient: () =>
+        ({
+          readPullRequest: async () => ({
+            viewerLogin: "reviewer",
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              title: "Implement ORQ-44",
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: false,
+              body: "Body",
+              baseRefName: "main",
+              headRefName: "hillkimball/orq-44",
+              reviewDecision: "APPROVED",
+              authorLogin: "kimballh",
+            },
+            files: [],
+            reviews: [],
+            threads: [],
+          }),
+          readPullRequestMergeReadiness: async () => ({
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: false,
+              reviewDecision: "APPROVED",
+              mergeStateStatus: "CLEAN",
+              mergeable: "MERGEABLE",
+              merged: false,
+              mergedAt: null,
+              headRefOid: "abc123",
+            },
+            statusCheckRollupState: "SUCCESS",
+            requiredChecks: [],
+          }),
+          mergePullRequest: async ({
+            method,
+          }: {
+            method: string;
+          }) => {
+            mergeMethod = method;
+            return {
+              method: "rebase",
+              pullRequest: {
+                id: "PR_kwDO44",
+                number: 44,
+                url: "https://github.com/kimballh/orqestrate/pull/42",
+                state: "MERGED",
+                isDraft: false,
+                reviewDecision: "APPROVED",
+                mergeStateStatus: "CLEAN",
+                mergeable: "MERGEABLE",
+                merged: true,
+                mergedAt: "2026-04-15T22:00:00.000Z",
+                headRefOid: "abc123",
+              },
+            };
+          },
+        }) as never,
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(mergeMethod, "rebase");
+});
+
+test("github pr-merge preserves merge_policy_blocked for draft PRs with a valid method", async () => {
+  const result = await invokeCli(
+    ["github", "pr-merge", "--method", "squash"],
+    {
+      loadRun: async () =>
+        createRun({
+          grantedCapabilities: ["github.merge_pr"],
+        }),
+      loadConfig: async () =>
+        ({
+          policy: {
+            merge: {
+              allowedMethods: ["squash", "rebase"],
+              requireHumanApproval: false,
+            },
+          },
+        }) as never,
+      createClient: () =>
+        ({
+          readPullRequest: async () => ({
+            viewerLogin: "reviewer",
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              title: "Implement ORQ-44",
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: true,
+              body: "Body",
+              baseRefName: "main",
+              headRefName: "hillkimball/orq-44",
+              reviewDecision: "APPROVED",
+              authorLogin: "kimballh",
+            },
+            files: [],
+            reviews: [],
+            threads: [],
+          }),
+          readPullRequestMergeReadiness: async () => ({
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: true,
+              reviewDecision: "APPROVED",
+              mergeStateStatus: "CLEAN",
+              mergeable: "MERGEABLE",
+              merged: false,
+              mergedAt: null,
+              headRefOid: "abc123",
+            },
+            statusCheckRollupState: "SUCCESS",
+            requiredChecks: [],
+          }),
+        }) as never,
+    },
+  );
+
+  assert.equal(result.exitCode, 1);
+  const parsed = JSON.parse(result.stderr);
+  assert.equal(parsed.error.code, "merge_policy_blocked");
+  assert.match(parsed.error.message, /draft/i);
+});
+
 async function invokeCli(
   args: string[],
   dependencies: {
     loadRun?: (env: NodeJS.ProcessEnv) => Promise<unknown>;
+    loadConfig?: (...args: unknown[]) => Promise<unknown>;
     createClient?: (cwd: string, env: NodeJS.ProcessEnv) => unknown;
     getOriginRemoteUrl?: (cwd: string) => Promise<string>;
   } = {},
@@ -325,6 +625,7 @@ async function invokeCli(
     stdout: (message) => stdout.push(message),
     stderr: (message) => stderr.push(message),
     loadRun: dependencies.loadRun as never,
+    loadConfig: dependencies.loadConfig as never,
     createClient: dependencies.createClient as never,
     getOriginRemoteUrl: dependencies.getOriginRemoteUrl,
   });
@@ -350,6 +651,7 @@ function createRun(overrides: {
       overrides.grantedCapabilities ?? [
         "github.read_pr",
         "github.create_pr",
+        "github.merge_pr",
         "github.reply_review_thread",
         "github.resolve_review_thread",
         "github.write_review",

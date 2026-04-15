@@ -452,6 +452,23 @@ test("executePreparedRun blocks implement runs when the same unresolved reviewer
   });
   const githubClient = {
     findOpenPullRequestForBranch: async () => null,
+    readPullRequestMergeReadiness: async () => ({
+      pullRequest: {
+        id: "PR_kwDO38",
+        number: 38,
+        url: "https://github.com/kimballh/orqestrate/pull/38",
+        state: "OPEN",
+        isDraft: false,
+        reviewDecision: "APPROVED",
+        mergeStateStatus: "CLEAN",
+        mergeable: "MERGEABLE",
+        merged: false,
+        mergedAt: null,
+        headRefOid: "abc123",
+      },
+      statusCheckRollupState: "SUCCESS",
+      requiredChecks: [],
+    }),
     readPullRequest: async () => ({
       viewerLogin: "kimballh",
       pullRequest: {

@@ -47,7 +47,7 @@ Special rules:
 - `Backlog` is not actionable unless a human explicitly selects it.
 - `Blocked` is not actionable unless a human explicitly clears it.
 - `Done` and `Canceled` are terminal.
-- `merge` remains a reserved future phase until the planning workflow grows a first-class merge state.
+- `merge` is actionable only as `status = Review` plus `harness_phase = merge` after approval.
 
 ## 4. Claim model
 
@@ -162,10 +162,6 @@ thread replies should append hidden machine markers that record the run id and
 whether the comment came from implementation or review.
 
 ### Merge success
-
-`merge` is a reserved future phase, not a default planning status in the initial MVP.
-
-If a future workflow enables merge explicitly:
 
 - persist final summary
 - set status to `Done`
@@ -289,7 +285,7 @@ For v1, keep the orchestration service narrow:
 - one artifact page per issue
 - one run row per attempt
 - no parallel subtask decomposition
-- no automatic merge
+- no implicit merge by prompt convention
 
 That gives you a tractable state machine and avoids most reconciliation problems.
 

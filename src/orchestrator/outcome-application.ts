@@ -1,5 +1,7 @@
+import type { MergePolicyConfig } from "../config/types.js";
 import type { ContextBackend } from "../core/context-backend.js";
-import type { PlanningBackend } from "../core/planning-backend.js";
+import type { PlanningBackend, TransitionWorkItemInput } from "../core/planning-backend.js";
+import type { GitHubCliClient } from "../github/client.js";
 import type {
   ProviderError,
   RunLedgerRecord,
@@ -7,12 +9,17 @@ import type {
   WorkItemRecord,
 } from "../domain-model.js";
 
+import { buildMergeCompletionTransition } from "./merge-completion.js";
 import { buildBlockedTransition, buildRetryableFailureTransition } from "./transition-policy.js";
 import type { ObservedRuntimeRun } from "./runtime-observer.js";
 
 export type RecoveredOutcomeInput = {
   planning: PlanningBackend;
   context: ContextBackend;
+  mergePolicy?: MergePolicyConfig;
+  createGitHubClient?: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest" | "readPullRequestMergeReadiness">;
   workItem: WorkItemRecord;
   runtimeRun: ObservedRuntimeRun;
 };
@@ -39,7 +46,7 @@ export async function applyRecoveredRuntimeOutcome(
           error: null,
         }),
         workItem: await input.planning.transitionWorkItem(
-          buildRecoveredSuccessTransition(input.workItem, input.runtimeRun.runId),
+          await buildRecoveredSuccessTransition(input),
         ),
       };
     case "waiting_human":
@@ -144,19 +151,12 @@ function buildRecoveredOutcomeError(run: ObservedRuntimeRun): ProviderError {
   };
 }
 
-function buildRecoveredSuccessTransition(
-  workItem: WorkItemRecord,
-  runId: string,
-): {
-  id: string;
-  nextStatus: WorkItemRecord["status"];
-  nextPhase: WorkItemRecord["phase"];
-  state: WorkItemRecord["orchestration"]["state"];
-  reviewOutcome?: WorkItemRecord["orchestration"]["reviewOutcome"];
-  blockedReason?: string | null;
-  lastError?: null;
-  runId: string;
-} {
+async function buildRecoveredSuccessTransition(
+  input: RecoveredOutcomeInput,
+): Promise<TransitionWorkItemInput> {
+  const { workItem } = input;
+  const runId = input.runtimeRun.runId;
+
   switch (workItem.phase) {
     case "design":
       return {
@@ -192,9 +192,9 @@ function buildRecoveredSuccessTransition(
       if (workItem.orchestration.reviewOutcome === "approved") {
         return {
           id: workItem.id,
-          nextStatus: "done",
-          nextPhase: "none",
-          state: "completed",
+          nextStatus: "review",
+          nextPhase: "merge",
+          state: "queued",
           reviewOutcome: "approved",
           blockedReason: null,
           lastError: null,
@@ -225,6 +225,19 @@ function buildRecoveredSuccessTransition(
         lastError: null,
         runId,
       };
+    case "merge":
+      return buildMergeCompletionTransition(
+        {
+          mergePolicy: input.mergePolicy,
+          createGitHubClient: input.createGitHubClient,
+        },
+        {
+          workItem,
+          repoRoot: input.runtimeRun.repoRoot,
+          pullRequestUrl: input.runtimeRun.workspace.pullRequestUrl,
+          runId,
+        },
+      );
     default:
       return {
         id: workItem.id,

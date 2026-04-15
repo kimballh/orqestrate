@@ -121,6 +121,7 @@ export async function startOrchestratorService(
     runtimeObserver,
     owner,
     leaseDurationMs: options.leaseDurationMs ?? 15 * 60 * 1000,
+    mergePolicy: loadedConfig.policy.merge,
     now: options.now,
     listTrackedWorkItems: () =>
       planning.listActionableWorkItems({

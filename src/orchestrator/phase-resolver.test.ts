@@ -38,12 +38,41 @@ test("treats blocked items as non-actionable while preserving the current phase"
   assert.equal(result.phase, "implement");
 });
 
-test("rejects the reserved merge phase", () => {
-  const result = resolvePhase(createWorkItem({ status: "implement", phase: "merge" }));
+test("treats approved review work in merge phase as actionable", () => {
+  const result = resolvePhase(
+    createWorkItem({
+      status: "review",
+      phase: "merge",
+      orchestration: {
+        state: "queued",
+        owner: null,
+        runId: null,
+        leaseUntil: null,
+        reviewOutcome: "approved",
+        blockedReason: null,
+        lastError: null,
+        attemptCount: 0,
+      },
+    }),
+  );
+
+  assert.deepEqual(result, {
+    actionable: true,
+    phase: "merge",
+  });
+});
+
+test("fails closed when merge phase is present without approved review", () => {
+  const result = resolvePhase(
+    createWorkItem({
+      status: "review",
+      phase: "merge",
+    }),
+  );
 
   assert.equal(result.actionable, false);
-  assert.equal(result.reason, "reserved_phase");
-  assert.equal(result.expectedPhase, "implement");
+  assert.equal(result.reason, "phase_mismatch");
+  assert.equal(result.expectedPhase, "review");
 });
 
 function createWorkItem(

@@ -1,3 +1,4 @@
+import type { MergePolicyConfig } from "../config/types.js";
 import type { ArtifactRecord, ProviderError, ReviewOutcome, RunLedgerRecord, RunRecord, VerificationSummary, WorkItemRecord } from "../domain-model.js";
 import type { ContextBackend } from "../core/context-backend.js";
 import type { PlanningBackend, TransitionWorkItemInput } from "../core/planning-backend.js";
@@ -9,13 +10,17 @@ import {
 import { parsePullRequestUrl } from "../github/scope.js";
 import { GitHubCliClient as DefaultGitHubCliClient } from "../github/client.js";
 
+import { buildMergeCompletionTransition } from "./merge-completion.js";
 import { buildBlockedTransition, buildRetryableFailureTransition } from "./transition-policy.js";
 import type { PreparedOrchestrationRun, WatchedRunOutcome } from "./types.js";
 
 export type ApplyRunOutcomeDependencies = {
   planning: PlanningBackend;
   context: ContextBackend;
-  createGitHubClient?: (cwd: string) => Pick<GitHubCliClient, "readPullRequest">;
+  mergePolicy?: MergePolicyConfig;
+  createGitHubClient?: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest" | "readPullRequestMergeReadiness">;
 };
 
 export type ApplyRunOutcomeResult = {
@@ -333,9 +338,9 @@ async function buildCompletedTransition(
       if (reviewOutcome === "approved") {
         return {
           id: prepared.claimedWorkItem.id,
-          nextStatus: "done",
-          nextPhase: "none",
-          state: "completed",
+          nextStatus: "review",
+          nextPhase: "merge",
+          state: "queued",
           runId: prepared.runId,
           reviewOutcome,
         };
@@ -349,6 +354,19 @@ async function buildCompletedTransition(
         runId: prepared.runId,
         blockedReason: "Review completed without an explicit review outcome.",
       };
+    case "merge":
+      return buildMergeCompletionTransition(
+        {
+          mergePolicy: dependencies.mergePolicy,
+          createGitHubClient: dependencies.createGitHubClient,
+        },
+        {
+          workItem: prepared.claimedWorkItem,
+          repoRoot: prepared.submission.workspace.repoRoot,
+          pullRequestUrl: prepared.submission.workspace.pullRequestUrl,
+          runId: prepared.runId,
+        },
+      );
   }
 }
 
@@ -369,8 +387,8 @@ function buildArtifactContent(
     return parts.join("\n\n");
   }
 
-  if (phase === "review") {
-    return `# Review\n\nRun ${run.runId} completed without structured artifact content.`;
+  if (phase === "review" || phase === "merge") {
+    return `# ${capitalizePhase(phase)}\n\nRun ${run.runId} completed without structured artifact content.`;
   }
 
   return null;

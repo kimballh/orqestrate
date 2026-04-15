@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import process from "node:process";
 import { promisify } from "node:util";
 
+import type { MergeMethod } from "../config/types.js";
 import type { GitHubRepoRef, PullRequestRef } from "./scope.js";
 
 const execFileAsync = promisify(execFile);
@@ -106,6 +107,35 @@ export type GitHubResolveReviewThreadResult = {
   isResolved: boolean;
 };
 
+export type GitHubRequiredStatusCheck = {
+  name: string;
+  state: string;
+  isRequired: boolean;
+};
+
+export type GitHubPullRequestMergeReadiness = {
+  pullRequest: {
+    id: string;
+    number: number;
+    url: string;
+    state: string;
+    isDraft: boolean;
+    reviewDecision: string | null;
+    mergeStateStatus: string | null;
+    mergeable: string | null;
+    merged: boolean;
+    mergedAt: string | null;
+    headRefOid: string | null;
+  };
+  statusCheckRollupState: string | null;
+  requiredChecks: GitHubRequiredStatusCheck[];
+};
+
+export type GitHubPullRequestMergeResult = {
+  method: MergeMethod;
+  pullRequest: GitHubPullRequestMergeReadiness["pullRequest"];
+};
+
 export type GitHubReviewWriteResult = {
   id: number;
   url: string | null;
@@ -166,6 +196,46 @@ type GitHubPullRequestThreadsPage = NonNullable<
 type GitHubReviewThreadCommentsPage = NonNullable<
   GitHubReviewThreadCommentsQuery["node"]
 >["comments"];
+
+type GitHubPullRequestMergeReadinessQuery = {
+  repository: {
+    pullRequest: {
+      id: string;
+      number: number;
+      url: string;
+      state: string;
+      isDraft: boolean;
+      reviewDecision: string | null;
+      mergeStateStatus: string | null;
+      mergeable: string | null;
+      merged: boolean;
+      mergedAt: string | null;
+      headRefOid: string | null;
+      statusCheckRollup:
+        | {
+            state: string | null;
+            contexts: {
+              nodes: Array<
+                | {
+                    __typename: "CheckRun";
+                    name: string;
+                    status: string;
+                    conclusion: string | null;
+                    isRequired: boolean;
+                  }
+                | {
+                    __typename: "StatusContext";
+                    context: string;
+                    state: string;
+                    isRequired: boolean;
+                  }
+              >;
+            };
+          }
+        | null;
+    } | null;
+  } | null;
+};
 
 export type GitHubCliRunner = (input: {
   args: string[];
@@ -304,6 +374,107 @@ export class GitHubCliClient {
       files,
       reviews,
       threads,
+    };
+  }
+
+  async readPullRequestMergeReadiness(
+    pullRequest: PullRequestRef,
+  ): Promise<GitHubPullRequestMergeReadiness> {
+    const response = await this.#runGraphql<GitHubPullRequestMergeReadinessQuery>(
+      `
+        query PullRequestMergeReadiness(
+          $owner: String!
+          $repo: String!
+          $number: Int!
+        ) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $number) {
+              id
+              number
+              url
+              state
+              isDraft
+              reviewDecision
+              mergeStateStatus
+              mergeable
+              merged
+              mergedAt
+              headRefOid
+              statusCheckRollup {
+                state
+                contexts(first: 100) {
+                  nodes {
+                    __typename
+                    ... on CheckRun {
+                      name
+                      status
+                      conclusion
+                      isRequired(pullRequestNumber: $number)
+                    }
+                    ... on StatusContext {
+                      context
+                      state
+                      isRequired(pullRequestNumber: $number)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `,
+      {
+        owner: pullRequest.owner,
+        repo: pullRequest.repo,
+        number: pullRequest.number,
+      },
+    );
+
+    const payload = response.repository?.pullRequest;
+    if (payload === null || payload === undefined) {
+      throw new GitHubClientError(
+        `Pull request '${pullRequest.url}' was not found in GitHub.`,
+        {
+          code: "not_found",
+          details: {
+            pullRequestUrl: pullRequest.url,
+          },
+        },
+      );
+    }
+
+    return {
+      pullRequest: {
+        id: payload.id,
+        number: payload.number,
+        url: payload.url,
+        state: payload.state,
+        isDraft: payload.isDraft,
+        reviewDecision: payload.reviewDecision,
+        mergeStateStatus: payload.mergeStateStatus,
+        mergeable: payload.mergeable,
+        merged: payload.merged,
+        mergedAt: payload.mergedAt,
+        headRefOid: payload.headRefOid,
+      },
+      statusCheckRollupState: payload.statusCheckRollup?.state ?? null,
+      requiredChecks: (payload.statusCheckRollup?.contexts.nodes ?? [])
+        .filter((context) => context.isRequired)
+        .map((context) =>
+          context.__typename === "CheckRun"
+            ? {
+                name: context.name,
+                state:
+                  context.conclusion ??
+                  context.status,
+                isRequired: context.isRequired,
+              }
+            : {
+                name: context.context,
+                state: context.state,
+                isRequired: context.isRequired,
+              },
+        ),
     };
   }
 
@@ -635,6 +806,41 @@ export class GitHubCliClient {
     }
 
     return thread;
+  }
+
+  async mergePullRequest(input: {
+    pullRequest: PullRequestRef;
+    method: MergeMethod;
+    matchHeadCommit?: string | null;
+  }): Promise<GitHubPullRequestMergeResult> {
+    const args = [
+      "pr",
+      "merge",
+      String(input.pullRequest.number),
+      "--repo",
+      formatRepo(input.pullRequest),
+      input.method === "merge"
+        ? "--merge"
+        : input.method === "rebase"
+          ? "--rebase"
+          : "--squash",
+    ];
+
+    if (
+      input.matchHeadCommit !== undefined &&
+      input.matchHeadCommit !== null &&
+      input.matchHeadCommit.trim().length > 0
+    ) {
+      args.push("--match-head-commit", input.matchHeadCommit.trim());
+    }
+
+    await this.#runText(args);
+    const readiness = await this.readPullRequestMergeReadiness(input.pullRequest);
+
+    return {
+      method: input.method,
+      pullRequest: readiness.pullRequest,
+    };
   }
 
   async submitReview(input: {

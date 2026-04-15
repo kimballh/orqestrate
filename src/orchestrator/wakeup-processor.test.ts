@@ -147,6 +147,10 @@ function createLoadedConfigFixture(): LoadedConfig {
       maxRunsPerProvider: 1,
       allowMixedProviders: true,
       defaultPhaseTimeoutSec: 60,
+      merge: {
+        allowedMethods: ["squash"],
+        requireHumanApproval: false,
+      },
     },
     prompts: {
       root: "/tmp/prompts",

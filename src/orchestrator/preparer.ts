@@ -160,7 +160,7 @@ export async function prepareClaimedRun(
     null,
     async () => {
       if (
-        (resolution.phase !== "implement" && resolution.phase !== "review") ||
+        !["implement", "review", "merge"].includes(resolution.phase) ||
         workspace.pullRequestUrl === null ||
         workspace.pullRequestUrl === undefined
       ) {
@@ -240,7 +240,7 @@ export async function prepareClaimedRun(
           reviewLoop === null
             ? null
             : renderPullRequestReviewLoopContext({
-                phase: resolution.phase as "implement" | "review",
+                phase: resolution.phase as "implement" | "review" | "merge",
                 snapshot: reviewLoop,
               }),
           input.prompt?.additionalContext,
