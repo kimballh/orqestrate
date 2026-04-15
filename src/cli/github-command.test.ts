@@ -158,6 +158,29 @@ test("github review-write degrades to comment-only when the reviewer matches the
   assert.equal(parsed.eventApplied, "COMMENT");
 });
 
+test("github subcommand help does not require runtime context", async () => {
+  const result = await runCli(["github", "pr-read", "--help"], {
+    cwd: () => "/repo",
+    env: {},
+    stdout: () => undefined,
+    stderr: () => undefined,
+  });
+
+  assert.equal(result, 0);
+});
+
+test("github subcommand help prints usage text instead of runtime errors", async () => {
+  const result = await invokeCli(["github", "review-thread-reply", "--help"], {
+    loadRun: async () => {
+      throw new Error("runtime should not be loaded for help");
+    },
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /github review-thread-reply --thread-id <id> --body <body>/);
+  assert.equal(result.stderr, "");
+});
+
 async function invokeCli(
   args: string[],
   dependencies: {

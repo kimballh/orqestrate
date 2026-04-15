@@ -114,6 +114,59 @@ export type GitHubReviewWriteResult = {
   submittedAt: string | null;
 };
 
+type GitHubPullRequestThreadsQuery = {
+  repository: {
+    pullRequest: {
+      reviewThreads: {
+        nodes: Array<{
+          id: string;
+          isResolved: boolean;
+          isOutdated: boolean;
+          path: string | null;
+          line: number | null;
+          originalLine: number | null;
+          startLine: number | null;
+          originalStartLine: number | null;
+          diffSide: string | null;
+        }>;
+        pageInfo: {
+          hasNextPage: boolean;
+          endCursor: string | null;
+        };
+      };
+    } | null;
+  } | null;
+};
+
+type GitHubReviewThreadCommentsQuery = {
+  node:
+    | {
+        comments: {
+          nodes: Array<{
+            id: string;
+            databaseId: number | null;
+            url: string;
+            body: string;
+            createdAt: string | null;
+            author: { login: string } | null;
+          }>;
+          pageInfo: {
+            hasNextPage: boolean;
+            endCursor: string | null;
+          };
+        };
+      }
+    | null;
+};
+
+type GitHubPullRequestThreadsPage = NonNullable<
+  NonNullable<GitHubPullRequestThreadsQuery["repository"]>["pullRequest"]
+>["reviewThreads"];
+
+type GitHubReviewThreadCommentsPage = NonNullable<
+  GitHubReviewThreadCommentsQuery["node"]
+>["comments"];
+
 export type GitHubCliRunner = (input: {
   args: string[];
   cwd: string;
@@ -175,47 +228,6 @@ export class GitHubCliClient {
           headRefName: string;
           reviewDecision: string | null;
           author: { login: string } | null;
-          files: {
-            nodes: Array<{
-              path: string;
-              additions: number;
-              deletions: number;
-              changeType: string;
-            }>;
-          };
-          reviews: {
-            nodes: Array<{
-              id: string;
-              state: string;
-              body: string | null;
-              url: string | null;
-              submittedAt: string | null;
-              author: { login: string } | null;
-            }>;
-          };
-          reviewThreads: {
-            nodes: Array<{
-              id: string;
-              isResolved: boolean;
-              isOutdated: boolean;
-              path: string | null;
-              line: number | null;
-              originalLine: number | null;
-              startLine: number | null;
-              originalStartLine: number | null;
-              diffSide: string | null;
-              comments: {
-                nodes: Array<{
-                  id: string;
-                  databaseId: number | null;
-                  url: string;
-                  body: string;
-                  createdAt: string | null;
-                  author: { login: string } | null;
-                }>;
-              };
-            }>;
-          };
         } | null;
       } | null;
       viewer: { login: string } | null;
@@ -240,51 +252,6 @@ export class GitHubCliClient {
               reviewDecision
               author {
                 login
-              }
-              files(first: 100) {
-                nodes {
-                  path
-                  additions
-                  deletions
-                  changeType
-                }
-              }
-              reviews(first: 100) {
-                nodes {
-                  id
-                  state
-                  body
-                  url
-                  submittedAt
-                  author {
-                    login
-                  }
-                }
-              }
-              reviewThreads(first: 100) {
-                nodes {
-                  id
-                  isResolved
-                  isOutdated
-                  path
-                  line
-                  originalLine
-                  startLine
-                  originalStartLine
-                  diffSide
-                  comments(first: 100) {
-                    nodes {
-                      id
-                      databaseId
-                      url
-                      body
-                      createdAt
-                      author {
-                        login
-                      }
-                    }
-                  }
-                }
               }
             }
           }
@@ -313,6 +280,12 @@ export class GitHubCliClient {
       );
     }
 
+    const [files, reviews, threads] = await Promise.all([
+      this.#listPullRequestFiles(pullRequest),
+      this.#listPullRequestReviews(pullRequest),
+      this.#listPullRequestThreads(pullRequest),
+    ]);
+
     return {
       viewerLogin: response.viewer?.login ?? null,
       pullRequest: {
@@ -328,34 +301,9 @@ export class GitHubCliClient {
         reviewDecision: payload.reviewDecision,
         authorLogin: payload.author?.login ?? null,
       },
-      files: payload.files.nodes,
-      reviews: payload.reviews.nodes.map((review) => ({
-        id: review.id,
-        state: review.state,
-        body: review.body,
-        url: review.url,
-        submittedAt: review.submittedAt,
-        authorLogin: review.author?.login ?? null,
-      })),
-      threads: payload.reviewThreads.nodes.map((thread) => ({
-        id: thread.id,
-        isResolved: thread.isResolved,
-        isOutdated: thread.isOutdated,
-        path: thread.path,
-        line: thread.line,
-        originalLine: thread.originalLine,
-        startLine: thread.startLine,
-        originalStartLine: thread.originalStartLine,
-        diffSide: thread.diffSide,
-        comments: thread.comments.nodes.map((comment) => ({
-          id: comment.id,
-          databaseId: comment.databaseId,
-          url: comment.url,
-          body: comment.body,
-          createdAt: comment.createdAt,
-          authorLogin: comment.author?.login ?? null,
-        })),
-      })),
+      files,
+      reviews,
+      threads,
     };
   }
 
@@ -461,14 +409,7 @@ export class GitHubCliClient {
         authorLogin: response.node.pullRequest.author?.login ?? null,
         headRefName: response.node.pullRequest.headRefName,
       },
-      comments: response.node.comments.nodes.map((comment) => ({
-        id: comment.id,
-        databaseId: comment.databaseId,
-        url: comment.url,
-        body: comment.body,
-        createdAt: comment.createdAt,
-        authorLogin: comment.author?.login ?? null,
-      })),
+      comments: await this.#listReviewThreadComments(response.node.id),
     };
   }
 
@@ -743,6 +684,223 @@ export class GitHubCliClient {
       login: string;
     }>(["api", "user"]);
     return response.login;
+  }
+
+  async #listPullRequestFiles(
+    pullRequest: PullRequestRef,
+  ): Promise<GitHubPullRequestReadResult["files"]> {
+    const files: GitHubPullRequestReadResult["files"] = [];
+
+    for await (const page of this.#paginateRest<Array<{
+      filename: string;
+      additions: number;
+      deletions: number;
+      status: string;
+    }>>([
+      `repos/${formatRepo(pullRequest)}/pulls/${pullRequest.number}/files`,
+    ])) {
+      files.push(
+        ...page.map((file) => ({
+          path: file.filename,
+          additions: file.additions,
+          deletions: file.deletions,
+          changeType: file.status.toUpperCase(),
+        })),
+      );
+    }
+
+    return files;
+  }
+
+  async #listPullRequestReviews(
+    pullRequest: PullRequestRef,
+  ): Promise<GitHubPullRequestReadResult["reviews"]> {
+    const reviews: GitHubPullRequestReadResult["reviews"] = [];
+
+    for await (const page of this.#paginateRest<Array<{
+      id: number;
+      node_id: string;
+      state: string;
+      body: string | null;
+      html_url: string | null;
+      submitted_at: string | null;
+      user: { login: string } | null;
+    }>>([
+      `repos/${formatRepo(pullRequest)}/pulls/${pullRequest.number}/reviews`,
+    ])) {
+      reviews.push(
+        ...page.map((review) => ({
+          id: review.node_id,
+          state: review.state,
+          body: review.body,
+          url: review.html_url,
+          submittedAt: review.submitted_at,
+          authorLogin: review.user?.login ?? null,
+        })),
+      );
+    }
+
+    return reviews;
+  }
+
+  async #listPullRequestThreads(
+    pullRequest: PullRequestRef,
+  ): Promise<GitHubPullRequestThread[]> {
+    const threads: GitHubPullRequestThread[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const response: GitHubPullRequestThreadsQuery = await this.#runGraphql<GitHubPullRequestThreadsQuery>(
+        `
+          query PullRequestThreads(
+            $owner: String!
+            $repo: String!
+            $number: Int!
+            $cursor: String
+          ) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                reviewThreads(first: 100, after: $cursor) {
+                  nodes {
+                    id
+                    isResolved
+                    isOutdated
+                    path
+                    line
+                    originalLine
+                    startLine
+                    originalStartLine
+                    diffSide
+                  }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                }
+              }
+            }
+          }
+        `,
+        {
+          owner: pullRequest.owner,
+          repo: pullRequest.repo,
+          number: pullRequest.number,
+          ...(cursor === null ? {} : { cursor }),
+        },
+      );
+
+      const reviewThreads: GitHubPullRequestThreadsPage | undefined =
+        response.repository?.pullRequest?.reviewThreads;
+      if (reviewThreads === undefined || reviewThreads === null) {
+        break;
+      }
+
+      for (const thread of reviewThreads.nodes) {
+        threads.push({
+          id: thread.id,
+          isResolved: thread.isResolved,
+          isOutdated: thread.isOutdated,
+          path: thread.path,
+          line: thread.line,
+          originalLine: thread.originalLine,
+          startLine: thread.startLine,
+          originalStartLine: thread.originalStartLine,
+          diffSide: thread.diffSide,
+          comments: await this.#listReviewThreadComments(thread.id),
+        });
+      }
+
+      cursor =
+        reviewThreads.pageInfo.hasNextPage === true
+          ? reviewThreads.pageInfo.endCursor
+          : null;
+    } while (cursor !== null);
+
+    return threads;
+  }
+
+  async #listReviewThreadComments(
+    threadId: string,
+  ): Promise<GitHubPullRequestThreadComment[]> {
+    const comments: GitHubPullRequestThreadComment[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const response: GitHubReviewThreadCommentsQuery =
+        await this.#runGraphql<GitHubReviewThreadCommentsQuery>(
+        `
+          query ReviewThreadComments($threadId: ID!, $cursor: String) {
+            node(id: $threadId) {
+              ... on PullRequestReviewThread {
+                comments(first: 100, after: $cursor) {
+                  nodes {
+                    id
+                    databaseId
+                    url
+                    body
+                    createdAt
+                    author {
+                      login
+                    }
+                  }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                }
+              }
+            }
+          }
+        `,
+        {
+          threadId,
+          ...(cursor === null ? {} : { cursor }),
+        },
+      );
+
+      const page: GitHubReviewThreadCommentsPage | undefined =
+        response.node?.comments;
+      if (page === undefined || page === null) {
+        break;
+      }
+
+      comments.push(
+        ...page.nodes.map((comment: GitHubReviewThreadCommentsPage["nodes"][number]) => ({
+          id: comment.id,
+          databaseId: comment.databaseId,
+          url: comment.url,
+          body: comment.body,
+          createdAt: comment.createdAt,
+          authorLogin: comment.author?.login ?? null,
+        })),
+      );
+
+      cursor =
+        page.pageInfo.hasNextPage === true ? page.pageInfo.endCursor : null;
+    } while (cursor !== null);
+
+    return comments;
+  }
+
+  async *#paginateRest<T>(
+    baseArgs: string[],
+  ): AsyncGenerator<T, void, void> {
+    let page = 1;
+
+    while (true) {
+      const url = new URL(baseArgs[0] ?? "", "https://github.local");
+      url.searchParams.set("per_page", "100");
+      url.searchParams.set("page", String(page));
+
+      const response = await this.#runJson<T>(["api", url.pathname + url.search]);
+      yield response;
+
+      if (Array.isArray(response) === false || response.length < 100) {
+        return;
+      }
+
+      page += 1;
+    }
   }
 
   async #runJson<T>(args: string[]): Promise<T> {

@@ -88,6 +88,12 @@ export async function runGithubCommand(
 
   try {
     const subcommand = args[0];
+    const helpText = renderGitHubSubcommandHelp(subcommand, args.slice(1));
+    if (helpText !== null) {
+      write(dependencies.stdout, helpText);
+      return 0;
+    }
+
     const run = await loadRun(env);
     const client = createClient(cwd, env);
 
@@ -148,11 +154,11 @@ export async function runGithubCommand(
 export function renderGitHubHelp(): string {
   return [
     "GitHub commands:",
-    "  github pr-read",
-    "  github pr-upsert --title <title> --body <body> [--base <branch>]",
-    "  github review-thread-reply --thread-id <id> --body <body>",
-    "  github review-thread-resolve --thread-id <id>",
-    "  github review-write --body <body> [--event comment|approve|request-changes] [--comment-json <json>]",
+    `  ${renderPrReadHelp()}`,
+    `  ${renderPrUpsertHelp()}`,
+    `  ${renderReviewThreadReplyHelp()}`,
+    `  ${renderReviewThreadResolveHelp()}`,
+    `  ${renderReviewWriteHelp()}`,
   ].join("\n");
 }
 
@@ -376,6 +382,10 @@ async function handleReviewWrite(
 }
 
 function parsePrUpsertOptions(args: string[]): PrUpsertOptions {
+  if (containsHelpFlag(args)) {
+    throw createCommandError("help_requested", renderPrUpsertHelp());
+  }
+
   const options: Partial<PrUpsertOptions> = {};
 
   for (let index = 0; index < args.length; index += 1) {
@@ -419,6 +429,10 @@ function parsePrUpsertOptions(args: string[]): PrUpsertOptions {
 }
 
 function parseThreadReplyOptions(args: string[]): ThreadReplyOptions {
+  if (containsHelpFlag(args)) {
+    throw createCommandError("help_requested", renderReviewThreadReplyHelp());
+  }
+
   const options: Partial<ThreadReplyOptions> = {};
 
   for (let index = 0; index < args.length; index += 1) {
@@ -458,6 +472,13 @@ function parseThreadReplyOptions(args: string[]): ThreadReplyOptions {
 }
 
 function parseThreadResolveOptions(args: string[]): ThreadResolveOptions {
+  if (containsHelpFlag(args)) {
+    throw createCommandError(
+      "help_requested",
+      renderReviewThreadResolveHelp(),
+    );
+  }
+
   if (args.length !== 2 || args[0] !== "--thread-id") {
     throw createCommandError(
       "missing_argument",
@@ -471,6 +492,10 @@ function parseThreadResolveOptions(args: string[]): ThreadResolveOptions {
 }
 
 function parseReviewWriteOptions(args: string[]): ReviewWriteOptions {
+  if (containsHelpFlag(args)) {
+    throw createCommandError("help_requested", renderReviewWriteHelp());
+  }
+
   const options: ReviewWriteOptions = {
     body: "",
     event: "COMMENT",
@@ -665,6 +690,30 @@ function createCommandError(
   return error;
 }
 
+function renderGitHubSubcommandHelp(
+  subcommand: string,
+  args: string[],
+): string | null {
+  if (!containsHelpFlag(args)) {
+    return null;
+  }
+
+  switch (subcommand) {
+    case "pr-read":
+      return renderPrReadHelp();
+    case "pr-upsert":
+      return renderPrUpsertHelp();
+    case "review-thread-reply":
+      return renderReviewThreadReplyHelp();
+    case "review-thread-resolve":
+      return renderReviewThreadResolveHelp();
+    case "review-write":
+      return renderReviewWriteHelp();
+    default:
+      return renderGitHubHelp();
+  }
+}
+
 async function defaultGetOriginRemoteUrl(cwd: string): Promise<string> {
   const response = await execFileAsync("git", ["remote", "get-url", "origin"], {
     cwd,
@@ -692,6 +741,10 @@ function isHelpFlag(argument: string): boolean {
   return argument === "--help" || argument === "-h";
 }
 
+function containsHelpFlag(args: string[]): boolean {
+  return args.some((argument) => isHelpFlag(argument));
+}
+
 function readOptionValue(
   args: string[],
   index: number,
@@ -710,4 +763,24 @@ function readOptionValue(
 
 function write(writeFn: WriteFn | undefined, message: string): void {
   (writeFn ?? console.log)(message);
+}
+
+function renderPrReadHelp(): string {
+  return "github pr-read";
+}
+
+function renderPrUpsertHelp(): string {
+  return "github pr-upsert --title <title> --body <body> [--base <branch>]";
+}
+
+function renderReviewThreadReplyHelp(): string {
+  return "github review-thread-reply --thread-id <id> --body <body>";
+}
+
+function renderReviewThreadResolveHelp(): string {
+  return "github review-thread-resolve --thread-id <id>";
+}
+
+function renderReviewWriteHelp(): string {
+  return "github review-write --body <body> [--event comment|approve|request-changes] [--comment-json <json>]";
 }
