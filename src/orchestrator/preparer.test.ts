@@ -29,8 +29,10 @@ import {
   type RenewLeaseInput,
   type TransitionWorkItemInput,
 } from "../core/planning-backend.js";
+import type { GitHubCliClient } from "../github/client.js";
 
 import { prepareClaimedRun } from "./preparer.js";
+import type { RuntimeObserver } from "./runtime-observer.js";
 import { HumanBlockerError } from "./transition-policy.js";
 
 const REPO_ROOT = path.resolve(
@@ -144,6 +146,147 @@ test("returns a non-prepared result when the work item is not currently claimabl
   assert.equal(result.decision.reason, "waiting_human");
   assert.equal(planning.claimCalls.length, 0);
   assert.equal(context.ensureCalls.length, 0);
+});
+
+test("rehydrates PR workspace context from runtime history and injects review-loop context", async () => {
+  const config = await loadLocalConfig();
+  const workItem = createWorkItem({
+    status: "review",
+    phase: "review",
+  });
+  const artifact = createArtifact();
+  const planning = new FakePlanningBackend(workItem);
+  const context = new FakeContextBackend(artifact);
+  const runtimeObserver = new FakeRuntimeObserver([
+    {
+      runId: "run-previous",
+      workItemId: workItem.id,
+      workItemIdentifier: workItem.identifier ?? null,
+      phase: "implement",
+      provider: "codex",
+      status: "completed",
+      repoRoot: REPO_ROOT,
+      workspace: {
+        mode: "ephemeral_worktree",
+        assignedBranch: "hillkimball/orq-43",
+        pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/43",
+        pullRequestMode: "draft",
+        writeScope: "repo",
+      },
+      artifactUrl: artifact.url ?? null,
+      requestedBy: "Kimball Hill",
+      grantedCapabilities: ["github.read_pr"],
+      promptContractId: "orqestrate/default/review/review/v2",
+      promptDigests: { system: null, user: "digest" },
+      limits: {
+        maxWallTimeSec: 3600,
+        idleTimeoutSec: 300,
+        bootstrapTimeoutSec: 120,
+      },
+      outcome: null,
+      createdAt: "2026-04-15T00:00:00.000Z",
+      admittedAt: "2026-04-15T00:00:01.000Z",
+      startedAt: "2026-04-15T00:00:02.000Z",
+      readyAt: "2026-04-15T00:00:03.000Z",
+      completedAt: "2026-04-15T00:10:00.000Z",
+      lastHeartbeatAt: "2026-04-15T00:05:00.000Z",
+      lastEventSeq: 5,
+      priority: 100,
+      runtimeOwner: "runtime-daemon:test",
+      attemptCount: 1,
+      waitingHumanReason: null,
+      version: 1,
+    }],
+  );
+  const githubClient: Pick<GitHubCliClient, "readPullRequest"> = {
+    readPullRequest: async () => ({
+      viewerLogin: "kimballh",
+      pullRequest: {
+        id: "PR_kwDOORQ43",
+        number: 43,
+        title: "Implement ORQ-43",
+        url: "https://github.com/kimballh/orqestrate/pull/43",
+        state: "OPEN",
+        isDraft: false,
+        body: "Body",
+        baseRefName: "main",
+        headRefName: "hillkimball/orq-43",
+        reviewDecision: "REVIEW_REQUIRED",
+        authorLogin: "kimballh",
+      },
+      files: [],
+      reviews: [],
+      threads: [
+        {
+          id: "thread-1",
+          isResolved: false,
+          isOutdated: false,
+          path: "src/orchestrator/reconciliation-loop.ts",
+          line: 88,
+          originalLine: 88,
+          startLine: null,
+          originalStartLine: null,
+          diffSide: "RIGHT",
+          comments: [
+            {
+              id: "comment-1",
+              databaseId: 101,
+              url: "https://github.com/comment/101",
+              body: "Please move this back to implement when reviewer feedback lands.",
+              authorLogin: "reviewer",
+              createdAt: "2026-04-15T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    }),
+  };
+
+  const result = await prepareClaimedRun(
+    {
+      planning,
+      context,
+      config,
+      runtimeObserver,
+      createGitHubClient: () => githubClient,
+    },
+    {
+      workItemId: workItem.id,
+      provider: "codex",
+      repoRoot: REPO_ROOT,
+      owner: "orchestrator:test",
+      createRunId: () => "run-43",
+      now: new Date("2026-04-15T00:00:00.000Z"),
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    assert.fail("Expected a prepared run result.");
+  }
+
+  assert.equal(
+    result.prepared.submission.workspace.pullRequestUrl,
+    "https://github.com/kimballh/orqestrate/pull/43",
+  );
+  assert.equal(
+    result.prepared.submission.workspace.assignedBranch,
+    "hillkimball/orq-43",
+  );
+  assert.deepEqual(result.prepared.reviewLoop?.implementerActionThreadIds, [
+    "thread-1",
+  ]);
+  assert.match(
+    result.prepared.submission.prompt.userPrompt,
+    /Threads requiring review action: 0/,
+  );
+  assert.match(
+    result.prepared.submission.prompt.userPrompt,
+    /Threads requiring implementation action: 1/,
+  );
+  assert.deepEqual(result.prepared.submission.grantedCapabilities, [
+    "github.read_pr",
+  ]);
 });
 
 test("transitions the ticket to failed when post-claim context loading errors", async () => {
@@ -507,6 +650,38 @@ class FakeContextBackend extends ContextBackend<ContextLocalFilesProviderConfig>
 
   async appendEvidence(_input: AppendEvidenceInput): Promise<void> {
     throw new Error("not used in test");
+  }
+}
+
+class FakeRuntimeObserver implements RuntimeObserver {
+  constructor(private readonly runs: any[]) {}
+
+  async getRun(): Promise<null> {
+    return null;
+  }
+
+  async listRuns(): Promise<{ runs: any[]; nextCursor?: string | null }> {
+    return {
+      runs: structuredClone(this.runs),
+      nextCursor: null,
+    };
+  }
+
+  async listRunEvents(): Promise<[]> {
+    return [];
+  }
+
+  async getHealth(): Promise<any> {
+    return {
+      ok: true,
+      profile: "test",
+      checks: {
+        database: { ok: true },
+        dispatcher: { ok: true },
+        transport: { ok: true },
+        adapters: { ok: true, providers: ["codex"] },
+      },
+    };
   }
 }
 

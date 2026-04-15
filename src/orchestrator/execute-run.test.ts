@@ -392,6 +392,132 @@ test("executePreparedRun does not rewrite partial write-back failures as retryab
   assert.equal(planning.transitionCalls[0]?.nextStatus, "review");
 });
 
+test("executePreparedRun blocks implement runs when the same unresolved reviewer threads remain after completion", async () => {
+  const loadedConfig = await loadLocalConfig();
+  const workItem = createWorkItem();
+  const artifact = createArtifact();
+  const planning = new FakePlanningBackend(workItem);
+  const context = new FakeContextBackend(artifact);
+  const prepared = createPreparedRun(workItem, artifact);
+  prepared.reviewLoop = {
+    pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/38",
+    reviewDecision: "REVIEW_REQUIRED",
+    unresolvedThreadCount: 1,
+    implementerActionThreadIds: ["thread-1"],
+    reviewerActionThreadIds: [],
+    ambiguousThreadIds: [],
+    hasOpenReviewDecision: true,
+    threads: [
+      {
+        threadId: "thread-1",
+        action: "implementer_action_required",
+        path: "src/orchestrator/outcome-writeback.ts",
+        line: 52,
+        isOutdated: false,
+        summary:
+          "src/orchestrator/outcome-writeback.ts:52 - Guard the review bounce.",
+      },
+    ],
+  };
+  const runtime = new FakeRuntimeClient({
+    createRun: createRuntimeRun({
+      runId: prepared.runId,
+      workItemId: workItem.id,
+      workItemIdentifier: workItem.identifier ?? null,
+      phase: "implement",
+      provider: "codex",
+      status: "queued",
+      repoRoot: REPO_ROOT,
+      artifactUrl: artifact.url ?? null,
+      lastEventSeq: 1,
+    }),
+    runs: [
+      createRuntimeRun({
+        runId: prepared.runId,
+        workItemId: workItem.id,
+        workItemIdentifier: workItem.identifier ?? null,
+        phase: "implement",
+        provider: "codex",
+        status: "completed",
+        repoRoot: REPO_ROOT,
+        artifactUrl: artifact.url ?? null,
+        lastEventSeq: 2,
+        outcome: {
+          code: "completed",
+          summary: "Implementation landed but did not close the review loop.",
+        },
+      }),
+    ],
+    events: [[]],
+  });
+  const githubClient = {
+    readPullRequest: async () => ({
+      viewerLogin: "kimballh",
+      pullRequest: {
+        id: "PR_kwDO38",
+        number: 38,
+        title: "Implement ORQ-38",
+        url: "https://github.com/kimballh/orqestrate/pull/38",
+        state: "OPEN",
+        isDraft: false,
+        body: "Body",
+        baseRefName: "main",
+        headRefName:
+          "hillkimball/orq-38-implement-run-submission-flow-and-runtime-outcome-write-back",
+        reviewDecision: "REVIEW_REQUIRED",
+        authorLogin: "kimballh",
+      },
+      files: [],
+      reviews: [],
+      threads: [
+        {
+          id: "thread-1",
+          isResolved: false,
+          isOutdated: false,
+          path: "src/orchestrator/outcome-writeback.ts",
+          line: 52,
+          originalLine: 52,
+          startLine: null,
+          originalStartLine: null,
+          diffSide: "RIGHT",
+          comments: [
+            {
+              id: "comment-1",
+              databaseId: 101,
+              url: "https://github.com/comment/101",
+              body: "Still waiting on the unchanged-thread guardrail.",
+              authorLogin: "reviewer",
+              createdAt: "2026-04-15T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    }),
+  };
+
+  const result = await executePreparedRun(
+    {
+      planning,
+      context,
+      loadedConfig,
+      runtime,
+      createGitHubClient: () => githubClient,
+      now: () => new Date("2026-04-15T00:00:00.000Z"),
+      eventPollWaitMs: 0,
+      leaseSafetyWindowMs: 15_000,
+    },
+    prepared,
+  );
+
+  assert.equal(result.writeback.workItem.status, "blocked");
+  assert.equal(result.writeback.workItem.orchestration.state, "waiting_human");
+  assert.equal(planning.transitionCalls.at(-1)?.nextStatus, "blocked");
+  assert.match(
+    planning.comments.at(-1)?.body ?? "",
+    /same unresolved reviewer feedback/i,
+  );
+});
+
 async function loadLocalConfig(): Promise<LoadedConfig> {
   return loadConfig({
     configPath: path.join(REPO_ROOT, "config.example.toml"),
@@ -741,6 +867,7 @@ function createPreparedRun(
     phase: "implement",
     claimedWorkItem: structuredClone(workItem),
     artifact: structuredClone(artifact),
+    reviewLoop: null,
     context: {
       artifact: structuredClone(artifact),
       contextText: "Loaded issue context.",

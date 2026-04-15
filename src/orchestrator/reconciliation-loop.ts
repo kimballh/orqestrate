@@ -1,6 +1,10 @@
 import type { WorkItemRecord } from "../domain-model.js";
+import { GitHubCliClient } from "../github/client.js";
+import { classifyPullRequestReviewLoop } from "../github/review-loop.js";
+import { parsePullRequestUrl } from "../github/scope.js";
 
 import { Reconciler } from "./reconciler.js";
+import { findLatestReviewLoopRuntimeRun } from "./review-loop-runtime.js";
 import type {
   LeaseObservation,
   ReconciliationResult,
@@ -34,6 +38,7 @@ export type ReconciliationLoopDependencies = {
   setInterval?: typeof globalThis.setInterval;
   clearInterval?: typeof globalThis.clearInterval;
   listTrackedWorkItems?: () => Promise<WorkItemRecord[]>;
+  createGitHubClient?: (cwd: string) => Pick<GitHubCliClient, "readPullRequest">;
 };
 
 export class ReconciliationLoop {
@@ -46,6 +51,9 @@ export class ReconciliationLoop {
   private readonly clearIntervalFn: typeof globalThis.clearInterval;
   private readonly fastIntervalMs: number;
   private readonly driftIntervalMs: number;
+  private readonly createGitHubClient: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest">;
   private readonly trackedWorkItemIds = new Set<string>();
   private readonly observations = new Map<string, LeaseObservation>();
   private fastTimer: ReturnType<typeof globalThis.setInterval> | null = null;
@@ -68,6 +76,12 @@ export class ReconciliationLoop {
     this.clearIntervalFn = dependencies.clearInterval ?? globalThis.clearInterval;
     this.fastIntervalMs = dependencies.fastIntervalMs ?? 30_000;
     this.driftIntervalMs = dependencies.driftIntervalMs ?? 300_000;
+    this.createGitHubClient =
+      dependencies.createGitHubClient ??
+      ((cwd) =>
+        new GitHubCliClient({
+          cwd,
+        }));
   }
 
   get isRunning(): boolean {
@@ -128,6 +142,8 @@ export class ReconciliationLoop {
       this.updateTrackedWorkItem(result.workItem);
     }
 
+    await this.inspectQueuedReviewLoopWorkItems(workItems);
+
     return results;
   }
 
@@ -172,6 +188,98 @@ export class ReconciliationLoop {
     }
 
     return [...itemsById.values()];
+  }
+
+  private async inspectQueuedReviewLoopWorkItems(
+    workItems: readonly WorkItemRecord[],
+  ): Promise<void> {
+    for (const workItem of workItems) {
+      if (
+        (workItem.status !== "implement" && workItem.status !== "review") ||
+        workItem.orchestration.state === "claimed" ||
+        workItem.orchestration.state === "running" ||
+        workItem.orchestration.state === "waiting_human"
+      ) {
+        continue;
+      }
+
+      const runtimeRun = await findLatestReviewLoopRuntimeRun(
+        this.runtimeObserver,
+        workItem.id,
+      );
+      const pullRequestUrl = runtimeRun?.workspace.pullRequestUrl ?? null;
+
+      if (runtimeRun === null || pullRequestUrl === null) {
+        continue;
+      }
+
+      const client = this.createGitHubClient(runtimeRun.repoRoot);
+      const snapshot = classifyPullRequestReviewLoop(
+        await client.readPullRequest(parsePullRequestUrl(pullRequestUrl)),
+      );
+
+      if (snapshot.ambiguousThreadIds.length > 0) {
+        await this.planning.transitionWorkItem({
+          id: workItem.id,
+          nextStatus: "blocked",
+          nextPhase: workItem.phase,
+          state: "waiting_human",
+          blockedReason:
+            "GitHub review loop is blocked because unresolved pull request threads could not be classified safely.",
+        });
+        await this.planning.appendComment({
+          id: workItem.id,
+          body: [
+            "GitHub review-loop routing is blocked.",
+            "",
+            "Unresolved pull request threads could not be classified safely, so the issue was moved to `Blocked` for human triage.",
+          ].join("\n"),
+        });
+        continue;
+      }
+
+      if (
+        workItem.status === "review" &&
+        snapshot.implementerActionThreadIds.length > 0
+      ) {
+        await this.planning.transitionWorkItem({
+          id: workItem.id,
+          nextStatus: "implement",
+          nextPhase: "implement",
+          state: "queued",
+        });
+        await this.planning.appendComment({
+          id: workItem.id,
+          body: [
+            "GitHub review-loop routing requeued implementation.",
+            "",
+            "The linked pull request has unresolved review feedback that now requires implementation-side action.",
+          ].join("\n"),
+        });
+        continue;
+      }
+
+      if (
+        workItem.status === "implement" &&
+        snapshot.implementerActionThreadIds.length === 0 &&
+        snapshot.reviewerActionThreadIds.length > 0
+      ) {
+        await this.planning.transitionWorkItem({
+          id: workItem.id,
+          nextStatus: "review",
+          nextPhase: "review",
+          state: "queued",
+        });
+        await this.planning.appendComment({
+          id: workItem.id,
+          body: [
+            "GitHub review-loop routing requeued review.",
+            "",
+            "The linked pull request is now waiting on reviewer-side follow-up rather than more implementation work.",
+          ].join("\n"),
+        });
+      }
+    }
   }
 
   private async listRuntimeRuns() {

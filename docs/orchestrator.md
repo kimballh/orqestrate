@@ -137,6 +137,30 @@ If changes are requested:
 - set `harness_phase = implement`
 - set `harness_state = queued`
 
+### GitHub review-loop routing
+
+For PR-backed `Implement` and `Review` work, the orchestrator should also use the
+linked pull request as a bounded routing signal on top of the Linear status.
+
+Rules:
+
+- rehydrate PR workspace scope from recent runtime history when a follow-up wakeup
+  does not include it explicitly
+- read unresolved review threads before prompt assembly for `Implement` and
+  `Review` runs
+- classify unresolved threads into implementation-side action, reviewer-side
+  action, or ambiguous state
+- move `Review -> Implement` when unresolved reviewer feedback requires code or
+  rebuttal from implementation
+- move `Implement -> Review` when the PR is no longer waiting on implementation
+- fail closed to `Blocked` when unresolved thread ownership is ambiguous
+- before auto-bouncing `Implement -> Review`, re-read the PR and block if the
+  same implementer-action thread set still remains unresolved
+
+To keep same-actor review loops classifiable, bounded GitHub review writes and
+thread replies should append hidden machine markers that record the run id and
+whether the comment came from implementation or review.
+
 ### Merge success
 
 `merge` is a reserved future phase, not a default planning status in the initial MVP.

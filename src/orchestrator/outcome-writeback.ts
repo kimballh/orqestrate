@@ -1,6 +1,13 @@
 import type { ArtifactRecord, ProviderError, ReviewOutcome, RunLedgerRecord, RunRecord, VerificationSummary, WorkItemRecord } from "../domain-model.js";
 import type { ContextBackend } from "../core/context-backend.js";
 import type { PlanningBackend, TransitionWorkItemInput } from "../core/planning-backend.js";
+import type { GitHubCliClient } from "../github/client.js";
+import {
+  classifyPullRequestReviewLoop,
+  computePullRequestReviewLoopFingerprint,
+} from "../github/review-loop.js";
+import { parsePullRequestUrl } from "../github/scope.js";
+import { GitHubCliClient as DefaultGitHubCliClient } from "../github/client.js";
 
 import { buildBlockedTransition, buildRetryableFailureTransition } from "./transition-policy.js";
 import type { PreparedOrchestrationRun, WatchedRunOutcome } from "./types.js";
@@ -8,6 +15,7 @@ import type { PreparedOrchestrationRun, WatchedRunOutcome } from "./types.js";
 export type ApplyRunOutcomeDependencies = {
   planning: PlanningBackend;
   context: ContextBackend;
+  createGitHubClient?: (cwd: string) => Pick<GitHubCliClient, "readPullRequest">;
 };
 
 export type ApplyRunOutcomeResult = {
@@ -69,7 +77,11 @@ async function applyCompletedOutcome(
     error: outcome.error ?? null,
   });
 
-  const transition = buildCompletedTransition(prepared, outcome.reviewOutcome ?? null);
+  const transition = await buildCompletedTransition(
+    dependencies,
+    prepared,
+    outcome.reviewOutcome ?? null,
+  );
   const workItem = await dependencies.planning.transitionWorkItem(transition);
   const commentBody = buildCompletionComment({
     prepared,
@@ -233,10 +245,11 @@ async function writeArtifactIfNeeded(
   });
 }
 
-function buildCompletedTransition(
+async function buildCompletedTransition(
+  dependencies: ApplyRunOutcomeDependencies,
   prepared: PreparedOrchestrationRun,
   reviewOutcome: Exclude<ReviewOutcome, "none"> | null,
-): TransitionWorkItemInput {
+): Promise<TransitionWorkItemInput> {
   switch (prepared.phase) {
     case "design":
       return {
@@ -255,6 +268,49 @@ function buildCompletedTransition(
         runId: prepared.runId,
       };
     case "implement":
+      if (
+        prepared.reviewLoop !== null &&
+        prepared.reviewLoop.implementerActionThreadIds.length > 0
+      ) {
+        const client =
+          dependencies.createGitHubClient?.(
+            prepared.submission.workspace.repoRoot,
+          ) ??
+          new DefaultGitHubCliClient({
+            cwd: prepared.submission.workspace.repoRoot,
+          });
+        const pullRequest = parsePullRequestUrl(
+          prepared.reviewLoop.pullRequestUrl,
+        );
+        const refreshedSnapshot = classifyPullRequestReviewLoop(
+          await client.readPullRequest(pullRequest),
+        );
+        const beforeFingerprint = computePullRequestReviewLoopFingerprint(
+          prepared.reviewLoop.implementerActionThreadIds,
+        );
+        const afterFingerprint = computePullRequestReviewLoopFingerprint(
+          refreshedSnapshot.implementerActionThreadIds,
+        );
+
+        if (refreshedSnapshot.ambiguousThreadIds.length > 0) {
+          return buildBlockedTransition({
+            workItem: prepared.claimedWorkItem,
+            runId: prepared.runId,
+            blockedReason:
+              "Implement run completed, but the linked pull request still has ambiguous unresolved review threads.",
+          });
+        }
+
+        if (beforeFingerprint.length > 0 && beforeFingerprint === afterFingerprint) {
+          return buildBlockedTransition({
+            workItem: prepared.claimedWorkItem,
+            runId: prepared.runId,
+            blockedReason:
+              "Implement run completed, but the linked pull request still shows the same unresolved reviewer feedback and needs human triage.",
+          });
+        }
+      }
+
       return {
         id: prepared.claimedWorkItem.id,
         nextStatus: "review",
@@ -390,6 +446,13 @@ function buildCompletionComment(input: {
     "",
     summary,
   ];
+
+  if (
+    input.workItem.status === "blocked" &&
+    input.workItem.orchestration.blockedReason !== null
+  ) {
+    lines.push("", `Blocked reason: ${input.workItem.orchestration.blockedReason}`);
+  }
 
   if (input.verification !== null) {
     lines.push("", renderVerificationBlock(input.verification) ?? "");
