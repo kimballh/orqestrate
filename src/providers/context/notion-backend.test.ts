@@ -581,6 +581,7 @@ log_dir = ".harness/logs"
 [prompts]
 root = "./prompts"
 active_pack = "default"
+invariants = ["invariants/run-scope.md"]
 
 [prompt_packs.default]
 base_system = "base/system.md"
@@ -802,10 +803,16 @@ function createArtifactPage(input: {
 function createFixtureWorkspace() {
   const workspaceDir = mkdtempSync(path.join(tmpdir(), "orqestrate-notion-"));
   const promptDir = path.join(workspaceDir, "prompts", "base");
+  const invariantDir = path.join(workspaceDir, "prompts", "invariants");
   mkdirSync(promptDir, { recursive: true });
+  mkdirSync(invariantDir, { recursive: true });
   writeFileSync(
     path.join(promptDir, "system.md"),
     "Base system prompt fixture for Notion bootstrap tests.\n",
+  );
+  writeFileSync(
+    path.join(invariantDir, "run-scope.md"),
+    "Run scope invariant fixture for Notion bootstrap tests.\n",
   );
 
   return {

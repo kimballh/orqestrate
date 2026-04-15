@@ -300,17 +300,23 @@ function parsePromptsSection(value: unknown, configDir: string): PromptsConfig {
     configDir,
     "prompts.root",
   );
-  const invariants =
-    section.invariants === undefined
-      ? []
-      : expectStringArray(section.invariants, "prompts.invariants").map(
-          (entry, index) => {
-            const fieldPath = `prompts.invariants[${index}]`;
-            const resolvedPath = resolvePromptAssetPath(entry, fieldPath, root);
-            assertPromptAssetHasContent(resolvedPath, fieldPath);
-            return resolvedPath;
-          },
-        );
+  const invariants = expectStringArray(
+    section.invariants,
+    "prompts.invariants",
+  ).map((entry, index) => {
+    const fieldPath = `prompts.invariants[${index}]`;
+    const resolvedPath = resolvePromptAssetPath(entry, fieldPath, root);
+    assertPromptAssetHasContent(resolvedPath, fieldPath);
+    return resolvedPath;
+  });
+
+  if (invariants.length === 0) {
+    throw new ConfigError("Expected 'prompts.invariants' to contain at least one prompt asset.", {
+      code: "invalid_value",
+      path: "prompts.invariants",
+      hint: "Configure the required hard-invariant prompt fragments explicitly.",
+    });
+  }
 
   return {
     root,
@@ -907,6 +913,7 @@ function validatePromptPackCapabilityReferences(
   promptCapabilities: Record<string, PromptCapabilityDefinition>,
 ): void {
   for (const [packName, promptPack] of Object.entries(promptPacks)) {
+    const packCapabilityNames = new Set(Object.keys(promptPack.capabilities));
     for (const capabilityName of Object.keys(promptPack.capabilities)) {
       if (!hasOwn(promptCapabilities, capabilityName)) {
         throw new ConfigError(
@@ -916,6 +923,19 @@ function validatePromptPackCapabilityReferences(
             path: `prompt_packs.${packName}.capabilities.${capabilityName}`,
           },
         );
+      }
+
+      const definition = promptCapabilities[capabilityName];
+      for (const requiredCapability of definition.requires) {
+        if (!packCapabilityNames.has(requiredCapability)) {
+          throw new ConfigError(
+            `Prompt pack '${packName}' capability '${capabilityName}' requires pack capability '${requiredCapability}'.`,
+            {
+              code: "invalid_value",
+              path: `prompt_packs.${packName}.capabilities.${capabilityName}`,
+            },
+          );
+        }
       }
     }
   }

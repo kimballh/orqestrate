@@ -469,6 +469,60 @@ test("rejects empty invariant prompt assets", () => {
   );
 });
 
+test("rejects configs that omit prompt invariants", () => {
+  const fixture = createFixtureWorkspace();
+
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          "invariants = [\n  \"invariants/run-scope.md\",\n  \"invariants/verification.md\",\n]\n\n",
+          "",
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          env: {},
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_type");
+      assert.equal(error.path, "prompts.invariants");
+      return true;
+    },
+  );
+});
+
+test("rejects prompt packs whose capabilities omit required peer capabilities", () => {
+  const fixture = createFixtureWorkspace();
+
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          '[prompt_capabilities.playwright_exploration]\nauthority = "behavioral"\nallowed_phases = ["implement", "review"]\n',
+          '[prompt_capabilities.playwright_exploration]\nauthority = "behavioral"\nallowed_phases = ["implement", "review"]\n\n[prompt_capabilities.cap_missing_peer]\nauthority = "behavioral"\nallowed_phases = ["review"]\n\n[prompt_capabilities.cap_requires_missing]\nauthority = "behavioral"\nallowed_phases = ["review"]\nrequires = ["cap_missing_peer"]\n',
+        ).replace(
+          'playwright_exploration = "capabilities/playwright-exploration.md"',
+          'playwright_exploration = "capabilities/playwright-exploration.md"\ncap_requires_missing = "capabilities/github-review.md"',
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          env: {},
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(
+        error.path,
+        "prompt_packs.default.capabilities.cap_requires_missing",
+      );
+      return true;
+    },
+  );
+});
+
 function createFixtureWorkspace(): { sourcePath: string; workspaceDir: string } {
   const workspaceDir = mkdtempSync(
     path.join(tmpdir(), "orqestrate-config-fixture-"),
