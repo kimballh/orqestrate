@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   PromptEnvelope,
   ProviderError,
+  ReviewOutcome,
   RunRecord,
   RunStatus,
   RunSubmissionPayload,
@@ -203,6 +204,10 @@ export type RuntimeOutcomeSnapshot = {
   code?: string | null;
   exitCode?: number | null;
   summary?: string | null;
+  details?: string | null;
   verification?: VerificationSummary | null;
+  requestedHumanInput?: string | null;
+  reviewOutcome?: Exclude<ReviewOutcome, "none"> | null;
+  artifactMarkdown?: string | null;
   error?: ProviderError | null;
 };

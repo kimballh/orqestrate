@@ -17,6 +17,7 @@ import type {
   PromptAssemblyAddition,
   PromptAssemblyContext,
 } from "../core/prompt-assembly.js";
+import type { RuntimeApiRun } from "../runtime/api/types.js";
 
 export const EXECUTABLE_WORK_PHASES = [
   "design",
@@ -75,12 +76,20 @@ export type PreparedOrchestrationRun = {
   runId: string;
   owner: string;
   leaseUntil: string;
+  leaseDurationMs: number;
   phase: ExecutableWorkPhase;
   claimedWorkItem: WorkItemRecord;
   artifact: ContextBundle["artifact"];
   context: ContextBundle;
   runLedger: RunLedgerRecord;
   submission: RunSubmissionPayload;
+};
+
+export type WatchedRunOutcome = {
+  run: RuntimeApiRun;
+  lastEventSeq: number | null;
+  waitingHumanReason?: string | null;
+  waitingHumanDetails?: string | null;
 };
 
 export type PrepareClaimedRunResult =

@@ -242,6 +242,7 @@ Return your result in this shape:
 STATUS: completed | failed | waiting_human
 SUMMARY:
 DETAILS:
+REVIEW_OUTCOME: approved | changes_requested
 ARTIFACT: markdown review report
 REQUESTED_HUMAN_INPUT: optional blocking question
 ```

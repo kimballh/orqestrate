@@ -47,6 +47,7 @@ export async function prepareClaimedRun(
   }
 
   const now = input.now ?? new Date();
+  const leaseDurationMs = input.leaseDurationMs ?? DEFAULT_LEASE_DURATION_MS;
   const resolution = resolvePhase(workItem);
   if (!resolution.actionable) {
     return {
@@ -69,7 +70,7 @@ export async function prepareClaimedRun(
   const runId = (input.createRunId ?? createRunId)();
   const leaseUntil = computeLeaseUntil(
     now,
-    input.leaseDurationMs ?? DEFAULT_LEASE_DURATION_MS,
+    leaseDurationMs,
   );
   const claimedWorkItem = await dependencies.planning.claimWorkItem({
     id: workItem.id,
@@ -233,6 +234,7 @@ export async function prepareClaimedRun(
       runId,
       owner: input.owner,
       leaseUntil,
+      leaseDurationMs,
       phase: resolution.phase,
       claimedWorkItem,
       artifact: resolvedArtifact,

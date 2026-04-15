@@ -292,6 +292,10 @@ export class LocalFilesContextBackend extends UnimplementedContextBackend<Contex
       ...currentRun,
       status: input.status,
       summary: input.summary === undefined ? currentRun.summary ?? null : input.summary,
+      verification:
+        input.verification === undefined
+          ? currentRun.verification ?? null
+          : input.verification,
       error: input.error === undefined ? currentRun.error ?? null : input.error,
       endedAt: now,
       updatedAt: now,

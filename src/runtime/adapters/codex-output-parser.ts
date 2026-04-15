@@ -1,6 +1,6 @@
 import { buildRuntimeProviderError, type RuntimeSignal, type RunOutcome } from "../provider-adapter.js";
 import type { SessionExit, SessionSnapshot } from "../session-supervisor.js";
-import type { VerificationSummary } from "../../domain-model.js";
+import type { ReviewOutcome, VerificationSummary } from "../../domain-model.js";
 
 export type ParsedCodexStructuredBlock = {
   status: "completed" | "failed" | "waiting_human";
@@ -8,6 +8,8 @@ export type ParsedCodexStructuredBlock = {
   details?: string | null;
   verification?: string | null;
   requestedHumanInput?: string | null;
+  reviewOutcome?: Exclude<ReviewOutcome, "none"> | null;
+  artifactMarkdown?: string | null;
 };
 
 const MAX_BUFFER_CHARS = 32_768;
@@ -16,6 +18,8 @@ const SECTION_HEADERS = new Set([
   "SUMMARY",
   "DETAILS",
   "VERIFICATION",
+  "REVIEW_OUTCOME",
+  "ARTIFACT",
   "REQUESTED_HUMAN_INPUT",
 ]);
 const ANSI_ESCAPE_PATTERN =
@@ -159,6 +163,8 @@ export function parseLastStructuredBlock(
     details: nullIfEmpty(sectionMap.get("DETAILS")),
     verification: nullIfEmpty(sectionMap.get("VERIFICATION")),
     requestedHumanInput: nullIfEmpty(sectionMap.get("REQUESTED_HUMAN_INPUT")),
+    reviewOutcome: parseReviewOutcome(sectionMap.get("REVIEW_OUTCOME")),
+    artifactMarkdown: nullIfEmpty(sectionMap.get("ARTIFACT")),
   };
 }
 
@@ -176,7 +182,11 @@ export function resolveCodexOutcome(input: {
       code: "completed",
       exitCode: input.exit?.exitCode ?? 0,
       summary: structuredBlock.summary ?? summarizeRecentOutput(input.recentOutput),
+      details: structuredBlock.details ?? null,
       verification: parseVerificationSummary(structuredBlock.verification),
+      requestedHumanInput: structuredBlock.requestedHumanInput ?? null,
+      reviewOutcome: structuredBlock.reviewOutcome ?? null,
+      artifactMarkdown: structuredBlock.artifactMarkdown ?? null,
     };
   }
 
@@ -192,7 +202,11 @@ export function resolveCodexOutcome(input: {
       code: "codex_reported_failure",
       exitCode: input.exit?.exitCode ?? null,
       summary,
+      details: structuredBlock.details ?? null,
       verification: parseVerificationSummary(structuredBlock.verification),
+      requestedHumanInput: structuredBlock.requestedHumanInput ?? null,
+      reviewOutcome: structuredBlock.reviewOutcome ?? null,
+      artifactMarkdown: structuredBlock.artifactMarkdown ?? null,
       error: buildRuntimeProviderError({
         providerKind: "codex",
         code: "unknown",
@@ -213,7 +227,9 @@ export function resolveCodexOutcome(input: {
       code: "codex_exited_waiting_human",
       exitCode: input.exit?.exitCode ?? null,
       summary,
+      details: structuredBlock.details ?? null,
       verification: parseVerificationSummary(structuredBlock.verification),
+      requestedHumanInput: structuredBlock.requestedHumanInput ?? null,
       error: buildRuntimeProviderError({
         providerKind: "codex",
         code: "transport",
@@ -393,6 +409,17 @@ function summarizeRecentOutput(recentOutput: string): string | null {
 function nullIfEmpty(value: string | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function parseReviewOutcome(
+  value: string | undefined,
+): Exclude<ReviewOutcome, "none"> | null {
+  const normalized = value?.trim();
+  if (normalized === "approved" || normalized === "changes_requested") {
+    return normalized;
+  }
+
+  return null;
 }
 
 function isSameStructuredBlock(

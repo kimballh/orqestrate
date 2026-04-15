@@ -146,7 +146,11 @@ export class ClaudeProviderAdapter implements ProviderAdapter {
         code: "completed",
         exitCode: exit?.exitCode ?? null,
         summary: parsedBlock.summary ?? "Claude run completed.",
+        details: parsedBlock.details ?? null,
         verification: parsedBlock.verification ?? null,
+        requestedHumanInput: parsedBlock.requestedHumanInput ?? null,
+        reviewOutcome: parsedBlock.reviewOutcome ?? null,
+        artifactMarkdown: parsedBlock.artifactMarkdown ?? null,
       };
     }
 
@@ -156,7 +160,11 @@ export class ClaudeProviderAdapter implements ProviderAdapter {
         code: "failed",
         exitCode: exit?.exitCode ?? null,
         summary: parsedBlock.summary ?? "Claude reported a failed run outcome.",
+        details: parsedBlock.details ?? null,
         verification: parsedBlock.verification ?? null,
+        requestedHumanInput: parsedBlock.requestedHumanInput ?? null,
+        reviewOutcome: parsedBlock.reviewOutcome ?? null,
+        artifactMarkdown: parsedBlock.artifactMarkdown ?? null,
       };
     }
 
@@ -179,7 +187,9 @@ export class ClaudeProviderAdapter implements ProviderAdapter {
           parsedBlock.requestedHumanInput ??
           parsedBlock.summary ??
           "Claude requested human input and the session ended before resuming.",
+        details: parsedBlock.details ?? null,
         verification: parsedBlock.verification ?? null,
+        requestedHumanInput: parsedBlock.requestedHumanInput ?? null,
       };
     }
 

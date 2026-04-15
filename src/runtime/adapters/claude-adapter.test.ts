@@ -143,9 +143,20 @@ test("ClaudeProviderAdapter normalizes completed and interrupted exits", async (
 SUMMARY:
 Finished the work.
 
+DETAILS:
+Captured the artifact body.
+
+REVIEW_OUTCOME:
+approved
+
 VERIFICATION:
 - \`npm run check\`
 - passed
+
+ARTIFACT:
+## Review
+
+No findings remain.
 `,
   });
 
@@ -160,11 +171,14 @@ VERIFICATION:
   );
   assert.equal(completedOutcome.status, "completed");
   assert.equal(completedOutcome.summary, "Finished the work.");
+  assert.equal(completedOutcome.details, "Captured the artifact body.");
   assert.deepEqual(completedOutcome.verification, {
     commands: ["npm run check"],
     passed: true,
     notes: "- `npm run check`\n- passed",
   });
+  assert.equal(completedOutcome.reviewOutcome, "approved");
+  assert.equal(completedOutcome.artifactMarkdown, "## Review\n\nNo findings remain.");
 
   const canceledAdapter = new ClaudeProviderAdapter();
   const canceledOutcome = await canceledAdapter.collectOutcome(

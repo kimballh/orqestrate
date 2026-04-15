@@ -8,7 +8,10 @@ import type { RuntimeConfig } from "./config.js";
 import { RuntimeDaemon } from "./daemon.js";
 import { startRuntimeDaemon, startRuntimeService } from "./main.js";
 import { openRuntimeDatabase } from "./persistence/database.js";
-import { getRuntimeSchemaVersion } from "./persistence/migrations.js";
+import {
+  getRuntimeSchemaVersion,
+  RUNTIME_SCHEMA_VERSION,
+} from "./persistence/migrations.js";
 import { RuntimeRepository } from "./persistence/runtime-repository.js";
 import { RuntimeAdapterRegistry } from "./runtime-adapter-registry.js";
 import type { LaunchSpec, SessionObserver, SessionSnapshot, SessionSupervisor } from "./session-supervisor.js";
@@ -27,7 +30,10 @@ test("openRuntimeDatabase initializes WAL mode and the canonical schema", (t) =>
   const database = openRuntimeDatabase(fixture.runtimeConfig.databasePath);
   t.after(() => database.close());
 
-  assert.equal(getRuntimeSchemaVersion(database.connection), 2);
+  assert.equal(
+    getRuntimeSchemaVersion(database.connection),
+    RUNTIME_SCHEMA_VERSION,
+  );
   assert.equal(
     database.connection.pragma("journal_mode", { simple: true }),
     "wal",

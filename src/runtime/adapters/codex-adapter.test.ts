@@ -135,9 +135,14 @@ test("parseLastStructuredBlock keeps multiline details and verification text", (
       "SUMMARY: Runtime adapter implemented.",
       "DETAILS: Added default built-in registration.",
       "This line stays in the details section.",
+      "REVIEW_OUTCOME: approved",
       "VERIFICATION:",
       "- npm run test",
       "- passed",
+      "ARTIFACT:",
+      "## Summary",
+      "",
+      "- Added orchestration plumbing.",
     ].join("\n"),
   );
 
@@ -147,6 +152,8 @@ test("parseLastStructuredBlock keeps multiline details and verification text", (
     details: "Added default built-in registration.\nThis line stays in the details section.",
     verification: "- npm run test\n- passed",
     requestedHumanInput: null,
+    reviewOutcome: "approved",
+    artifactMarkdown: "## Summary\n- Added orchestration plumbing.",
   });
 });
 
@@ -198,9 +205,15 @@ test("resolveCodexOutcome prefers the structured completed block", () => {
     recentOutput: [
       "STATUS: completed",
       "SUMMARY: Implemented the runtime adapter.",
+      "DETAILS: Added the runtime client and monitoring loop.",
+      "REVIEW_OUTCOME: approved",
       "VERIFICATION:",
       "- npm run check",
       "- passed",
+      "ARTIFACT:",
+      "## Review",
+      "",
+      "No blocking findings remain.",
     ].join("\n"),
   });
 
@@ -209,11 +222,15 @@ test("resolveCodexOutcome prefers the structured completed block", () => {
     code: "completed",
     exitCode: 0,
     summary: "Implemented the runtime adapter.",
+    details: "Added the runtime client and monitoring loop.",
     verification: {
       commands: ["npm run check"],
       passed: true,
       notes: "- npm run check\n- passed",
     },
+    requestedHumanInput: null,
+    reviewOutcome: "approved",
+    artifactMarkdown: "## Review\nNo blocking findings remain.",
   });
 });
 
