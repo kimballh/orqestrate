@@ -169,7 +169,7 @@ test("rehydrates PR workspace context from runtime history and injects review-lo
       workspace: {
         mode: "ephemeral_worktree",
         assignedBranch: "hillkimball/orq-43",
-        pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/43",
+        pullRequestUrl: null,
         pullRequestMode: "draft",
         writeScope: "repo",
       },
@@ -198,7 +198,19 @@ test("rehydrates PR workspace context from runtime history and injects review-lo
       version: 1,
     }],
   );
-  const githubClient: Pick<GitHubCliClient, "readPullRequest"> = {
+  const githubClient: Pick<
+    GitHubCliClient,
+    "readPullRequest" | "findOpenPullRequestForBranch"
+  > = {
+    findOpenPullRequestForBranch: async () => ({
+      number: 43,
+      title: "Implement ORQ-43",
+      url: "https://github.com/kimballh/orqestrate/pull/43",
+      body: "Body",
+      headRefName: "hillkimball/orq-43",
+      baseRefName: "main",
+      authorLogin: "kimballh",
+    }),
     readPullRequest: async () => ({
       viewerLogin: "kimballh",
       pullRequest: {
@@ -249,6 +261,7 @@ test("rehydrates PR workspace context from runtime history and injects review-lo
       config,
       runtimeObserver,
       createGitHubClient: () => githubClient,
+      getOriginRemoteUrl: async () => "git@github.com:kimballh/orqestrate.git",
     },
     {
       workItemId: workItem.id,

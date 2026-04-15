@@ -451,6 +451,7 @@ test("executePreparedRun blocks implement runs when the same unresolved reviewer
     events: [[]],
   });
   const githubClient = {
+    findOpenPullRequestForBranch: async () => null,
     readPullRequest: async () => ({
       viewerLogin: "kimballh",
       pullRequest: {

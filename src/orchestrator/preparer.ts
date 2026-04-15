@@ -17,6 +17,7 @@ import { computeLeaseUntil, createRunId } from "./identity.js";
 import { resolvePhase } from "./phase-resolver.js";
 import {
   findLatestReviewLoopRuntimeRun,
+  hydrateReviewLoopWorkspace,
   mergeReviewLoopWorkspace,
 } from "./review-loop-runtime.js";
 import {
@@ -45,7 +46,10 @@ type PrepareClaimedRunDependencies = {
     "activeProfile" | "policy" | "promptCapabilities" | "promptPacks" | "prompts"
   >;
   runtimeObserver?: RuntimeObserver;
-  createGitHubClient?: (cwd: string) => Pick<GitHubCliClient, "readPullRequest">;
+  createGitHubClient?: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
+  getOriginRemoteUrl?: (cwd: string) => Promise<string>;
   classifyPostClaimFailure?: ClassifyPostClaimFailure;
 };
 
@@ -97,11 +101,18 @@ export async function prepareClaimedRun(
     dependencies.runtimeObserver,
     claimedWorkItem.id,
   );
-  const workspace = resolveWorkspace(
-    input.repoRoot,
-    runId,
-    mergeReviewLoopWorkspace(input.workspace, recoveredRuntimeRun?.workspace ?? null),
-  );
+  const hydratedWorkspace = await hydrateReviewLoopWorkspace({
+    repoRoot: input.repoRoot,
+    workspace: mergeReviewLoopWorkspace(
+      input.workspace,
+      recoveredRuntimeRun?.workspace ?? null,
+    ),
+    createGitHubClient: (cwd) =>
+      dependencies.createGitHubClient?.(cwd) ??
+      new GitHubCliClient({ cwd }),
+    getOriginRemoteUrl: dependencies.getOriginRemoteUrl,
+  });
+  const workspace = resolveWorkspace(input.repoRoot, runId, hydratedWorkspace);
   const classifyPostClaimFailure =
     dependencies.classifyPostClaimFailure ?? defaultClassifyPostClaimFailure;
 

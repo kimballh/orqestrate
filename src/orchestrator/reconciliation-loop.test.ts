@@ -220,7 +220,7 @@ test("fast ticks reroute queued review work back to implement when the linked PR
             workspace: {
               mode: "ephemeral_worktree",
               assignedBranch: "hillkimball/orq-43",
-              pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/43",
+              pullRequestUrl: null,
               pullRequestMode: "draft",
               writeScope: "repo",
             },
@@ -237,7 +237,17 @@ test("fast ticks reroute queued review work back to implement when the linked PR
     leaseDurationMs: 60_000,
     now: () => new Date("2026-04-15T00:00:09.000Z"),
     listTrackedWorkItems: async () => [structuredClone(workItem)],
+    getOriginRemoteUrl: async () => "git@github.com:kimballh/orqestrate.git",
     createGitHubClient: () => ({
+      findOpenPullRequestForBranch: async () => ({
+        number: 43,
+        title: "Implement ORQ-43",
+        url: "https://github.com/kimballh/orqestrate/pull/43",
+        body: "Body",
+        headRefName: "hillkimball/orq-43",
+        baseRefName: "main",
+        authorLogin: "kimballh",
+      }),
       readPullRequest: async () => ({
         viewerLogin: "kimballh",
         pullRequest: {
@@ -286,6 +296,66 @@ test("fast ticks reroute queued review work back to implement when the linked PR
 
   assert.equal(planning.transitionCalls.at(-1)?.nextStatus, "implement");
   assert.match(planning.comments.at(-1)?.body ?? "", /requeued implementation/i);
+});
+
+test("fast ticks do not reroute failed work items from PR state alone", async () => {
+  const workItem = createWorkItem({
+    status: "review",
+    phase: "review",
+    orchestration: {
+      state: "failed",
+      owner: null,
+      runId: null,
+      leaseUntil: null,
+      reviewOutcome: "none",
+      blockedReason: null,
+      lastError: null,
+      attemptCount: 1,
+    },
+  });
+  const planning = new LoopPlanningBackend(workItem);
+  const context = new LoopContextBackend(createArtifact());
+  const runtimeObserver = new LoopRuntimeObserver({
+    runsByWorkItemId: new Map([
+      [
+        workItem.id,
+        [
+          createRuntimeRun({
+            runId: "run-43",
+            status: "completed",
+            workItemId: workItem.id,
+            workspace: {
+              mode: "ephemeral_worktree",
+              assignedBranch: "hillkimball/orq-43",
+              pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/43",
+              pullRequestMode: "draft",
+              writeScope: "repo",
+            },
+          }),
+        ],
+      ],
+    ]),
+  });
+  const loop = new ReconciliationLoop({
+    planning,
+    context,
+    runtimeObserver,
+    owner: "orchestrator:test",
+    leaseDurationMs: 60_000,
+    now: () => new Date("2026-04-15T00:00:09.000Z"),
+    listTrackedWorkItems: async () => [structuredClone(workItem)],
+    createGitHubClient: () => ({
+      findOpenPullRequestForBranch: async () => null,
+      readPullRequest: async () => {
+        throw new Error("PR state should not be read for failed work");
+      },
+    }),
+  });
+
+  await loop.runFastTick();
+
+  assert.equal(planning.transitionCalls.length, 0);
+  assert.equal(planning.comments.length, 0);
 });
 
 class LoopPlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConfig> {

@@ -4,7 +4,10 @@ import { classifyPullRequestReviewLoop } from "../github/review-loop.js";
 import { parsePullRequestUrl } from "../github/scope.js";
 
 import { Reconciler } from "./reconciler.js";
-import { findLatestReviewLoopRuntimeRun } from "./review-loop-runtime.js";
+import {
+  findLatestReviewLoopRuntimeRun,
+  hydrateReviewLoopWorkspace,
+} from "./review-loop-runtime.js";
 import type {
   LeaseObservation,
   ReconciliationResult,
@@ -38,7 +41,10 @@ export type ReconciliationLoopDependencies = {
   setInterval?: typeof globalThis.setInterval;
   clearInterval?: typeof globalThis.clearInterval;
   listTrackedWorkItems?: () => Promise<WorkItemRecord[]>;
-  createGitHubClient?: (cwd: string) => Pick<GitHubCliClient, "readPullRequest">;
+  createGitHubClient?: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
+  getOriginRemoteUrl?: (cwd: string) => Promise<string>;
 };
 
 export class ReconciliationLoop {
@@ -53,7 +59,8 @@ export class ReconciliationLoop {
   private readonly driftIntervalMs: number;
   private readonly createGitHubClient: (
     cwd: string,
-  ) => Pick<GitHubCliClient, "readPullRequest">;
+  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
+  private readonly getOriginRemoteUrl: ((cwd: string) => Promise<string>) | undefined;
   private readonly trackedWorkItemIds = new Set<string>();
   private readonly observations = new Map<string, LeaseObservation>();
   private fastTimer: ReturnType<typeof globalThis.setInterval> | null = null;
@@ -82,6 +89,7 @@ export class ReconciliationLoop {
         new GitHubCliClient({
           cwd,
         }));
+    this.getOriginRemoteUrl = dependencies.getOriginRemoteUrl;
   }
 
   get isRunning(): boolean {
@@ -196,9 +204,7 @@ export class ReconciliationLoop {
     for (const workItem of workItems) {
       if (
         (workItem.status !== "implement" && workItem.status !== "review") ||
-        workItem.orchestration.state === "claimed" ||
-        workItem.orchestration.state === "running" ||
-        workItem.orchestration.state === "waiting_human"
+        workItem.orchestration.state !== "queued"
       ) {
         continue;
       }
@@ -207,9 +213,27 @@ export class ReconciliationLoop {
         this.runtimeObserver,
         workItem.id,
       );
-      const pullRequestUrl = runtimeRun?.workspace.pullRequestUrl ?? null;
 
-      if (runtimeRun === null || pullRequestUrl === null) {
+      if (runtimeRun === null) {
+        continue;
+      }
+
+      const hydratedWorkspace = await hydrateReviewLoopWorkspace({
+        repoRoot: runtimeRun.repoRoot,
+        workspace: {
+          mode: runtimeRun.workspace.mode,
+          baseRef: runtimeRun.workspace.baseRef ?? null,
+          assignedBranch: runtimeRun.workspace.assignedBranch ?? null,
+          pullRequestUrl: runtimeRun.workspace.pullRequestUrl ?? null,
+          pullRequestMode: runtimeRun.workspace.pullRequestMode ?? null,
+          writeScope: runtimeRun.workspace.writeScope ?? null,
+        },
+        createGitHubClient: this.createGitHubClient,
+        getOriginRemoteUrl: this.getOriginRemoteUrl,
+      });
+      const pullRequestUrl = hydratedWorkspace?.pullRequestUrl ?? null;
+
+      if (pullRequestUrl === null) {
         continue;
       }
 

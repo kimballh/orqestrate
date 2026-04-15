@@ -27,7 +27,9 @@ export type ExecutePreparedRunDependencies = {
   loadedConfig: LoadedConfig;
   runtime?: RuntimeClient;
   runtimeObserver?: RuntimeObserver;
-  createGitHubClient?: (cwd: string) => Pick<GitHubCliClient, "readPullRequest">;
+  createGitHubClient?: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
   now?: () => Date;
   eventPollWaitMs?: number;
   leaseSafetyWindowMs?: number;
