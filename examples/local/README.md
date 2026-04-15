@@ -12,7 +12,7 @@ It is used by:
 
 - `seed/planning/issues/*.json` are the authoritative local planning records.
 - `seed/planning/index.json` is the checked-in snapshot that must stay in sync with those issue files.
-- `context/templates/artifact.md` and `context/templates/evidence.md` are the local context templates wired into `docs/config.example.toml`.
+- `context/templates/artifact.md` and `context/templates/evidence.md` are the local context templates wired into `config.example.toml`.
 
 ## Usage
 
@@ -30,4 +30,4 @@ Then start the runtime with:
 npm run dev
 ```
 
-The shipped `docs/config.example.toml` defaults to the `local` profile, so no Linear or Notion credentials are required for this bootstrap path.
+The shipped `config.example.toml` defaults to the `local` profile, so no Linear or Notion credentials are required for this bootstrap path.

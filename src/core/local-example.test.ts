@@ -8,6 +8,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -41,8 +42,8 @@ test("materializes the local example into a configured local profile workspace",
   });
 
   await copyFixtureFile(
-    path.join(REPO_ROOT, "docs", "config.example.toml"),
-    path.join(fixtureRoot, "docs", "config.example.toml"),
+    path.join(REPO_ROOT, "config.example.toml"),
+    path.join(fixtureRoot, "config.example.toml"),
   );
   await cp(
     path.join(REPO_ROOT, "docs", "prompts"),
@@ -118,7 +119,7 @@ test("materializes the local example into a configured local profile workspace",
   ]);
 
   const loadedConfig = await loadConfig({
-    configPath: path.join(fixtureRoot, "docs", "config.example.toml"),
+    configPath: path.join(fixtureRoot, "config.example.toml"),
     env: {},
   });
   const materialized = await materializeLocalExampleForProfile(loadedConfig, {
@@ -157,6 +158,55 @@ test("materializes the local example into a configured local profile workspace",
     "LOCAL-002",
     "LOCAL-003",
   ]);
+});
+
+test("force materialization resets stale local context state", async (t) => {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "orq-local-example-force-"));
+  t.after(async () => {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  });
+
+  await copyFixtureFile(
+    path.join(REPO_ROOT, "config.example.toml"),
+    path.join(fixtureRoot, "config.example.toml"),
+  );
+  await cp(
+    path.join(REPO_ROOT, "docs", "prompts"),
+    path.join(fixtureRoot, "docs", "prompts"),
+    { recursive: true },
+  );
+  await cp(
+    path.join(REPO_ROOT, "examples", "local"),
+    path.join(fixtureRoot, "examples", "local"),
+    { recursive: true },
+  );
+
+  const loadedConfig = await loadConfig({
+    configPath: path.join(fixtureRoot, "config.example.toml"),
+    env: {},
+  });
+  const contextProvider = loadedConfig.activeProfile.contextProvider;
+
+  if (contextProvider.kind !== "context.local_files") {
+    throw new Error("expected the fixture profile to use context.local_files");
+  }
+
+  await materializeLocalExampleForProfile(loadedConfig, { repoRoot: fixtureRoot });
+  await mkdir(path.join(contextProvider.root, "artifacts"), { recursive: true });
+  await writeFile(
+    path.join(contextProvider.root, "artifacts", "LOCAL-999.md"),
+    "stale artifact\n",
+    "utf8",
+  );
+
+  await materializeLocalExampleForProfile(loadedConfig, {
+    repoRoot: fixtureRoot,
+    overwrite: true,
+  });
+
+  await assert.rejects(() =>
+    readFile(path.join(contextProvider.root, "artifacts", "LOCAL-999.md"), "utf8"),
+  );
 });
 
 async function copyFixtureFile(sourcePath: string, targetPath: string): Promise<void> {

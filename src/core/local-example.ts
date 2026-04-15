@@ -144,7 +144,7 @@ export async function materializeLocalExampleForProfile(
   options: MaterializeLocalExampleOptions = {},
 ): Promise<LocalExampleMaterializationResult> {
   const repoRoot =
-    options.repoRoot ?? path.resolve(path.dirname(loadedConfig.sourcePath), "..");
+    options.repoRoot ?? path.dirname(loadedConfig.sourcePath);
   const planningProvider = requireLocalPlanningProvider(loadedConfig);
   const contextProvider = requireLocalContextProvider(loadedConfig);
   const validation = await validateLocalExampleAssets(repoRoot);
@@ -153,7 +153,10 @@ export async function materializeLocalExampleForProfile(
   let planningSeedState: "seeded" | "existing" = "seeded";
 
   if (options.overwrite === true) {
-    await rm(planningProvider.root, { recursive: true, force: true });
+    await Promise.all([
+      rm(planningProvider.root, { recursive: true, force: true }),
+      rm(contextProvider.root, { recursive: true, force: true }),
+    ]);
   } else {
     const existingIssueFileNames = await listJsonFiles(
       path.join(planningProvider.root, "issues"),

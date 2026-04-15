@@ -13,7 +13,7 @@ async function main(argv = process.argv.slice(2)) {
   const repoRoot = resolveRepoRoot();
   const force = argv.includes("--force");
   const loadedConfig = await loadConfig({
-    configPath: path.join(repoRoot, "docs", "config.example.toml"),
+    configPath: path.join(repoRoot, "config.example.toml"),
     activeProfile: "local",
     env: process.env,
   });
