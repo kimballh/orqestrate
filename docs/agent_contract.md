@@ -294,10 +294,12 @@ Agent should:
 - summarize what changed
 - commit and push the assigned branch when the run contract authorizes branch-backed delivery
 - create or update the pull request when the run contract authorizes GitHub delivery
+- use the bounded `orq github ...` command surface for PR reads, PR upserts, review-thread replies, thread resolution, and review submission instead of ambient GitHub tooling
 
 Agent should not:
 
 - invent a second feature branch when an assigned branch already exists
+- bypass the run-scoped GitHub capability gate by reaching for unrelated GitHub write surfaces
 - mark the ticket `Review` directly in the planning backend unless explicitly delegated to do so by the orchestrator
 
 ### 11.4 Review
@@ -307,6 +309,7 @@ Agent should:
 - inspect changes
 - produce findings or approval summary
 - degrade to comment-only PR feedback when the reviewer actor is the same GitHub actor as the PR author
+- use the same bounded `orq github ...` execution surface so review comments stay tied to the active run contract
 
 Agent should not:
 
