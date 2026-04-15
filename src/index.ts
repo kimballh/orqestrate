@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 export * from "./config/index.js";
 export * from "./core/index.js";
 export * from "./domain-model.js";
+export * from "./orchestrator/index.js";
 export * from "./providers/index.js";
 export * from "./runtime/index.js";
 
