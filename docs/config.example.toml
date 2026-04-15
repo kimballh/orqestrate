@@ -2,9 +2,9 @@ version = 1
 active_profile = "local"
 
 [paths]
-state_dir = ".harness/state"
-data_dir = ".harness/data"
-log_dir = ".harness/logs"
+state_dir = "../.harness/state"
+data_dir = "../.harness/data"
+log_dir = "../.harness/logs"
 
 [policy]
 max_concurrent_runs = 4
@@ -86,11 +86,15 @@ runs_database_id = "replace-me"
 
 [providers.local_planning]
 kind = "planning.local_files"
-root = ".harness/local/planning"
+root = "../.harness/local/planning"
 
 [providers.local_context]
 kind = "context.local_files"
-root = ".harness/local/context"
+root = "../.harness/local/context"
+
+[providers.local_context.templates]
+artifact_template = "../examples/local/context/templates/artifact.md"
+run_template = "../examples/local/context/templates/evidence.md"
 
 #[providers.asana_main]
 #kind = "planning.asana"

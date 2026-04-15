@@ -1,0 +1,37 @@
+{
+  "id": "LOCAL-001",
+  "identifier": "LOCAL-001",
+  "title": "Implement the local bootstrap happy path",
+  "description": "Use the shipped local example pack to verify the planning and context providers can run without Linear or Notion credentials.",
+  "status": "implement",
+  "phase": "implement",
+  "priority": 1,
+  "labels": [
+    "local-first",
+    "bootstrap"
+  ],
+  "url": null,
+  "parentId": null,
+  "dependencyIds": [
+    "LOCAL-002"
+  ],
+  "blockedByIds": [
+    "LOCAL-002"
+  ],
+  "blocksIds": [
+    "LOCAL-003"
+  ],
+  "artifactUrl": null,
+  "updatedAt": "2026-04-15T00:00:00.000Z",
+  "createdAt": "2026-04-14T23:00:00.000Z",
+  "orchestration": {
+    "state": "queued",
+    "owner": null,
+    "runId": null,
+    "leaseUntil": null,
+    "reviewOutcome": "none",
+    "blockedReason": null,
+    "lastError": null,
+    "attemptCount": 0
+  }
+}

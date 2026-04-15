@@ -99,6 +99,8 @@ Those choices make the system harder to poll, harder to reconcile, and harder fo
 
 ## Current scaffold
 
+- `npm run setup` installs dependencies and materializes the source-controlled local example into the repo-root `.harness/local/*` roots
 - `npm run dev` starts the local runtime daemon against `docs/config.example.toml`
 - `npm start` runs the built runtime daemon with the same example profile
+- `examples/local/` contains the canonical planning seed pack and local context templates that drive the zero-credential bootstrap path
 - the first runtime scaffold now lives under `src/runtime/` with SQLite-backed persistence for runs, events, heartbeats, and workspace allocations

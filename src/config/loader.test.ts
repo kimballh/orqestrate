@@ -112,6 +112,51 @@ test("loads the docs example with its default local profile without SaaS env var
   assert.equal(config.activeProfileName, "local");
   assert.equal(config.activeProfile.planningProvider.kind, "planning.local_files");
   assert.equal(config.activeProfile.contextProvider.kind, "context.local_files");
+  const planningProvider = config.activeProfile.planningProvider;
+  const contextProvider = config.activeProfile.contextProvider;
+
+  if (planningProvider.kind !== "planning.local_files") {
+    throw new Error("expected the docs example to use planning.local_files");
+  }
+
+  if (contextProvider.kind !== "context.local_files") {
+    throw new Error("expected the docs example to use context.local_files");
+  }
+
+  assert.equal(
+    config.paths.stateDir,
+    path.join(REPO_ROOT, ".harness", "state"),
+  );
+  assert.equal(
+    planningProvider.root,
+    path.join(REPO_ROOT, ".harness", "local", "planning"),
+  );
+  assert.equal(
+    contextProvider.root,
+    path.join(REPO_ROOT, ".harness", "local", "context"),
+  );
+  assert.equal(
+    contextProvider.templates.artifact_template,
+    path.join(
+      REPO_ROOT,
+      "examples",
+      "local",
+      "context",
+      "templates",
+      "artifact.md",
+    ),
+  );
+  assert.equal(
+    contextProvider.templates.run_template,
+    path.join(
+      REPO_ROOT,
+      "examples",
+      "local",
+      "context",
+      "templates",
+      "evidence.md",
+    ),
+  );
   assert.equal(
     config.activeProfile.promptPack.baseSystem,
     path.join(REPO_ROOT, "docs", "prompts", "base", "system.md"),

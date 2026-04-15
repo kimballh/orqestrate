@@ -8,6 +8,7 @@
     "node": ">=20.18.0"
   },
   "scripts": {
+    "bootstrap:local": "node --import tsx ./scripts/materialize-local-example.mjs",
     "build": "tsc -p tsconfig.json && node ./scripts/copy-runtime-assets.mjs",
     "check": "npm run typecheck && npm run build && npm run test",
     "dev": "tsx src/runtime/main.ts --config docs/config.example.toml",
