@@ -80,6 +80,25 @@ test("run executor completes a Codex-backed run through waiting-human and resume
     "session-1",
     [
       "",
+      "STATUS: waiting_human",
+      "SUMMARY: Need a human decision.",
+      "REQUESTED_HUMAN_INPUT: Should I keep the adapter built-in?",
+    ].join("\n"),
+  );
+  await waitForAsyncTurn();
+  assert.equal(repository.getRun(claimedRun.runId)?.status, "waiting_human");
+
+  const secondResume = await executor.submitHumanInput(claimedRun.runId, {
+    kind: "answer",
+    author: "Kimball Hill",
+    message: "Still yes. Keep it built in.",
+  });
+  assert.equal(secondResume.status, "running");
+
+  supervisor.emitOutput(
+    "session-1",
+    [
+      "",
       "STATUS: completed",
       "SUMMARY: Codex adapter completed successfully.",
       "VERIFICATION:",

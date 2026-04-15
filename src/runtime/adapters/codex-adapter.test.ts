@@ -111,6 +111,23 @@ test("CodexOutputParser emits ready and waiting-human once for split chunks", ()
   assert.deepEqual(repeatedSignals, []);
 });
 
+test("CodexOutputParser can emit the same waiting-human request again after reset", () => {
+  const parser = new CodexOutputParser();
+  const waitingChunk = [
+    "STATUS: waiting_human",
+    "SUMMARY: Need a decision.",
+    "REQUESTED_HUMAN_INPUT: Choose the adapter path.",
+  ].join("\n");
+
+  parser.consumeChunk(waitingChunk);
+  parser.resetWaitingHumanState();
+
+  const repeatedSignals = parser.consumeChunk(waitingChunk);
+
+  assert.equal(repeatedSignals[0]?.type, "ready");
+  assert.equal(repeatedSignals[1]?.type, "waiting_human");
+});
+
 test("parseLastStructuredBlock keeps multiline details and verification text", () => {
   const block = parseLastStructuredBlock(
     [
@@ -218,4 +235,35 @@ test("resolveCodexOutcome falls back to failed transport errors on non-zero exit
   assert.equal(outcome.exitCode, 1);
   assert.match(outcome.summary ?? "", /unstructured failure output/);
   assert.equal(outcome.error?.code, "transport");
+});
+
+test("resolveCodexOutcome treats signal-only interrupt exits as canceled", () => {
+  const exit: SessionExit = {
+    sessionId: "session-1",
+    occurredAt: "2026-04-15T00:10:00.000Z",
+    exitCode: null,
+    signal: "2",
+  };
+
+  const outcome = resolveCodexOutcome({
+    exit,
+    recentOutput: "",
+  });
+
+  assert.deepEqual(outcome, {
+    status: "canceled",
+    code: "canceled",
+    exitCode: null,
+    summary: "Codex exited after an interrupt request.",
+    error: {
+      providerFamily: "runtime",
+      providerKind: "codex",
+      code: "transport",
+      message: "Codex exited after an interrupt request.",
+      retryable: false,
+      details: {
+        signal: "2",
+      },
+    },
+  });
 });
