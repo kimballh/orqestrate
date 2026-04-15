@@ -272,6 +272,11 @@ export class LocalFilesContextBackend extends UnimplementedContextBackend<Contex
     return runLedger;
   }
 
+  async getRunLedgerEntry(runId: string): Promise<RunLedgerRecord | null> {
+    await this.validateConfig();
+    return this.readRunLedgerRecord(this.getRunPath(runId));
+  }
+
   async finalizeRunLedgerEntry(
     input: FinalizeRunLedgerEntryInput,
   ): Promise<RunLedgerRecord> {

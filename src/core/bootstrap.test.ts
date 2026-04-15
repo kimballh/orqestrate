@@ -8,9 +8,11 @@ import { AuthenticationLinearError } from "@linear/sdk";
 import type {
   ContextProviderDefinition,
   ContextLocalFilesProviderConfig,
+  LoadedConfig,
   PlanningLinearProviderConfig,
   PlanningProviderDefinition,
   PlanningLocalFilesProviderConfig,
+  ProfileConfig,
 } from "../config/types.js";
 import { loadConfig } from "../config/loader.js";
 import {
@@ -394,7 +396,7 @@ class ExtensionPlanningBackend extends UnimplementedPlanningBackend<AsanaPlannin
 
 class ExtensionContextBackend extends UnimplementedContextBackend<GoogleDriveContextProviderConfig> {}
 
-function createFakeProfile() {
+function createFakeProfile(): ProfileConfig {
   return {
     name: "extension",
     planningProviderName: "planning_ext",
@@ -419,13 +421,35 @@ function createFakeProfile() {
       roles: {},
       phases: {},
       capabilities: {},
-      overlays: {},
+      overlays: {
+        organization: {},
+        project: {},
+      },
       experiments: {},
     },
-  } as const;
+    promptBehavior: {
+      promptPackName: "default",
+      promptPack: {
+        name: "default",
+        baseSystem: "/tmp/system.md",
+        roles: {},
+        phases: {},
+        capabilities: {},
+        overlays: {
+          organization: {},
+          project: {},
+        },
+        experiments: {},
+      },
+      organizationOverlayNames: [],
+      projectOverlayNames: [],
+      organizationOverlays: [],
+      projectOverlays: [],
+    },
+  };
 }
 
-function createFakeLoadedConfig() {
+function createFakeLoadedConfig(): LoadedConfig {
   const profile = createFakeProfile();
 
   return {

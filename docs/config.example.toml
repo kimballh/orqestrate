@@ -36,9 +36,11 @@ github_reply = "capabilities/github-reply.md"
 playwright_exploration = "capabilities/playwright-exploration.md"
 user_journey_comparison = "capabilities/user-journey-comparison.md"
 
-[prompt_packs.default.overlays]
-organization = ["overlays/org/reviewer-qa.md"]
-project = ["overlays/project/reviewer-webapp.md"]
+[prompt_packs.default.overlays.organization]
+reviewer_qa = "overlays/org/reviewer-qa.md"
+
+[prompt_packs.default.overlays.project]
+reviewer_webapp = "overlays/project/reviewer-webapp.md"
 
 [prompt_packs.default.experiments]
 reviewer_v2 = "experiments/reviewer-v2.md"
@@ -82,6 +84,11 @@ planning = "linear_main"
 context = "notion_main"
 prompt_pack = "default"
 
+[profiles.saas.prompt]
+organization_overlays = ["reviewer_qa"]
+project_overlays = ["reviewer_webapp"]
+default_experiment = "reviewer_v2"
+
 [profiles.local]
 planning = "local_planning"
 context = "local_context"
@@ -91,3 +98,6 @@ prompt_pack = "default"
 planning = "linear_main"
 context = "local_context"
 prompt_pack = "default"
+
+[profiles.hybrid.prompt]
+organization_overlays = ["reviewer_qa"]

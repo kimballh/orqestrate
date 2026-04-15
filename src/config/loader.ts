@@ -6,6 +6,10 @@ import { parse as parseToml } from "smol-toml";
 
 import { ConfigError } from "./errors.js";
 import {
+  PromptSelectionError,
+  resolveProfilePromptBehavior,
+} from "./prompt-selection.js";
+import {
   type BuiltinProviderKind,
   BUILTIN_PROVIDER_KINDS,
   type ContextLocalFilesProviderConfig,
@@ -20,6 +24,7 @@ import {
   type PlanningProviderConfig,
   type PolicyConfig,
   type ProfileConfig,
+  PROMPT_OVERLAY_GROUPS,
   type PromptPackConfig,
   type PromptsConfig,
   type ProviderConfig,
@@ -320,7 +325,7 @@ function parsePromptPacksSection(
             `${packPath}.capabilities`,
             promptRoot,
           ),
-          overlays: parsePromptAssetListMap(
+          overlays: parsePromptOverlayCatalog(
             pack.overlays,
             `${packPath}.overlays`,
             promptRoot,
@@ -512,7 +517,11 @@ function parseProfilesSection(
       const profilePath = joinPath("profiles", name);
       const profile = expectRecord(profileValue, profilePath);
 
-      assertAllowedKeys(profile, ["planning", "context", "prompt_pack"], profilePath);
+      assertAllowedKeys(
+        profile,
+        ["planning", "context", "prompt_pack", "prompt"],
+        profilePath,
+      );
 
       const planningProviderName = expectNonEmptyString(
         profile.planning,
@@ -600,6 +609,39 @@ function parseProfilesSection(
         );
       }
 
+      const promptSelection = parseProfilePromptSelection(profile.prompt, profilePath);
+
+      let promptBehavior: ProfileConfig["promptBehavior"];
+
+      try {
+        promptBehavior = resolveProfilePromptBehavior(
+          { name },
+          promptPackName,
+          promptPack,
+          promptSelection,
+        );
+      } catch (error) {
+        if (error instanceof PromptSelectionError) {
+          const fieldPath = `${profilePath}.prompt.${error.field}`;
+          throw new ConfigError(error.message, {
+            code: "invalid_value",
+            path: fieldPath,
+            hint: buildPromptSelectionHint(promptPack, fieldPath),
+            cause: error,
+          });
+        }
+
+        if (error instanceof Error) {
+          throw new ConfigError(error.message, {
+            code: "invalid_value",
+            path: `${profilePath}.prompt`,
+            cause: error,
+          });
+        }
+
+        throw error;
+      }
+
       return [
         name,
         {
@@ -610,6 +652,7 @@ function parseProfilesSection(
           planningProvider,
           contextProvider,
           promptPack,
+          promptBehavior,
         } satisfies ProfileConfig,
       ];
     }),
@@ -740,30 +783,103 @@ function parsePromptAssetMap(
   );
 }
 
-function parsePromptAssetListMap(
+function parsePromptOverlayCatalog(
   value: unknown,
   fieldPath: string,
   promptRoot: string,
-): Record<string, string[]> {
+) {
+  const catalog = Object.fromEntries(
+    PROMPT_OVERLAY_GROUPS.map((group) => [group, {}] as const),
+  ) as PromptPackConfig["overlays"];
+
   if (value === undefined) {
-    return {};
+    return catalog;
   }
 
   const record = expectRecord(value, fieldPath);
+  assertAllowedKeys(record, PROMPT_OVERLAY_GROUPS, fieldPath);
 
-  return Object.fromEntries(
-    Object.entries(record).map(([name, entryValue]) => {
-      const entryPath = joinPath(fieldPath, name);
-      const entries = expectStringArray(entryValue, entryPath);
+  for (const group of PROMPT_OVERLAY_GROUPS) {
+    catalog[group] = parsePromptAssetMap(
+      record[group],
+      joinPath(fieldPath, group),
+      promptRoot,
+    );
+  }
 
-      return [
-        name,
-        entries.map((entry, index) =>
-          resolvePromptAssetPath(entry, `${entryPath}[${index}]`, promptRoot),
-        ),
-      ];
-    }),
+  return catalog;
+}
+
+function parseProfilePromptSelection(value: unknown, profilePath: string) {
+  if (value === undefined) {
+    return {
+      organizationOverlayNames: [],
+      projectOverlayNames: [],
+      defaultExperimentName: undefined,
+    };
+  }
+
+  const promptPath = `${profilePath}.prompt`;
+  const prompt = expectRecord(value, promptPath);
+  assertAllowedKeys(
+    prompt,
+    ["organization_overlays", "project_overlays", "default_experiment"],
+    promptPath,
   );
+
+  return {
+    organizationOverlayNames: dedupeStrings(
+      prompt.organization_overlays === undefined
+        ? []
+        : expectStringArray(
+            prompt.organization_overlays,
+            `${promptPath}.organization_overlays`,
+          ),
+    ),
+    projectOverlayNames: dedupeStrings(
+      prompt.project_overlays === undefined
+        ? []
+        : expectStringArray(
+            prompt.project_overlays,
+            `${promptPath}.project_overlays`,
+          ),
+    ),
+    defaultExperimentName:
+      prompt.default_experiment === undefined
+        ? undefined
+        : expectNonEmptyString(
+            prompt.default_experiment,
+            `${promptPath}.default_experiment`,
+          ),
+  };
+}
+
+function buildPromptSelectionHint(
+  promptPack: PromptPackConfig,
+  fieldPath: string,
+): string | undefined {
+  if (fieldPath.endsWith(".organization_overlays")) {
+    return buildDefinedNamesHint(promptPack.overlays.organization);
+  }
+
+  if (fieldPath.endsWith(".project_overlays")) {
+    return buildDefinedNamesHint(promptPack.overlays.project);
+  }
+
+  if (fieldPath.endsWith(".default_experiment")) {
+    return buildDefinedNamesHint(promptPack.experiments);
+  }
+
+  return undefined;
+}
+
+function buildDefinedNamesHint(values: Record<string, unknown>): string | undefined {
+  const names = Object.keys(values);
+  return names.length === 0 ? undefined : `Defined values: ${names.join(", ")}`;
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 function parseStringMap(value: unknown, fieldPath: string): Record<string, string> {

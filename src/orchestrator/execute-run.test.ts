@@ -652,6 +652,31 @@ class FakeContextBackend extends ContextBackend<ContextLocalFilesProviderConfig>
     };
   }
 
+  async getRunLedgerEntry(runId: string): Promise<RunLedgerRecord | null> {
+    const created = this.createRunLedgerCalls.find((call) => call.runId === runId);
+
+    if (!created) {
+      return null;
+    }
+
+    const finalized = this.finalizeRunLedgerCalls.find((call) => call.runId === runId);
+
+    return {
+      runId,
+      workItemId: this.artifact.workItemId,
+      artifactId: this.artifact.artifactId,
+      phase: created.phase,
+      status: finalized?.status ?? created.status,
+      summary: finalized?.summary ?? null,
+      verification: finalized?.verification ?? null,
+      error: finalized?.error ?? null,
+      startedAt: "2026-04-15T00:00:00.000Z",
+      endedAt: finalized ? "2026-04-15T00:05:00.000Z" : null,
+      url: `/tmp/${runId}.json`,
+      updatedAt: finalized ? "2026-04-15T00:05:00.000Z" : "2026-04-15T00:00:00.000Z",
+    };
+  }
+
   async finalizeRunLedgerEntry(
     input: FinalizeRunLedgerEntryInput,
   ): Promise<RunLedgerRecord> {

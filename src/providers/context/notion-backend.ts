@@ -491,6 +491,28 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     };
   }
 
+  override async getRunLedgerEntry(runId: string): Promise<RunLedgerRecord | null> {
+    const currentPage = await this.findRunPageByRunId(runId);
+
+    if (currentPage === null) {
+      return null;
+    }
+
+    const runDataSource = await this.getRunDataSource();
+    const runSchema = await this.getRunSchema();
+    const workItemId =
+      readStringPropertyValue(currentPage.properties[runSchema.issueIdPropertyName]) ??
+      "unknown";
+
+    return toRunLedgerRecord(
+      currentPage,
+      runDataSource,
+      runSchema,
+      runId,
+      workItemId,
+    );
+  }
+
   override async appendEvidence(input: AppendEvidenceInput): Promise<void> {
     const runPage = await this.findRunPageByRunId(input.runId);
 

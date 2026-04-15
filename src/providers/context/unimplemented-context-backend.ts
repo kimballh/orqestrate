@@ -51,6 +51,10 @@ export abstract class UnimplementedContextBackend<
     return this.unsupportedOperation("createRunLedgerEntry");
   }
 
+  async getRunLedgerEntry(_runId: string): Promise<RunLedgerRecord | null> {
+    return this.unsupportedOperation("getRunLedgerEntry");
+  }
+
   async finalizeRunLedgerEntry(
     _input: FinalizeRunLedgerEntryInput,
   ): Promise<RunLedgerRecord> {
