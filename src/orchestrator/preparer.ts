@@ -5,15 +5,27 @@ import type { ContextBackend } from "../core/context-backend.js";
 import type { PlanningBackend } from "../core/planning-backend.js";
 import { assemblePrompt } from "../core/prompt-assembly.js";
 import type { RunSubmissionPayload } from "../domain-model.js";
+import { GitHubCliClient } from "../github/client.js";
+import {
+  classifyPullRequestReviewLoop,
+  renderPullRequestReviewLoopContext,
+} from "../github/review-loop.js";
+import { parsePullRequestUrl } from "../github/scope.js";
 
 import { evaluateClaimability } from "./claimability.js";
 import { computeLeaseUntil, createRunId } from "./identity.js";
 import { resolvePhase } from "./phase-resolver.js";
 import {
+  findLatestReviewLoopRuntimeRun,
+  hydrateReviewLoopWorkspace,
+  mergeReviewLoopWorkspace,
+} from "./review-loop-runtime.js";
+import {
   buildBlockedTransition,
   buildRetryableFailureTransition,
   defaultClassifyPostClaimFailure,
 } from "./transition-policy.js";
+import type { RuntimeObserver } from "./runtime-observer.js";
 import type {
   ClassifyPostClaimFailure,
   PostClaimFailureContext,
@@ -33,6 +45,11 @@ type PrepareClaimedRunDependencies = {
     LoadedConfig,
     "activeProfile" | "policy" | "promptCapabilities" | "promptPacks" | "prompts"
   >;
+  runtimeObserver?: RuntimeObserver;
+  createGitHubClient?: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
+  getOriginRemoteUrl?: (cwd: string) => Promise<string>;
   classifyPostClaimFailure?: ClassifyPostClaimFailure;
 };
 
@@ -80,7 +97,22 @@ export async function prepareClaimedRun(
     leaseUntil,
   });
 
-  const workspace = resolveWorkspace(input.repoRoot, runId, input.workspace);
+  const recoveredRuntimeRun = await findLatestReviewLoopRuntimeRun(
+    dependencies.runtimeObserver,
+    claimedWorkItem.id,
+  );
+  const hydratedWorkspace = await hydrateReviewLoopWorkspace({
+    repoRoot: input.repoRoot,
+    workspace: mergeReviewLoopWorkspace(
+      input.workspace,
+      recoveredRuntimeRun?.workspace ?? null,
+    ),
+    createGitHubClient: (cwd) =>
+      dependencies.createGitHubClient?.(cwd) ??
+      new GitHubCliClient({ cwd }),
+    getOriginRemoteUrl: dependencies.getOriginRemoteUrl,
+  });
+  const workspace = resolveWorkspace(input.repoRoot, runId, hydratedWorkspace);
   const classifyPostClaimFailure =
     dependencies.classifyPostClaimFailure ?? defaultClassifyPostClaimFailure;
 
@@ -116,6 +148,34 @@ export async function prepareClaimedRun(
   );
 
   const resolvedArtifact = context.artifact ?? artifact;
+  const reviewLoop = await runPostClaimStep(
+    dependencies,
+    classifyPostClaimFailure,
+    {
+      claimedWorkItem,
+      phase: resolution.phase,
+      runId,
+      step: "load_context",
+    },
+    null,
+    async () => {
+      if (
+        (resolution.phase !== "implement" && resolution.phase !== "review") ||
+        workspace.pullRequestUrl === null ||
+        workspace.pullRequestUrl === undefined
+      ) {
+        return null;
+      }
+
+      const client =
+        dependencies.createGitHubClient?.(input.repoRoot) ??
+        new GitHubCliClient({ cwd: input.repoRoot });
+      const pullRequest = parsePullRequestUrl(workspace.pullRequestUrl);
+      const pullRequestState = await client.readPullRequest(pullRequest);
+
+      return classifyPullRequestReviewLoop(pullRequestState);
+    },
+  );
   const runLedger = await runPostClaimStep(
     dependencies,
     classifyPostClaimFailure,
@@ -177,16 +237,26 @@ export async function prepareClaimedRun(
         operatorNote: input.prompt?.operatorNote ?? null,
         additionalContext: joinAdditionalContext(
           context.contextText,
+          reviewLoop === null
+            ? null
+            : renderPullRequestReviewLoopContext({
+                phase: resolution.phase as "implement" | "review",
+                snapshot: reviewLoop,
+              }),
           input.prompt?.additionalContext,
         ),
         attachments: input.prompt?.attachments,
       };
 
+      const requestedCapabilities = mergePromptCapabilities(
+        input.prompt?.capabilities,
+        reviewLoop === null ? [] : ["github.read_pr"],
+      );
       const assembly = await assemblePrompt(dependencies.config, {
         promptPackName: input.prompt?.promptPackName,
         role: resolution.phase,
         phase: resolution.phase,
-        capabilities: input.prompt?.capabilities,
+        capabilities: requestedCapabilities,
         experiment: input.prompt?.experiment,
         runAdditions: input.prompt?.runAdditions,
         context: promptContext,
@@ -253,6 +323,7 @@ export async function prepareClaimedRun(
       phase: resolution.phase,
       claimedWorkItem,
       artifact: resolvedArtifact,
+      reviewLoop,
       context,
       runLedger,
       submission,
@@ -330,12 +401,20 @@ function resolveWorkspace(
 }
 
 function joinAdditionalContext(
-  contextText: string,
-  additionalContext: string | null | undefined,
+  ...sectionsInput: Array<string | null | undefined>
 ): string | null {
-  const sections = [contextText, additionalContext].filter(
+  const sections = sectionsInput.filter(
     (value): value is string => value !== undefined && value !== null && value.trim() !== "",
   );
 
   return sections.length === 0 ? null : sections.join("\n\n");
+}
+
+function mergePromptCapabilities(
+  requested: string[] | undefined,
+  defaults: string[],
+): string[] | undefined {
+  const merged = [...(requested ?? []), ...defaults];
+  const deduped = [...new Set(merged)];
+  return deduped.length === 0 ? undefined : deduped;
 }

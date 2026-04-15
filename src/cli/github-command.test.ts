@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { runCli } from "../index.js";
+import {
+  parsePullRequestReviewLoopMarker,
+  stripPullRequestReviewLoopMarkers,
+} from "../github/review-loop.js";
 
 test("top-level help includes the github command", async () => {
   const result = await invokeCli(["--help"]);
@@ -225,7 +229,81 @@ test("github review-thread-reply allows --help as the body value", async () => {
 
   assert.equal(result.exitCode, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.reply.body, "--help");
+  assert.equal(stripPullRequestReviewLoopMarkers(parsed.reply.body), "--help");
+  assert.deepEqual(parsePullRequestReviewLoopMarker(parsed.reply.body), {
+    runId: "run-001",
+    phase: "implement",
+    role: "implement",
+    threadId: "thread-1",
+  });
+});
+
+test("github review-write appends machine markers to review bodies", async () => {
+  let submittedBody = "";
+  let submittedInlineBody = "";
+  const result = await invokeCli(
+    [
+      "github",
+      "review-write",
+      "--body",
+      "No blocking findings.",
+      "--comment-json",
+      JSON.stringify({
+        path: "src/index.ts",
+        line: 10,
+        body: "Please add a regression test here.",
+      }),
+    ],
+    {
+      loadRun: async () =>
+        createRun({
+          grantedCapabilities: ["github.write_review"],
+        }),
+      createClient: () =>
+        ({
+          getPullRequestSummary: async () => ({
+            number: 42,
+            title: "Implement ORQ-42",
+            url: "https://github.com/kimballh/orqestrate/pull/42",
+            body: "Adds GitHub gating.",
+            headRefName: "hillkimball/orq-42",
+            baseRefName: "main",
+            authorLogin: "reviewer",
+          }),
+          getViewerLogin: async () => "kimballh",
+          submitReview: async ({
+            body,
+            comments,
+          }: {
+            body: string;
+            comments: Array<{ body: string }>;
+          }) => {
+            submittedBody = body;
+            submittedInlineBody = comments[0]?.body ?? "";
+            return {
+              id: 12,
+              url: "https://github.com/kimballh/orqestrate/pull/42#pullrequestreview-12",
+              body,
+              state: "COMMENTED",
+              submittedAt: "2026-04-15T20:00:00.000Z",
+            };
+          },
+        }) as never,
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(stripPullRequestReviewLoopMarkers(submittedBody), "No blocking findings.");
+  assert.equal(
+    stripPullRequestReviewLoopMarkers(submittedInlineBody),
+    "Please add a regression test here.",
+  );
+  assert.deepEqual(parsePullRequestReviewLoopMarker(submittedBody), {
+    runId: "run-001",
+    phase: "review",
+    role: "review",
+    threadId: null,
+  });
 });
 
 async function invokeCli(

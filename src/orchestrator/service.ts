@@ -113,6 +113,10 @@ export async function startOrchestratorService(
     owner,
     leaseDurationMs: options.leaseDurationMs ?? 15 * 60 * 1000,
     now: options.now,
+    listTrackedWorkItems: () =>
+      planning.listActionableWorkItems({
+        limit: 100,
+      }),
   });
 
   const linearSigningSecret = resolveLinearSigningSecret(loadedConfig);

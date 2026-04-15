@@ -2,6 +2,7 @@ import type { LoadedConfig } from "../config/types.js";
 import type { ContextBackend } from "../core/context-backend.js";
 import type { PlanningBackend } from "../core/planning-backend.js";
 import type { ProviderErrorCode } from "../domain-model.js";
+import type { GitHubCliClient } from "../github/client.js";
 
 import { prepareClaimedRun } from "./preparer.js";
 import { buildRetryableFailureTransition, toProviderError } from "./transition-policy.js";
@@ -11,6 +12,7 @@ import {
   RuntimeApiClientError,
   type RuntimeClient,
 } from "./runtime-client.js";
+import { RuntimeApiObserver, type RuntimeObserver } from "./runtime-observer.js";
 import { watchRunUntilOutcome } from "./runtime-monitor.js";
 import type {
   PrepareClaimedRunInput,
@@ -24,6 +26,10 @@ export type ExecutePreparedRunDependencies = {
   context: ContextBackend;
   loadedConfig: LoadedConfig;
   runtime?: RuntimeClient;
+  runtimeObserver?: RuntimeObserver;
+  createGitHubClient?: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
   now?: () => Date;
   eventPollWaitMs?: number;
   leaseSafetyWindowMs?: number;
@@ -97,6 +103,7 @@ export async function executePreparedRun(
     {
       planning: dependencies.planning,
       context: dependencies.context,
+      createGitHubClient: dependencies.createGitHubClient,
     },
     prepared,
     watched,
@@ -113,11 +120,17 @@ export async function executeClaimedRun(
   dependencies: ExecutePreparedRunDependencies,
   input: PrepareClaimedRunInput,
 ): Promise<ExecuteClaimedRunResult> {
+  const runtime =
+    dependencies.runtime ?? createRuntimeClient(dependencies.loadedConfig);
+  const runtimeObserver =
+    dependencies.runtimeObserver ?? new RuntimeApiObserver(runtime);
   const preparedResult = await prepareClaimedRun(
     {
       planning: dependencies.planning,
       context: dependencies.context,
       config: dependencies.loadedConfig,
+      runtimeObserver,
+      createGitHubClient: dependencies.createGitHubClient,
     },
     input,
   );
@@ -126,7 +139,14 @@ export async function executeClaimedRun(
     return preparedResult;
   }
 
-  const execution = await executePreparedRun(dependencies, preparedResult.prepared);
+  const execution = await executePreparedRun(
+    {
+      ...dependencies,
+      runtime,
+      runtimeObserver,
+    },
+    preparedResult.prepared,
+  );
   return {
     ...preparedResult,
     execution,

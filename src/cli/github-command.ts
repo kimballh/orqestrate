@@ -9,6 +9,7 @@ import {
   GitHubClientError,
 } from "../github/client.js";
 import type { GitHubCliClient as GitHubCliClientType } from "../github/client.js";
+import { appendPullRequestReviewLoopMarker } from "../github/review-loop.js";
 import {
   assertPullRequestMatchesLinkedScope,
   requireAssignedBranch,
@@ -288,7 +289,12 @@ async function handleReviewThreadReply(
     repo: thread.pullRequest,
     pullRequestNumber: thread.pullRequest.number,
     commentId: rootComment.databaseId,
-    body: options.body,
+    body: appendPullRequestReviewLoopMarker(options.body, {
+      runId: run.runId,
+      phase: "implement",
+      role: "implement",
+      threadId: options.threadId,
+    }),
   });
 
   write(
@@ -356,9 +362,20 @@ async function handleReviewWrite(
   const review = await client.submitReview({
     repo: linkedPullRequest,
     pullRequestNumber: linkedPullRequest.number,
-    body: options.body,
+    body: appendPullRequestReviewLoopMarker(options.body, {
+      runId: run.runId,
+      phase: "review",
+      role: "review",
+    }),
     event,
-    comments: options.comments,
+    comments: options.comments.map((comment) => ({
+      ...comment,
+      body: appendPullRequestReviewLoopMarker(comment.body, {
+        runId: run.runId,
+        phase: "review",
+        role: "review",
+      }),
+    })),
   });
 
   write(

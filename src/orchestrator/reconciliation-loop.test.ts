@@ -191,9 +191,177 @@ test("drift ticks page through runtime status buckets until all results are cons
   assert.equal(runtimeObserver.listRunsCalls.filter((call) => call.status === "failed").length, 2);
 });
 
+test("fast ticks reroute queued review work back to implement when the linked PR has reviewer feedback", async () => {
+  const workItem = createWorkItem({
+    status: "review",
+    phase: "review",
+    orchestration: {
+      state: "queued",
+      owner: null,
+      runId: null,
+      leaseUntil: null,
+      reviewOutcome: "none",
+      blockedReason: null,
+      lastError: null,
+      attemptCount: 1,
+    },
+  });
+  const planning = new LoopPlanningBackend(workItem);
+  const context = new LoopContextBackend(createArtifact());
+  const runtimeObserver = new LoopRuntimeObserver({
+    runsByWorkItemId: new Map([
+      [
+        workItem.id,
+        [
+          createRuntimeRun({
+            runId: "run-43",
+            status: "completed",
+            workItemId: workItem.id,
+            workspace: {
+              mode: "ephemeral_worktree",
+              assignedBranch: "hillkimball/orq-43",
+              pullRequestUrl: null,
+              pullRequestMode: "draft",
+              writeScope: "repo",
+            },
+          }),
+        ],
+      ],
+    ]),
+  });
+  const loop = new ReconciliationLoop({
+    planning,
+    context,
+    runtimeObserver,
+    owner: "orchestrator:test",
+    leaseDurationMs: 60_000,
+    now: () => new Date("2026-04-15T00:00:09.000Z"),
+    listTrackedWorkItems: async () => [structuredClone(workItem)],
+    getOriginRemoteUrl: async () => "git@github.com:kimballh/orqestrate.git",
+    createGitHubClient: () => ({
+      findOpenPullRequestForBranch: async () => ({
+        number: 43,
+        title: "Implement ORQ-43",
+        url: "https://github.com/kimballh/orqestrate/pull/43",
+        body: "Body",
+        headRefName: "hillkimball/orq-43",
+        baseRefName: "main",
+        authorLogin: "kimballh",
+      }),
+      readPullRequest: async () => ({
+        viewerLogin: "kimballh",
+        pullRequest: {
+          id: "PR_kwDOORQ43",
+          number: 43,
+          title: "Implement ORQ-43",
+          url: "https://github.com/kimballh/orqestrate/pull/43",
+          state: "OPEN",
+          isDraft: false,
+          body: "Body",
+          baseRefName: "main",
+          headRefName: "hillkimball/orq-43",
+          reviewDecision: "REVIEW_REQUIRED",
+          authorLogin: "kimballh",
+        },
+        files: [],
+        reviews: [],
+        threads: [
+          {
+            id: "thread-1",
+            isResolved: false,
+            isOutdated: false,
+            path: "src/orchestrator/reconciliation-loop.ts",
+            line: 123,
+            originalLine: 123,
+            startLine: null,
+            originalStartLine: null,
+            diffSide: "RIGHT",
+            comments: [
+              {
+                id: "comment-1",
+                databaseId: 101,
+                url: "https://github.com/comment/101",
+                body: "Please requeue implement when reviewer-side changes are required.",
+                authorLogin: "reviewer",
+                createdAt: "2026-04-15T00:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      }),
+    }),
+  });
+
+  await loop.runFastTick();
+
+  assert.equal(planning.transitionCalls.at(-1)?.nextStatus, "implement");
+  assert.match(planning.comments.at(-1)?.body ?? "", /requeued implementation/i);
+});
+
+test("fast ticks do not reroute failed work items from PR state alone", async () => {
+  const workItem = createWorkItem({
+    status: "review",
+    phase: "review",
+    orchestration: {
+      state: "failed",
+      owner: null,
+      runId: null,
+      leaseUntil: null,
+      reviewOutcome: "none",
+      blockedReason: null,
+      lastError: null,
+      attemptCount: 1,
+    },
+  });
+  const planning = new LoopPlanningBackend(workItem);
+  const context = new LoopContextBackend(createArtifact());
+  const runtimeObserver = new LoopRuntimeObserver({
+    runsByWorkItemId: new Map([
+      [
+        workItem.id,
+        [
+          createRuntimeRun({
+            runId: "run-43",
+            status: "completed",
+            workItemId: workItem.id,
+            workspace: {
+              mode: "ephemeral_worktree",
+              assignedBranch: "hillkimball/orq-43",
+              pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/43",
+              pullRequestMode: "draft",
+              writeScope: "repo",
+            },
+          }),
+        ],
+      ],
+    ]),
+  });
+  const loop = new ReconciliationLoop({
+    planning,
+    context,
+    runtimeObserver,
+    owner: "orchestrator:test",
+    leaseDurationMs: 60_000,
+    now: () => new Date("2026-04-15T00:00:09.000Z"),
+    listTrackedWorkItems: async () => [structuredClone(workItem)],
+    createGitHubClient: () => ({
+      findOpenPullRequestForBranch: async () => null,
+      readPullRequest: async () => {
+        throw new Error("PR state should not be read for failed work");
+      },
+    }),
+  });
+
+  await loop.runFastTick();
+
+  assert.equal(planning.transitionCalls.length, 0);
+  assert.equal(planning.comments.length, 0);
+});
+
 class LoopPlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConfig> {
   workItem: WorkItemRecord;
   readonly transitionCalls: TransitionWorkItemInput[] = [];
+  readonly comments: AppendCommentInput[] = [];
 
   constructor(workItem: WorkItemRecord) {
     super({
@@ -242,7 +410,9 @@ class LoopPlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConf
     };
     return structuredClone(this.workItem);
   }
-  async appendComment(_input: AppendCommentInput): Promise<void> {}
+  async appendComment(input: AppendCommentInput): Promise<void> {
+    this.comments.push(structuredClone(input));
+  }
   async buildDeepLink(): Promise<string | null> {
     return null;
   }
@@ -336,6 +506,7 @@ class LoopRuntimeObserver implements RuntimeObserver {
   constructor(
     private readonly options: {
       runsById?: Map<string, ObservedRuntimeRun>;
+      runsByWorkItemId?: Map<string, ObservedRuntimeRun[]>;
       pageByStatus?: Map<string, ObservedRuntimeRun[]>;
       pagedByStatus?: Map<
         string,
@@ -348,8 +519,19 @@ class LoopRuntimeObserver implements RuntimeObserver {
   async getRun(runId: string): Promise<ObservedRuntimeRun | null> {
     return this.options.runsById?.get(runId) ?? null;
   }
-  async listRuns(input: { status?: string; cursor?: string }): Promise<{ runs: ObservedRuntimeRun[]; nextCursor?: string | null }> {
+  async listRuns(input: {
+    status?: string;
+    cursor?: string;
+    workItemId?: string;
+  }): Promise<{ runs: ObservedRuntimeRun[]; nextCursor?: string | null }> {
     this.listRunsCalls.push({ status: input.status, cursor: input.cursor });
+
+    if (input.workItemId !== undefined) {
+      return {
+        runs: this.options.runsByWorkItemId?.get(input.workItemId) ?? [],
+        nextCursor: null,
+      };
+    }
 
     if (input.status !== undefined) {
       const pagedResults = this.options.pagedByStatus?.get(input.status);

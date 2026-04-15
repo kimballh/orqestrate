@@ -17,6 +17,7 @@ import type {
   PromptAssemblyAddition,
   PromptAssemblyContext,
 } from "../core/prompt-assembly.js";
+import type { PullRequestReviewLoopSnapshot } from "../github/review-loop.js";
 import type { RuntimeApiRun } from "../runtime/api/types.js";
 
 export const EXECUTABLE_WORK_PHASES = [
@@ -80,6 +81,7 @@ export type PreparedOrchestrationRun = {
   phase: ExecutableWorkPhase;
   claimedWorkItem: WorkItemRecord;
   artifact: ContextBundle["artifact"];
+  reviewLoop: PullRequestReviewLoopSnapshot | null;
   context: ContextBundle;
   runLedger: RunLedgerRecord;
   submission: RunSubmissionPayload;
