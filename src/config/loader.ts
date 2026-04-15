@@ -26,10 +26,18 @@ import {
   type ProfileConfig,
   PROMPT_CAPABILITY_AUTHORITIES,
   PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS,
+  PROMPT_CAPABILITY_EFFECTS,
+  PROMPT_CAPABILITY_PROVIDERS,
+  PROMPT_CAPABILITY_SURFACES,
+  PROMPT_CAPABILITY_TARGET_SCOPES,
   PROMPT_OVERLAY_GROUPS,
   type PromptCapabilityAuthority,
+  type PromptCapabilityEffect,
   type PromptCapabilityContextRequirement,
   type PromptCapabilityDefinition,
+  type PromptCapabilityProvider,
+  type PromptCapabilitySurface,
+  type PromptCapabilityTargetScope,
   type PromptPackConfig,
   type PromptsConfig,
   type ProviderConfig,
@@ -58,6 +66,18 @@ const PROMPT_CAPABILITY_AUTHORITY_SET = new Set<string>(
 );
 const PROMPT_CAPABILITY_CONTEXT_REQUIREMENT_SET = new Set<string>(
   PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS,
+);
+const PROMPT_CAPABILITY_PROVIDER_SET = new Set<string>(
+  PROMPT_CAPABILITY_PROVIDERS,
+);
+const PROMPT_CAPABILITY_SURFACE_SET = new Set<string>(
+  PROMPT_CAPABILITY_SURFACES,
+);
+const PROMPT_CAPABILITY_EFFECT_SET = new Set<string>(
+  PROMPT_CAPABILITY_EFFECTS,
+);
+const PROMPT_CAPABILITY_TARGET_SCOPE_SET = new Set<string>(
+  PROMPT_CAPABILITY_TARGET_SCOPES,
 );
 
 const POLICY_DEFAULTS: PolicyConfig = {
@@ -349,9 +369,14 @@ function parsePromptCapabilitiesSection(
         [
           "authority",
           "allowed_phases",
+          "allowed_roles",
           "required_context",
           "requires",
           "conflicts_with",
+          "provider",
+          "surface",
+          "effect",
+          "target_scope",
         ],
         definitionPath,
       );
@@ -367,6 +392,10 @@ function parsePromptCapabilitiesSection(
             definition.allowed_phases,
             `${definitionPath}.allowed_phases`,
           ),
+          allowedRoles: parseWorkPhaseArray(
+            definition.allowed_roles,
+            `${definitionPath}.allowed_roles`,
+          ),
           requiredContext: parsePromptCapabilityContextRequirementArray(
             definition.required_context,
             `${definitionPath}.required_context`,
@@ -381,6 +410,34 @@ function parsePromptCapabilitiesSection(
               : expectStringArray(
                   definition.conflicts_with,
                   `${definitionPath}.conflicts_with`,
+                ),
+          provider:
+            definition.provider === undefined
+              ? undefined
+              : parsePromptCapabilityProvider(
+                  definition.provider,
+                  `${definitionPath}.provider`,
+                ),
+          surface:
+            definition.surface === undefined
+              ? undefined
+              : parsePromptCapabilitySurface(
+                  definition.surface,
+                  `${definitionPath}.surface`,
+                ),
+          effect:
+            definition.effect === undefined
+              ? undefined
+              : parsePromptCapabilityEffect(
+                  definition.effect,
+                  `${definitionPath}.effect`,
+                ),
+          targetScope:
+            definition.target_scope === undefined
+              ? undefined
+              : parsePromptCapabilityTargetScope(
+                  definition.target_scope,
+                  `${definitionPath}.target_scope`,
                 ),
         } satisfies PromptCapabilityDefinition,
       ];
@@ -998,6 +1055,8 @@ function validatePromptCapabilityRegistry(
   promptCapabilities: Record<string, PromptCapabilityDefinition>,
 ): void {
   for (const [name, definition] of Object.entries(promptCapabilities)) {
+    validatePromptCapabilityDefinition(name, definition);
+
     for (const requiredCapability of definition.requires) {
       if (!hasOwn(promptCapabilities, requiredCapability)) {
         throw new ConfigError(
@@ -1021,6 +1080,296 @@ function validatePromptCapabilityRegistry(
         );
       }
     }
+  }
+}
+
+function validatePromptCapabilityDefinition(
+  name: string,
+  definition: PromptCapabilityDefinition,
+): void {
+  if (definition.provider === undefined) {
+    if (
+      definition.surface !== undefined ||
+      definition.effect !== undefined ||
+      definition.targetScope !== undefined
+    ) {
+      throw new ConfigError(
+        `Prompt capability '${name}' defines GitHub scope metadata without a provider.`,
+        {
+          code: "invalid_value",
+          path: `prompt_capabilities.${name}.provider`,
+        },
+      );
+    }
+
+    return;
+  }
+
+  if (definition.provider === "github") {
+    validateGitHubCapabilityDefinition(name, definition);
+  }
+}
+
+function validateGitHubCapabilityDefinition(
+  name: string,
+  definition: PromptCapabilityDefinition,
+): void {
+  if (definition.surface === undefined) {
+    throw new ConfigError(
+      `GitHub prompt capability '${name}' must declare a surface.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.surface`,
+      },
+    );
+  }
+
+  if (definition.effect === undefined) {
+    throw new ConfigError(
+      `GitHub prompt capability '${name}' must declare an effect.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.effect`,
+      },
+    );
+  }
+
+  if (definition.targetScope === undefined) {
+    throw new ConfigError(
+      `GitHub prompt capability '${name}' must declare a target scope.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.target_scope`,
+      },
+    );
+  }
+
+  if (definition.allowedRoles.length === 0) {
+    throw new ConfigError(
+      `GitHub prompt capability '${name}' must declare at least one allowed role.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.allowed_roles`,
+      },
+    );
+  }
+
+  if (definition.authority === "behavioral") {
+    throw new ConfigError(
+      `GitHub prompt capability '${name}' must use an execution-surface authority.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.authority`,
+      },
+    );
+  }
+
+  if (
+    definition.effect === "read" &&
+    definition.authority !== "execution_surface_read"
+  ) {
+    throw new ConfigError(
+      `GitHub read capability '${name}' must use 'execution_surface_read'.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.authority`,
+      },
+    );
+  }
+
+  if (
+    definition.effect !== "read" &&
+    definition.authority !== "execution_surface_write"
+  ) {
+    throw new ConfigError(
+      `GitHub write capability '${name}' must use 'execution_surface_write'.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.authority`,
+      },
+    );
+  }
+
+  validateGitHubCapabilityRequiredContext(name, definition);
+  validateGitHubCapabilityScopePolicy(name, definition);
+}
+
+function validateGitHubCapabilityRequiredContext(
+  name: string,
+  definition: PromptCapabilityDefinition,
+): void {
+  const requiredContext = new Set(definition.requiredContext);
+
+  if (
+    definition.targetScope === "linked_pull_request" &&
+    !requiredContext.has("pull_request_url")
+  ) {
+    throw new ConfigError(
+      `GitHub capability '${name}' targeting a linked pull request must require 'pull_request_url'.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.required_context`,
+      },
+    );
+  }
+
+  if (
+    (definition.targetScope === "assigned_branch" ||
+      definition.targetScope === "pull_request_for_assigned_branch") &&
+    !requiredContext.has("assigned_branch")
+  ) {
+    throw new ConfigError(
+      `GitHub capability '${name}' targeting an assigned branch must require 'assigned_branch'.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.required_context`,
+      },
+    );
+  }
+
+  if (
+    definition.effect !== "read" &&
+    !requiredContext.has("write_scope")
+  ) {
+    throw new ConfigError(
+      `GitHub capability '${name}' with write access must require 'write_scope'.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.required_context`,
+      },
+    );
+  }
+}
+
+function validateGitHubCapabilityScopePolicy(
+  name: string,
+  definition: PromptCapabilityDefinition,
+): void {
+  switch (definition.surface) {
+    case "pull_request":
+      validateAllowedWorkPhases(
+        name,
+        definition,
+        definition.effect === "read" ? ["implement", "review"] : ["implement"],
+      );
+      validateAllowedWorkRoles(
+        name,
+        definition,
+        definition.effect === "read" ? ["implement", "review"] : ["implement"],
+      );
+
+      if (
+        definition.effect === "write" &&
+        definition.targetScope !== "pull_request_for_assigned_branch"
+      ) {
+        throw new ConfigError(
+          `GitHub prompt capability '${name}' must target 'pull_request_for_assigned_branch' when writing pull requests.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.target_scope`,
+          },
+        );
+      }
+      return;
+    case "branch":
+      validateAllowedWorkPhases(name, definition, ["implement"]);
+      validateAllowedWorkRoles(name, definition, ["implement"]);
+      if (definition.targetScope !== "assigned_branch") {
+        throw new ConfigError(
+          `GitHub branch capability '${name}' must target the assigned branch.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.target_scope`,
+          },
+        );
+      }
+      return;
+    case "review_thread":
+      validateAllowedWorkPhases(name, definition, ["implement"]);
+      validateAllowedWorkRoles(name, definition, ["implement"]);
+      if (definition.targetScope !== "linked_pull_request") {
+        throw new ConfigError(
+          `GitHub review-thread capability '${name}' must target the linked pull request.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.target_scope`,
+          },
+        );
+      }
+      if (
+        definition.effect !== "write" &&
+        definition.effect !== "state_transition"
+      ) {
+        throw new ConfigError(
+          `GitHub review-thread capability '${name}' must use 'write' or 'state_transition'.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.effect`,
+          },
+        );
+      }
+      return;
+    case "review_submission":
+      validateAllowedWorkPhases(name, definition, ["review"]);
+      validateAllowedWorkRoles(name, definition, ["review"]);
+      if (definition.targetScope !== "linked_pull_request") {
+        throw new ConfigError(
+          `GitHub review submission capability '${name}' must target the linked pull request.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.target_scope`,
+          },
+        );
+      }
+      if (definition.effect !== "write") {
+        throw new ConfigError(
+          `GitHub review submission capability '${name}' must use the 'write' effect.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.effect`,
+          },
+        );
+      }
+  }
+}
+
+function validateAllowedWorkPhases(
+  name: string,
+  definition: PromptCapabilityDefinition,
+  allowedPhases: WorkPhase[],
+): void {
+  const invalidPhases = definition.allowedPhases.filter(
+    (phase) => !allowedPhases.includes(phase),
+  );
+
+  if (invalidPhases.length > 0) {
+    throw new ConfigError(
+      `GitHub prompt capability '${name}' is not allowed in phases: ${invalidPhases.join(", ")}.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.allowed_phases`,
+      },
+    );
+  }
+}
+
+function validateAllowedWorkRoles(
+  name: string,
+  definition: PromptCapabilityDefinition,
+  allowedRoles: WorkPhase[],
+): void {
+  const invalidRoles = definition.allowedRoles.filter(
+    (role) => !allowedRoles.includes(role),
+  );
+
+  if (invalidRoles.length > 0) {
+    throw new ConfigError(
+      `GitHub prompt capability '${name}' is not allowed for roles: ${invalidRoles.join(", ")}.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.allowed_roles`,
+      },
+    );
   }
 }
 
@@ -1254,6 +1603,86 @@ function parsePromptCapabilityContextRequirementArray(
 
     return entry as PromptCapabilityContextRequirement;
   });
+}
+
+function parsePromptCapabilityProvider(
+  value: unknown,
+  fieldPath: string,
+): PromptCapabilityProvider {
+  const provider = expectNonEmptyString(value, fieldPath);
+
+  if (!PROMPT_CAPABILITY_PROVIDER_SET.has(provider)) {
+    throw new ConfigError(
+      `Unsupported prompt capability provider '${provider}'.`,
+      {
+        code: "invalid_value",
+        path: fieldPath,
+        hint: `Supported providers: ${PROMPT_CAPABILITY_PROVIDERS.join(", ")}`,
+      },
+    );
+  }
+
+  return provider as PromptCapabilityProvider;
+}
+
+function parsePromptCapabilitySurface(
+  value: unknown,
+  fieldPath: string,
+): PromptCapabilitySurface {
+  const surface = expectNonEmptyString(value, fieldPath);
+
+  if (!PROMPT_CAPABILITY_SURFACE_SET.has(surface)) {
+    throw new ConfigError(
+      `Unsupported prompt capability surface '${surface}'.`,
+      {
+        code: "invalid_value",
+        path: fieldPath,
+        hint: `Supported surfaces: ${PROMPT_CAPABILITY_SURFACES.join(", ")}`,
+      },
+    );
+  }
+
+  return surface as PromptCapabilitySurface;
+}
+
+function parsePromptCapabilityEffect(
+  value: unknown,
+  fieldPath: string,
+): PromptCapabilityEffect {
+  const effect = expectNonEmptyString(value, fieldPath);
+
+  if (!PROMPT_CAPABILITY_EFFECT_SET.has(effect)) {
+    throw new ConfigError(
+      `Unsupported prompt capability effect '${effect}'.`,
+      {
+        code: "invalid_value",
+        path: fieldPath,
+        hint: `Supported effects: ${PROMPT_CAPABILITY_EFFECTS.join(", ")}`,
+      },
+    );
+  }
+
+  return effect as PromptCapabilityEffect;
+}
+
+function parsePromptCapabilityTargetScope(
+  value: unknown,
+  fieldPath: string,
+): PromptCapabilityTargetScope {
+  const targetScope = expectNonEmptyString(value, fieldPath);
+
+  if (!PROMPT_CAPABILITY_TARGET_SCOPE_SET.has(targetScope)) {
+    throw new ConfigError(
+      `Unsupported prompt capability target scope '${targetScope}'.`,
+      {
+        code: "invalid_value",
+        path: fieldPath,
+        hint: `Supported target scopes: ${PROMPT_CAPABILITY_TARGET_SCOPES.join(", ")}`,
+      },
+    );
+  }
+
+  return targetScope as PromptCapabilityTargetScope;
 }
 
 function expectBoolean(value: unknown, fieldPath: string): boolean {

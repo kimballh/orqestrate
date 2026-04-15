@@ -400,6 +400,14 @@ function createRunInput(
       workingDirHint:
         overrides.workspace?.workingDirHint ?? "/repo/.worktrees/run-001",
       baseRef: overrides.workspace?.baseRef ?? "main",
+      assignedBranch:
+        overrides.workspace?.assignedBranch ??
+        "hillkimball/orq-32-scaffold-runtime-daemon-package-sqlite-schema-and-run-repository",
+      pullRequestUrl:
+        overrides.workspace?.pullRequestUrl ??
+        "https://github.com/kimballh/orqestrate/pull/32",
+      pullRequestMode: overrides.workspace?.pullRequestMode ?? "draft",
+      writeScope: overrides.workspace?.writeScope ?? "repo",
     },
     prompt: {
       contractId: "orqestrate/implement/v1",
@@ -411,6 +419,7 @@ function createRunInput(
         user: "sha256-user",
       },
     },
+    grantedCapabilities: ["github.read_pr", "github.push_branch"],
     limits: {
       maxWallTimeSec: 5400,
       idleTimeoutSec: 300,

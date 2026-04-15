@@ -107,6 +107,7 @@ export class Reconciler {
             status: "stale",
             repoRoot: "",
             workspace: { mode: "ephemeral_worktree" },
+            grantedCapabilities: [],
             promptContractId: "recovered/stale",
             promptDigests: { system: null, user: "recovered/stale" },
             limits: {

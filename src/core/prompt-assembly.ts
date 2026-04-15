@@ -74,6 +74,7 @@ export type ResolvedPromptLayer = {
 
 export type PromptAssemblyResult = {
   prompt: PromptEnvelope;
+  grantedCapabilities: string[];
   resolvedLayers: ResolvedPromptLayer[];
 };
 
@@ -376,6 +377,7 @@ export async function assemblePrompt(
 
   return {
     prompt,
+    grantedCapabilities: resolvedCapabilities.map((capability) => capability.name),
     resolvedLayers,
   };
 }
@@ -584,6 +586,7 @@ function validateCapabilitySelections(
 
   for (const capability of capabilities) {
     validateCapabilityPhase(capability, request.phase);
+    validateCapabilityRole(capability, request.role);
     validateCapabilityContext(capability, request.context);
     validateCapabilityRequirements(capability, requestedCapabilityNames);
   }
@@ -602,6 +605,18 @@ function validateCapabilityPhase(
   ) {
     throw new PromptAssemblyError(
       `Prompt capability '${capability.name}' is not allowed in phase '${phase}'.`,
+    );
+  }
+}
+
+function validateCapabilityRole(
+  capability: ResolvedCapability,
+  role: PromptRole,
+): void {
+  const allowedRoles = capability.definition.allowedRoles;
+  if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+    throw new PromptAssemblyError(
+      `Prompt capability '${capability.name}' is not allowed for role '${role}'.`,
     );
   }
 }

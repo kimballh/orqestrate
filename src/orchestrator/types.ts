@@ -109,6 +109,10 @@ export type PrepareClaimedRunResult =
 export type PrepareClaimedRunWorkspaceInput = {
   mode?: WorkspaceMode;
   baseRef?: string | null;
+  assignedBranch?: string | null;
+  pullRequestUrl?: string | null;
+  pullRequestMode?: string | null;
+  writeScope?: string | null;
   workingDirHint?: string | null;
 };
 

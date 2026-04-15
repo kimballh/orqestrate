@@ -41,6 +41,11 @@ type RunRow = {
   workspace_mode: PersistedRunRecord["workspace"]["mode"];
   workspace_allocation_id: string | null;
   base_ref: string | null;
+  assigned_branch: string | null;
+  pull_request_url: string | null;
+  pull_request_mode: string | null;
+  write_scope: string | null;
+  granted_capabilities_json: string | null;
   prompt_contract: string;
   prompt_envelope_json: string | null;
   system_prompt_hash: string | null;
@@ -187,6 +192,11 @@ export class RuntimeRepository {
                 workspace_mode,
                 workspace_allocation_id,
                 base_ref,
+                assigned_branch,
+                pull_request_url,
+                pull_request_mode,
+                write_scope,
+                granted_capabilities_json,
                 prompt_contract,
                 prompt_envelope_json,
                 system_prompt_hash,
@@ -216,7 +226,7 @@ export class RuntimeRepository {
                 last_heartbeat_at,
                 version
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
           )
           .run(
@@ -232,6 +242,11 @@ export class RuntimeRepository {
             createRunInput.workspace.mode,
             null,
             createRunInput.workspace.baseRef ?? null,
+            createRunInput.workspace.assignedBranch ?? null,
+            createRunInput.workspace.pullRequestUrl ?? null,
+            createRunInput.workspace.pullRequestMode ?? null,
+            createRunInput.workspace.writeScope ?? null,
+            encodeJson(createRunInput.grantedCapabilities),
             createRunInput.prompt.contractId,
             encodeJson(createRunInput.prompt),
             createRunInput.prompt.digests.system ?? null,
@@ -1274,6 +1289,8 @@ export class RuntimeRepository {
   }
 
   private mapRunRow(row: RunRow): PersistedRunRecord {
+    const grantedCapabilities =
+      parseJson<string[]>(row.granted_capabilities_json) ?? [];
     const verification = parseJson<VerificationSummary>(row.verification_json);
     const error = parseJson<ProviderError>(row.last_error);
     const hasOutcome =
@@ -1303,9 +1320,14 @@ export class RuntimeRepository {
         allocationId: row.workspace_allocation_id,
         baseRef: row.base_ref,
         branchName: row.workspace_branch_name,
+        assignedBranch: row.assigned_branch ?? row.workspace_branch_name,
+        pullRequestUrl: row.pull_request_url,
+        pullRequestMode: row.pull_request_mode,
+        writeScope: row.write_scope,
       },
       artifactUrl: row.artifact_url,
       requestedBy: row.requested_by,
+      grantedCapabilities,
       promptContractId: row.prompt_contract,
       promptDigests: {
         system: row.system_prompt_hash,

@@ -126,6 +126,7 @@ const runRecordFixture = {
   },
   artifactUrl: artifactFixture.url,
   requestedBy: "Kimball Hill",
+  grantedCapabilities: ["github.read_pr", "github.create_pr"],
   promptContractId: promptFixture.contractId,
   promptDigests: promptFixture.digests,
   limits: {
@@ -184,8 +185,13 @@ const runSubmissionFixture = {
     mode: runRecordFixture.workspace.mode,
     workingDirHint: runRecordFixture.workspace.workingDirHint,
     baseRef: runRecordFixture.workspace.baseRef,
+    assignedBranch: runRecordFixture.workspace.branchName,
+    pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/16",
+    pullRequestMode: "draft",
+    writeScope: "repo",
   },
   prompt: promptFixture,
+  grantedCapabilities: runRecordFixture.grantedCapabilities,
   limits: runRecordFixture.limits,
   requestedBy: runRecordFixture.requestedBy,
 } satisfies RunSubmissionPayload;

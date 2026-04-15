@@ -733,6 +733,10 @@ function createRunInput(
       mode: "ephemeral_worktree",
       workingDirHint: "/repo/.worktrees/run-001",
       baseRef: "main",
+      assignedBranch: "hillkimball/orq-33-implement-pty-session-supervisor-abstraction-and-host-process-control",
+      pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/33",
+      pullRequestMode: "draft",
+      writeScope: "repo",
     },
     prompt: {
       contractId: "orqestrate/implement/v1",
@@ -744,6 +748,7 @@ function createRunInput(
         user: "sha256-user",
       },
     },
+    grantedCapabilities: ["github.read_pr", "github.push_branch"],
     limits: {
       maxWallTimeSec: 5400,
       idleTimeoutSec: 300,

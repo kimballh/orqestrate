@@ -32,9 +32,14 @@ invariants = [
   "invariants/verification.md",
 ]
 
-[prompt_capabilities.github_review]
+[prompt_capabilities."github.read_pr"]
 authority = "execution_surface_read"
-allowed_phases = ["review"]
+provider = "github"
+surface = "pull_request"
+effect = "read"
+target_scope = "linked_pull_request"
+allowed_phases = ["implement", "review"]
+allowed_roles = ["implement", "review"]
 required_context = ["pull_request_url"]
 
 [prompt_capabilities.playwright_exploration]
@@ -52,7 +57,7 @@ implement = "roles/implement.md"
 review = "phases/review.md"
 
 [prompt_packs.default.capabilities]
-github_review = "capabilities/github-review.md"
+"github.read_pr" = "capabilities/github-read-pr.md"
 playwright_exploration = "capabilities/playwright-exploration.md"
 
 [prompt_packs.default.overlays.organization]
@@ -122,7 +127,7 @@ test("loads the docs example with its default local profile without SaaS env var
   );
   assert.ok(config.prompts.invariants.length > 0);
   assert.equal(
-    config.promptCapabilities.github_reply.authority,
+    config.promptCapabilities["github.push_branch"].authority,
     "execution_surface_write",
   );
 });
@@ -205,10 +210,15 @@ test("normalizes relative filesystem and prompt asset paths against the config l
     path.join(fixture.workspaceDir, "prompts", "invariants", "verification.md"),
   ]);
   assert.equal(
-    config.promptCapabilities.github_review.authority,
+    config.promptCapabilities["github.read_pr"].authority,
     "execution_surface_read",
   );
-  assert.deepEqual(config.promptCapabilities.github_review.allowedPhases, [
+  assert.deepEqual(config.promptCapabilities["github.read_pr"].allowedPhases, [
+    "implement",
+    "review",
+  ]);
+  assert.deepEqual(config.promptCapabilities["github.read_pr"].allowedRoles, [
+    "implement",
     "review",
   ]);
   assert.equal(
@@ -246,6 +256,54 @@ review_status = "QA Review"
     implement_status: "Building",
     review_status: "QA Review",
   });
+});
+
+test("parses GitHub execution-surface metadata for canonical capabilities", () => {
+  const fixture = createFixtureWorkspace();
+  const config = parseConfig(VALID_CONFIG, {
+    sourcePath: fixture.sourcePath,
+    env: {},
+  });
+
+  assert.equal(config.promptCapabilities["github.read_pr"].provider, "github");
+  assert.equal(config.promptCapabilities["github.read_pr"].surface, "pull_request");
+  assert.equal(config.promptCapabilities["github.read_pr"].effect, "read");
+  assert.equal(
+    config.promptCapabilities["github.read_pr"].targetScope,
+    "linked_pull_request",
+  );
+});
+
+test("rejects GitHub capability metadata that violates role and phase policy", () => {
+  const fixture = createFixtureWorkspace();
+
+  assert.throws(
+    () =>
+      parseConfig(
+        `${VALID_CONFIG}
+
+[prompt_capabilities."github.write_review"]
+authority = "execution_surface_write"
+provider = "github"
+surface = "review_submission"
+effect = "write"
+target_scope = "linked_pull_request"
+allowed_phases = ["implement"]
+allowed_roles = ["implement"]
+required_context = ["pull_request_url", "write_scope"]
+`,
+        {
+          sourcePath: fixture.sourcePath,
+          env: {},
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(error.path, 'prompt_capabilities.github.write_review.allowed_phases');
+      return true;
+    },
+  );
 });
 
 test("loads the docs example default prompt pack with non-placeholder prompt assets", async () => {
@@ -613,8 +671,8 @@ test("rejects prompt packs that reference undefined prompt capabilities", () => 
     () =>
       parseConfig(
         VALID_CONFIG.replace(
-          'github_review = "capabilities/github-review.md"',
-          'missing_capability = "capabilities/github-review.md"',
+          '"github.read_pr" = "capabilities/github-read-pr.md"',
+          'missing_capability = "capabilities/github-read-pr.md"',
         ),
         {
           sourcePath: fixture.sourcePath,
@@ -644,7 +702,7 @@ test("rejects prompt packs whose capabilities omit required peer capabilities", 
           '[prompt_capabilities.playwright_exploration]\nauthority = "behavioral"\nallowed_phases = ["implement", "review"]\n\n[prompt_capabilities.cap_missing_peer]\nauthority = "behavioral"\nallowed_phases = ["review"]\n\n[prompt_capabilities.cap_requires_missing]\nauthority = "behavioral"\nallowed_phases = ["review"]\nrequires = ["cap_missing_peer"]\n',
         ).replace(
           'playwright_exploration = "capabilities/playwright-exploration.md"',
-          'playwright_exploration = "capabilities/playwright-exploration.md"\ncap_requires_missing = "capabilities/github-review.md"',
+          'playwright_exploration = "capabilities/playwright-exploration.md"\ncap_requires_missing = "capabilities/github-read-pr.md"',
         ),
         {
           sourcePath: fixture.sourcePath,
@@ -750,8 +808,8 @@ function writePromptFixtureFiles(promptRoot: string): void {
       "# Implement\nShip the smallest verified implementation that solves the issue.\n",
     "phases/review.md":
       "# Review Phase\nPrioritize correctness, regressions, and missing verification.\n",
-    "capabilities/github-review.md":
-      "# GitHub Review\nInspect the pull request and relevant review feedback.\n",
+    "capabilities/github-read-pr.md":
+      "# GitHub Read PR\nInspect the pull request and relevant review feedback.\n",
     "capabilities/playwright-exploration.md":
       "# Browser Exploration\nUse browser evidence when a changed flow needs UI verification.\n",
     "overlays/org/reviewer-qa.md": "# Reviewer QA\n",
