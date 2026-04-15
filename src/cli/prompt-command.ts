@@ -532,15 +532,25 @@ async function runReplayCommand(
 ): Promise<number> {
   const loadConfigFn = dependencies.loadConfig ?? loadConfig;
   const cwd = dependencies.cwd?.() ?? process.cwd();
-  const config = await loadConfigFn({
+  const baseConfig = await loadConfigFn({
     cwd,
     configPath: options.configPath,
-    activeProfile: options.variantProfile ?? options.profile,
+    activeProfile: options.profile,
   });
-  const replay = await replayPrompt(config, {
+  const variantProfile = options.variantProfile ?? options.profile;
+  const variantConfig =
+    variantProfile === undefined || variantProfile === baseConfig.activeProfileName
+      ? baseConfig
+      : await loadConfigFn({
+          cwd,
+          configPath: options.configPath,
+          activeProfile: variantProfile,
+        });
+  const replay = await replayPrompt(baseConfig, {
     runId: options.runId,
     selection: options.selection,
     variantSelection: options.variantSelection,
+    variantConfig,
     cwd,
   } satisfies ResolvedPromptReplayOptions);
 

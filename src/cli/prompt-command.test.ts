@@ -237,6 +237,72 @@ test("prompt replay emits JSON and reports legacy reconstruction for older runs"
   assert.equal(parsed.replayContext.workItem.title, "Review prompt drift");
 });
 
+test("prompt replay keeps historical lookup on the base profile when variant-profile differs", async () => {
+  const fixture = createPromptCliFixture();
+  const baseConfig = await loadConfig({
+    configPath: fixture.configPath,
+    cwd: fixture.workspaceDir,
+  });
+  const variantConfig = {
+    ...structuredClone(baseConfig),
+    paths: {
+      ...baseConfig.paths,
+      stateDir: path.join(fixture.workspaceDir, ".harness", "variant-state"),
+      logDir: path.join(fixture.workspaceDir, ".harness", "variant-logs"),
+    },
+    activeProfileName: "variant",
+    activeProfile: {
+      ...structuredClone(baseConfig.activeProfile),
+      name: "variant",
+    },
+    profiles: {
+      ...structuredClone(baseConfig.profiles),
+      variant: {
+        ...structuredClone(baseConfig.activeProfile),
+        name: "variant",
+      },
+    },
+  };
+  await seedReplayRunForConfig(baseConfig, fixture.workspaceDir, {
+    runId: "run-replay-cross-profile",
+  });
+
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const exitCode = await runCli(
+    [
+      "prompt",
+      "replay",
+      "--config",
+      fixture.configPath,
+      "--profile",
+      "local",
+      "--variant-profile",
+      "variant",
+      "--run-id",
+      "run-replay-cross-profile",
+      "--format",
+      "json",
+    ],
+    {
+      cwd: () => fixture.workspaceDir,
+      stdout: (message) => stdout.push(message),
+      stderr: (message) => stderr.push(message),
+      loadConfig: async (options) =>
+        options?.activeProfile === "variant" ? variantConfig : baseConfig,
+    },
+  );
+
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(stdout.join("\n"));
+  assert.equal(parsed.historicalRun.runId, "run-replay-cross-profile");
+  assert.equal(parsed.current.selection.profileName, "variant");
+  assert.equal(
+    parsed.historicalRun.databasePath,
+    path.join(baseConfig.paths.stateDir, "runtime.sqlite"),
+  );
+});
+
 test("prompt subcommand help exits successfully", async () => {
   const fixture = createPromptCliFixture();
   const renderHelp = await invokeCli(
@@ -502,6 +568,21 @@ async function seedReplayRun(
     configPath: fixture.configPath,
     cwd: fixture.workspaceDir,
   });
+  await seedReplayRunForConfig(config, fixture.workspaceDir, options);
+
+  return {
+    runId: options.runId,
+  };
+}
+
+async function seedReplayRunForConfig(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  workspaceDir: string,
+  options: {
+    runId: string;
+    legacy?: boolean;
+  },
+): Promise<void> {
   const replayContext = {
     runId: options.runId,
     workItem: {
@@ -518,8 +599,8 @@ async function seedReplayRun(
       summary: "Replay artifact summary",
     },
     workspace: {
-      repoRoot: fixture.workspaceDir,
-      workingDir: fixture.workspaceDir,
+      repoRoot: workspaceDir,
+      workingDir: workspaceDir,
       mode: "shared_readonly" as const,
       assignedBranch: "hillkimball/orq-47",
       baseBranch: "main",
@@ -547,11 +628,11 @@ async function seedReplayRun(
     role: "review",
     phase: "review",
     context: replayContext,
-    cwd: fixture.workspaceDir,
+    cwd: workspaceDir,
     configSourcePath: config.sourcePath,
   });
   const database = openRuntimeDatabase(
-    path.join(fixture.workspaceDir, ".harness", "state", "runtime.sqlite"),
+    path.join(config.paths.stateDir, "runtime.sqlite"),
   );
 
   try {
@@ -605,10 +686,6 @@ async function seedReplayRun(
   } finally {
     database.close();
   }
-
-  return {
-    runId: options.runId,
-  };
 }
 
 function toPosixPath(value: string): string {

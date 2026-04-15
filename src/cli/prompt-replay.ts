@@ -22,6 +22,7 @@ export type PromptReplayOptions = {
   runId: string;
   selection?: PromptPreviewSelectionOverrides;
   variantSelection?: PromptPreviewSelectionOverrides;
+  variantConfig?: LoadedConfig;
   cwd?: string;
 };
 
@@ -95,13 +96,14 @@ export async function replayPrompt(
       options.selection,
       options.variantSelection,
     );
-    const current = await renderPromptPreview(config, {
+    const renderConfig = options.variantConfig ?? config;
+    const current = await renderPromptPreview(renderConfig, {
       role: historicalRun.phase,
       phase: historicalRun.phase,
       selection: currentSelection,
       context: replayContext.context,
       cwd: options.cwd,
-      configSourcePath: config.sourcePath,
+      configSourcePath: renderConfig.sourcePath,
     });
     const normalizedCurrent =
       replayContext.source === "legacy_reconstruction"
