@@ -178,11 +178,17 @@ export class ReconciliationLoop {
     const runs = [];
 
     for (const status of DRIFT_STATUSES) {
-      const page = await this.runtimeObserver.listRuns({
-        status,
-        limit: 100,
-      });
-      runs.push(...page.runs);
+      let cursor: string | undefined;
+
+      do {
+        const page = await this.runtimeObserver.listRuns({
+          status,
+          limit: 100,
+          cursor,
+        });
+        runs.push(...page.runs);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor !== undefined);
     }
 
     return runs;

@@ -187,6 +187,108 @@ test("reconciles waiting_human runtime state into a blocked planning state", asy
   assert.equal(result.workItem?.status, "blocked");
 });
 
+test("reconciles completed implement runs by advancing the ticket and clearing the lease", async () => {
+  const workItem = createWorkItem({
+    phase: "implement",
+    status: "implement",
+    orchestration: {
+      state: "running",
+      owner: "orchestrator:test",
+      runId: "run-39",
+      leaseUntil: "2026-04-15T00:00:10.000Z",
+      reviewOutcome: "none",
+      blockedReason: null,
+      lastError: null,
+      attemptCount: 1,
+    },
+  });
+  const planning = new FakePlanningBackend(workItem);
+  const context = new FakeContextBackend(createArtifact());
+  const runtimeRun = createRuntimeRun({
+    runId: "run-39",
+    status: "completed",
+    outcome: {
+      summary: "Recovered successful implement run.",
+      error: null,
+    },
+  });
+  const runtimeObserver = new FakeRuntimeObserver({
+    runsById: new Map([[runtimeRun.runId, runtimeRun]]),
+  });
+  const reconciler = new Reconciler({
+    planning,
+    context,
+    runtimeObserver,
+    owner: "orchestrator:test",
+    leaseDurationMs: 60_000,
+    now: () => new Date("2026-04-15T00:00:09.000Z"),
+  });
+
+  const result = await reconciler.reconcileLeasedWorkItem({
+    workItem,
+    runtimeHealthy: true,
+  });
+
+  assert.equal(result.classification.kind, "planning_active_runtime_terminal");
+  assert.equal(result.handledOutcome, true);
+  assert.equal(context.finalizeRunLedgerCalls[0]?.status, "completed");
+  assert.equal(planning.transitionCalls[0]?.nextStatus, "review");
+  assert.equal(planning.transitionCalls[0]?.state, "queued");
+  assert.equal(result.workItem?.status, "review");
+  assert.equal(result.workItem?.orchestration.leaseUntil, null);
+});
+
+test("treats terminal runs for an older run id as orphaned instead of mutating the current work item", async () => {
+  const workItem = createWorkItem({
+    orchestration: {
+      state: "running",
+      owner: "orchestrator:test",
+      runId: "run-new",
+      leaseUntil: "2026-04-15T00:00:10.000Z",
+      reviewOutcome: "none",
+      blockedReason: null,
+      lastError: null,
+      attemptCount: 2,
+    },
+  });
+  const planning = new FakePlanningBackend(workItem);
+  const context = new FakeContextBackend(createArtifact());
+  const runtimeRun = createRuntimeRun({
+    runId: "run-old",
+    status: "failed",
+    outcome: {
+      summary: "Older failed run.",
+      error: {
+        providerFamily: "runtime",
+        providerKind: "codex",
+        code: "unknown",
+        message: "Older failed run.",
+        retryable: true,
+        details: null,
+      },
+    },
+  });
+  const runtimeObserver = new FakeRuntimeObserver();
+  const reconciler = new Reconciler({
+    planning,
+    context,
+    runtimeObserver,
+    owner: "orchestrator:test",
+    leaseDurationMs: 60_000,
+    now: () => new Date("2026-04-15T00:00:09.000Z"),
+  });
+
+  const result = await reconciler.reconcileRuntimeRun({
+    runtimeRun,
+    runtimeHealthy: true,
+  });
+
+  assert.equal(result.classification.kind, "runtime_terminal_orphaned");
+  assert.equal(result.handledOutcome, false);
+  assert.equal(planning.transitionCalls.length, 0);
+  assert.equal(context.finalizeRunLedgerCalls.length, 0);
+});
+
 class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConfig> {
   workItem: WorkItemRecord;
   readonly markRunningCalls: MarkWorkItemRunningInput[] = [];

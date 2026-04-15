@@ -29,6 +29,19 @@ export async function applyRecoveredRuntimeOutcome(
   const ledger = await ensureRunLedger(input);
 
   switch (input.runtimeRun.status) {
+    case "completed":
+      return {
+        handled: true,
+        runLedger: await input.context.finalizeRunLedgerEntry({
+          runId: ledger.runId,
+          status: "completed",
+          summary: buildRecoveredOutcomeSummary(input.runtimeRun),
+          error: null,
+        }),
+        workItem: await input.planning.transitionWorkItem(
+          buildRecoveredSuccessTransition(input.workItem, input.runtimeRun.runId),
+        ),
+      };
     case "waiting_human":
       return {
         handled: true,
@@ -129,4 +142,98 @@ function buildRecoveredOutcomeError(run: ObservedRuntimeRun): ProviderError {
       recovered: true,
     },
   };
+}
+
+function buildRecoveredSuccessTransition(
+  workItem: WorkItemRecord,
+  runId: string,
+): {
+  id: string;
+  nextStatus: WorkItemRecord["status"];
+  nextPhase: WorkItemRecord["phase"];
+  state: WorkItemRecord["orchestration"]["state"];
+  reviewOutcome?: WorkItemRecord["orchestration"]["reviewOutcome"];
+  blockedReason?: string | null;
+  lastError?: null;
+  runId: string;
+} {
+  switch (workItem.phase) {
+    case "design":
+      return {
+        id: workItem.id,
+        nextStatus: "plan",
+        nextPhase: "plan",
+        state: "queued",
+        blockedReason: null,
+        lastError: null,
+        runId,
+      };
+    case "plan":
+      return {
+        id: workItem.id,
+        nextStatus: "implement",
+        nextPhase: "implement",
+        state: "queued",
+        blockedReason: null,
+        lastError: null,
+        runId,
+      };
+    case "implement":
+      return {
+        id: workItem.id,
+        nextStatus: "review",
+        nextPhase: "review",
+        state: "queued",
+        blockedReason: null,
+        lastError: null,
+        runId,
+      };
+    case "review":
+      if (workItem.orchestration.reviewOutcome === "approved") {
+        return {
+          id: workItem.id,
+          nextStatus: "done",
+          nextPhase: "none",
+          state: "completed",
+          reviewOutcome: "approved",
+          blockedReason: null,
+          lastError: null,
+          runId,
+        };
+      }
+
+      if (workItem.orchestration.reviewOutcome === "changes_requested") {
+        return {
+          id: workItem.id,
+          nextStatus: "implement",
+          nextPhase: "implement",
+          state: "queued",
+          reviewOutcome: "changes_requested",
+          blockedReason: null,
+          lastError: null,
+          runId,
+        };
+      }
+
+      return {
+        id: workItem.id,
+        nextStatus: "blocked",
+        nextPhase: "review",
+        state: "waiting_human",
+        blockedReason:
+          "Recovered a completed review run without a recorded review outcome.",
+        lastError: null,
+        runId,
+      };
+    default:
+      return {
+        id: workItem.id,
+        nextStatus: workItem.status,
+        nextPhase: workItem.phase,
+        state: "queued",
+        blockedReason: null,
+        lastError: null,
+        runId,
+      };
+  }
 }

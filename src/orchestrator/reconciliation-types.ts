@@ -40,6 +40,7 @@ export type ReconciliationCase =
   | "planning_active_runtime_missing_expired_lease"
   | "planning_active_runtime_missing_runtime_unhealthy"
   | "runtime_active_orphaned"
+  | "runtime_terminal_orphaned"
   | "runtime_terminal_without_planning_lease";
 
 export type ReconciliationClassification = {

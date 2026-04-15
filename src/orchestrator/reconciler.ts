@@ -295,7 +295,7 @@ export function classifyRuntimeReconciliation(input: {
 
   return buildClassification(
     isRuntimeTerminalStatus(input.runtimeRun.status)
-      ? "runtime_terminal_without_planning_lease"
+      ? "runtime_terminal_orphaned"
       : "runtime_active_orphaned",
     workItem,
     input.runtimeRun,

@@ -109,9 +109,86 @@ test("drift ticks reconcile terminal runtime runs even without a tracked work it
 
   const results = await loop.runDriftTick();
 
-  assert.equal(results.some((result) => result.classification.kind === "runtime_terminal_without_planning_lease"), true);
-  assert.equal(context.finalizeRunLedgerCalls[0]?.status, "failed");
-  assert.equal(planning.transitionCalls[0]?.state, "failed");
+  assert.equal(results.length >= 1, true);
+  assert.equal(context.finalizeRunLedgerCalls.length, 0);
+  assert.equal(planning.transitionCalls.length, 0);
+});
+
+test("drift ticks page through runtime status buckets until all results are consumed", async () => {
+  const workItem = createWorkItem({
+    orchestration: {
+      state: "idle",
+      owner: null,
+      runId: null,
+      leaseUntil: null,
+      reviewOutcome: "none",
+      blockedReason: null,
+      lastError: null,
+      attemptCount: 0,
+    },
+  });
+  const planning = new LoopPlanningBackend(workItem);
+  const context = new LoopContextBackend(createArtifact());
+  const firstRun = createRuntimeRun({
+    runId: "run-page-1",
+    status: "failed",
+    outcome: {
+      summary: "Page one failed run.",
+      error: {
+        providerFamily: "runtime",
+        providerKind: "codex",
+        code: "unknown",
+        message: "Page one failed run.",
+        retryable: true,
+        details: null,
+      },
+    },
+  });
+  const secondRun = createRuntimeRun({
+    runId: "run-page-2",
+    status: "failed",
+    outcome: {
+      summary: "Page two failed run.",
+      error: {
+        providerFamily: "runtime",
+        providerKind: "codex",
+        code: "unknown",
+        message: "Page two failed run.",
+        retryable: true,
+        details: null,
+      },
+    },
+  });
+  const runtimeObserver = new LoopRuntimeObserver({
+    pagedByStatus: new Map([
+      [
+        "failed",
+        [
+          {
+            runs: [firstRun],
+            nextCursor: "cursor-2",
+          },
+          {
+            runs: [secondRun],
+            nextCursor: null,
+          },
+        ],
+      ],
+    ]),
+  });
+  const loop = new ReconciliationLoop({
+    planning,
+    context,
+    runtimeObserver,
+    owner: "orchestrator:test",
+    leaseDurationMs: 60_000,
+    now: () => new Date("2026-04-15T00:00:09.000Z"),
+  });
+
+  const results = await loop.runDriftTick();
+
+  assert.equal(results.length >= 2, true);
+  assert.equal(runtimeObserver.listRunsCalls.filter((call) => call.status === "failed").length, 2);
 });
 
 class LoopPlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConfig> {
@@ -255,10 +332,15 @@ class LoopContextBackend extends ContextBackend<ContextLocalFilesProviderConfig>
 }
 
 class LoopRuntimeObserver implements RuntimeObserver {
+  readonly listRunsCalls: Array<{ status?: string; cursor?: string }> = [];
   constructor(
     private readonly options: {
       runsById?: Map<string, ObservedRuntimeRun>;
       pageByStatus?: Map<string, ObservedRuntimeRun[]>;
+      pagedByStatus?: Map<
+        string,
+        Array<{ runs: ObservedRuntimeRun[]; nextCursor?: string | null }>
+      >;
       health?: RuntimeReadinessSnapshot;
     } = {},
   ) {}
@@ -266,7 +348,29 @@ class LoopRuntimeObserver implements RuntimeObserver {
   async getRun(runId: string): Promise<ObservedRuntimeRun | null> {
     return this.options.runsById?.get(runId) ?? null;
   }
-  async listRuns(input: { status?: string }): Promise<{ runs: ObservedRuntimeRun[]; nextCursor?: string | null }> {
+  async listRuns(input: { status?: string; cursor?: string }): Promise<{ runs: ObservedRuntimeRun[]; nextCursor?: string | null }> {
+    this.listRunsCalls.push({ status: input.status, cursor: input.cursor });
+
+    if (input.status !== undefined) {
+      const pagedResults = this.options.pagedByStatus?.get(input.status);
+
+      if (pagedResults !== undefined) {
+        if (input.cursor === undefined) {
+          return pagedResults[0] ?? { runs: [], nextCursor: null };
+        }
+
+        const nextIndex = pagedResults.findIndex(
+          (page) => page.nextCursor === input.cursor,
+        );
+
+        if (nextIndex >= 0 && pagedResults[nextIndex + 1] !== undefined) {
+          return pagedResults[nextIndex + 1];
+        }
+
+        return { runs: [], nextCursor: null };
+      }
+    }
+
     return {
       runs: input.status === undefined ? [] : (this.options.pageByStatus?.get(input.status) ?? []),
       nextCursor: null,
