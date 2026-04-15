@@ -10,6 +10,7 @@ import { startRuntimeDaemon, startRuntimeService } from "./main.js";
 import { openRuntimeDatabase } from "./persistence/database.js";
 import { getRuntimeSchemaVersion } from "./persistence/migrations.js";
 import { RuntimeRepository } from "./persistence/runtime-repository.js";
+import { RuntimeAdapterRegistry } from "./runtime-adapter-registry.js";
 import type { LaunchSpec, SessionObserver, SessionSnapshot, SessionSupervisor } from "./session-supervisor.js";
 import type { CreateRunInput } from "./types.js";
 import type { LoadedConfig } from "../config/types.js";
@@ -56,7 +57,9 @@ test("openRuntimeDatabase initializes WAL mode and the canonical schema", (t) =>
 
 test("runtime daemon preserves queued runs across restart", async (t) => {
   const fixture = createRuntimeFixture(t);
-  const daemon = new RuntimeDaemon(fixture.runtimeConfig);
+  const daemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    adapterRegistry: new RuntimeAdapterRegistry(),
+  });
 
   daemon.start();
   const createdRun = daemon.enqueueRun(createRunInput());
@@ -64,7 +67,9 @@ test("runtime daemon preserves queued runs across restart", async (t) => {
 
   await daemon.stop();
 
-  const restartedDaemon = new RuntimeDaemon(fixture.runtimeConfig);
+  const restartedDaemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    adapterRegistry: new RuntimeAdapterRegistry(),
+  });
   restartedDaemon.start();
   t.after(async () => restartedDaemon.stop());
 
@@ -256,6 +261,7 @@ test("startRuntimeService waits for daemon shutdown before exiting on signal", a
   const fixture = createRuntimeFixture(t);
   const supervisor = new DelayedLaunchSessionSupervisor();
   const daemon = new RuntimeDaemon(fixture.runtimeConfig, {
+    adapterRegistry: new RuntimeAdapterRegistry(),
     sessionSupervisor: supervisor,
     dispatcherIntervalMs: 5,
   });
