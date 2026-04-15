@@ -10,6 +10,11 @@ import {
   runGithubCommand,
 } from "./cli/github-command.js";
 import {
+  LocalCommandError,
+  renderLocalHelp,
+  runLocalCommand,
+} from "./cli/local-command.js";
+import {
   PromptCommandError,
   renderPromptHelp,
   runPromptCommand,
@@ -32,6 +37,7 @@ export * from "./domain-model.js";
 export * from "./orchestrator/index.js";
 export * from "./providers/index.js";
 export * from "./runtime/index.js";
+export * from "./cli/local-command.js";
 export * from "./cli/prompt-command.js";
 export * from "./cli/prompt-diff.js";
 export * from "./cli/prompt-preview.js";
@@ -48,6 +54,7 @@ export * from "./github/runtime-context.js";
 export * from "./github/scope.js";
 
 export type CliDependencies = Parameters<typeof runPromptCommand>[1] &
+  Parameters<typeof runLocalCommand>[1] &
   Parameters<typeof runSetupCommand>[1] &
   Parameters<typeof runGithubCommand>[1] &
   Parameters<typeof runRunCommand>[1] &
@@ -84,6 +91,10 @@ export async function runCli(
 
   if (command === "github") {
     return runGithubCommand(argv.slice(1), dependencies);
+  }
+
+  if (command === "local") {
+    return runLocalCommand(argv.slice(1), dependencies);
   }
 
   throw new SetupCommandError(`Unknown command '${command}'.`);
@@ -132,6 +143,7 @@ function renderTopLevelHelp(): string {
     "  init     Create a starter config.toml from the packaged example config.",
     "  bootstrap Validate the selected profile and prepare local state.",
     "  github   Run bounded GitHub PR interactions inside a managed run.",
+    "  local    Manage planning.local_files work items.",
     "  prompt   Render and diff resolved prompt variants.",
     "  run      Inspect runtime runs as operator-friendly diagnostics views.",
     "  runtime  Start the runtime daemon from the installed CLI.",
@@ -139,6 +151,8 @@ function renderTopLevelHelp(): string {
     renderSetupHelp(),
     "",
     renderGitHubHelp(),
+    "",
+    renderLocalHelp(),
     "",
     renderPromptHelp(),
     "",

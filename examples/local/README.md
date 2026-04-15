@@ -26,6 +26,12 @@ npm run orq:bootstrap
 
 That creates `config.toml`, materializes the planning seed into `.harness/local/planning`, and prepares the writable local context root at `.harness/local/context`.
 
+To add another issue to the writable local planning store without hand-editing JSON, run:
+
+```bash
+npx tsx src/index.ts local add-issue --title "Add a local work item"
+```
+
 If you want the full contributor bootstrap in one step, run:
 
 ```bash
