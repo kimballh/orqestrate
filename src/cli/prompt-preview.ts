@@ -44,6 +44,7 @@ export type PromptPreviewRequest = {
   selection?: PromptPreviewSelectionOverrides;
   contextFilePath?: string;
   cwd?: string;
+  configSourcePath?: string;
 };
 
 export type PromptPreviewSelectionSummary = {
@@ -78,14 +79,18 @@ export async function renderPromptPreview(
   config: LoadedConfig,
   request: PromptPreviewRequest,
 ): Promise<PromptPreviewResult> {
-  const cwd = path.resolve(request.cwd ?? process.cwd());
+  const invocationCwd = path.resolve(request.cwd ?? process.cwd());
+  const contextBaseDir =
+    request.configSourcePath === undefined
+      ? invocationCwd
+      : path.dirname(path.resolve(request.configSourcePath));
   const selectionOverrides = request.selection ?? {};
   const contextFilePath =
     request.contextFilePath === undefined
       ? undefined
-      : path.resolve(cwd, request.contextFilePath);
+      : path.resolve(invocationCwd, request.contextFilePath);
   const context = await loadPromptPreviewContext({
-    cwd,
+    contextBaseDir,
     contextFilePath,
   });
   const selection = resolvePromptSelection(config, {
@@ -129,10 +134,10 @@ export async function renderPromptPreview(
 }
 
 async function loadPromptPreviewContext(input: {
-  cwd: string;
+  contextBaseDir: string;
   contextFilePath?: string;
 }): Promise<PromptAssemblyContext> {
-  const defaultContext = await createSyntheticPreviewContext(input.cwd);
+  const defaultContext = await createSyntheticPreviewContext(input.contextBaseDir);
 
   if (input.contextFilePath === undefined) {
     return defaultContext;
@@ -180,7 +185,7 @@ async function createSyntheticPreviewContext(
     artifact: null,
     workspace: {
       repoRoot,
-      workingDir: cwd,
+      workingDir: repoRoot,
       mode: "shared_readonly",
       assignedBranch: null,
       baseBranch: null,

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { runCli } from "../index.js";
+import { isDirectExecution, runCli } from "../index.js";
 
 test("prompt render uses profile defaults and synthetic preview context", async () => {
   const fixture = createPromptCliFixture();
@@ -94,6 +94,54 @@ test("prompt render supports preview-only overrides and JSON output", async () =
   assert.match(parsed.prompt.userPrompt, /Authorized capabilities: github_review/);
 });
 
+test("prompt render anchors synthetic preview context to the selected config location", async () => {
+  const fixture = createPromptCliFixture();
+  const outsideDir = mkdtempSync(path.join(tmpdir(), "orq-prompt-cli-outside-"));
+  const result = await invokeCli(
+    [
+      "prompt",
+      "render",
+      "--config",
+      fixture.configPath,
+      "--role",
+      "review",
+      "--phase",
+      "review",
+      "--format",
+      "json",
+    ],
+    outsideDir,
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.context.workspace.repoRoot, fixture.workspaceDir);
+  assert.equal(parsed.context.workspace.workingDir, fixture.workspaceDir);
+});
+
+test("prompt render uses the repo root when the config lives in a nested directory", async () => {
+  const fixture = createPromptCliFixture({ configSubdir: "docs" });
+  const outsideDir = mkdtempSync(path.join(tmpdir(), "orq-prompt-cli-outside-"));
+  const result = await invokeCli(
+    [
+      "prompt",
+      "render",
+      "--config",
+      fixture.configPath,
+      "--role",
+      "review",
+      "--phase",
+      "review",
+      "--format",
+      "json",
+    ],
+    outsideDir,
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.context.workspace.repoRoot, fixture.workspaceDir);
+  assert.equal(parsed.context.workspace.workingDir, fixture.workspaceDir);
+});
+
 test("prompt diff reports source and prompt changes for variant overrides", async () => {
   const fixture = createPromptCliFixture();
   const result = await invokeCli(
@@ -121,6 +169,23 @@ test("prompt diff reports source and prompt changes for variant overrides", asyn
   assert.match(result.stdout, /No changes in systemPrompt\./);
   assert.match(result.stdout, /^User Prompt Diff$/m);
   assert.match(result.stdout, /--- left\/userPrompt/);
+});
+
+test("prompt subcommand help exits successfully", async () => {
+  const fixture = createPromptCliFixture();
+  const renderHelp = await invokeCli(
+    ["prompt", "render", "--help"],
+    fixture.workspaceDir,
+  );
+  const diffHelp = await invokeCli(
+    ["prompt", "diff", "--help"],
+    fixture.workspaceDir,
+  );
+
+  assert.equal(renderHelp.exitCode, 0);
+  assert.match(renderHelp.stdout, /^Render options:$/m);
+  assert.equal(diffHelp.exitCode, 0);
+  assert.match(diffHelp.stdout, /^Diff options:$/m);
 });
 
 test("prompt render fails clearly for invalid context files", async () => {
@@ -153,6 +218,25 @@ test("prompt render fails clearly for invalid context files", async () => {
   );
 });
 
+test("direct execution detection compares real paths instead of raw argv strings", () => {
+  const symlinkedEntry = "/tmp/orq/dist/index.js";
+  const canonicalEntry = "/private/tmp/orq/dist/index.js";
+  const moduleUrl = `file://${canonicalEntry}`;
+  const resolved = new Map<string, string>([
+    [symlinkedEntry, canonicalEntry],
+    [canonicalEntry, canonicalEntry],
+  ]);
+
+  assert.equal(
+    isDirectExecution(
+      symlinkedEntry,
+      moduleUrl,
+      (targetPath) => resolved.get(targetPath) ?? targetPath,
+    ),
+    true,
+  );
+});
+
 async function invokeCli(
   args: string[],
   cwd: string,
@@ -172,15 +256,25 @@ async function invokeCli(
   };
 }
 
-function createPromptCliFixture(): {
+function createPromptCliFixture(options: { configSubdir?: string } = {}): {
   workspaceDir: string;
   configPath: string;
 } {
   const workspaceDir = mkdtempSync(path.join(tmpdir(), "orq-prompt-cli-"));
   const promptRoot = path.join(workspaceDir, "prompts");
+  const configDir = path.join(workspaceDir, options.configSubdir ?? "");
+  const workspaceRelativeToConfig = toPosixPath(
+    path.relative(configDir, workspaceDir) || ".",
+  );
 
   mkdirSync(path.join(workspaceDir, ".harness", "planning"), { recursive: true });
   mkdirSync(path.join(workspaceDir, ".harness", "context"), { recursive: true });
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(
+    path.join(workspaceDir, "package.json"),
+    JSON.stringify({ name: "prompt-cli-fixture", private: true }, null, 2),
+    "utf8",
+  );
 
   const promptFiles = new Map<string, string>([
     ["base/system.md", "Base system prompt for prompt CLI tests.\n"],
@@ -207,19 +301,19 @@ function createPromptCliFixture(): {
     writeFileSync(absolutePath, contents, "utf8");
   }
 
-  const configPath = path.join(workspaceDir, "config.toml");
+  const configPath = path.join(configDir, "config.toml");
   writeFileSync(
     configPath,
     `version = 1
 active_profile = "local"
 
 [paths]
-state_dir = ".harness/state"
-data_dir = ".harness/data"
-log_dir = ".harness/logs"
+state_dir = "${workspaceRelativeToConfig}/.harness/state"
+data_dir = "${workspaceRelativeToConfig}/.harness/data"
+log_dir = "${workspaceRelativeToConfig}/.harness/logs"
 
 [prompts]
-root = "./prompts"
+root = "${workspaceRelativeToConfig}/prompts"
 active_pack = "default"
 invariants = ["invariants/run-scope.md"]
 
@@ -259,11 +353,11 @@ reviewer_alt = "experiments/reviewer-alt.md"
 
 [providers.local_planning]
 kind = "planning.local_files"
-root = ".harness/planning"
+root = "${workspaceRelativeToConfig}/.harness/planning"
 
 [providers.local_context]
 kind = "context.local_files"
-root = ".harness/context"
+root = "${workspaceRelativeToConfig}/.harness/context"
 
 [profiles.local]
 planning = "local_planning"
@@ -282,4 +376,8 @@ default_experiment = "reviewer_v2"
     workspaceDir,
     configPath,
   };
+}
+
+function toPosixPath(value: string): string {
+  return value.split(path.sep).join("/");
 }

@@ -68,11 +68,21 @@ export async function runPromptCommand(
   const command = args[0];
 
   if (command === "render") {
+    if (args.slice(1).some(isHelpFlag)) {
+      write(dependencies.stdout, renderRenderHelp());
+      return 0;
+    }
+
     const options = parseRenderOptions(args.slice(1));
     return runRenderCommand(options, dependencies);
   }
 
   if (command === "diff") {
+    if (args.slice(1).some(isHelpFlag)) {
+      write(dependencies.stdout, renderDiffHelp());
+      return 0;
+    }
+
     const options = parseDiffOptions(args.slice(1));
     return runDiffCommand(options, dependencies);
   }
@@ -85,10 +95,6 @@ function parseRenderOptions(args: string[]): PromptRenderOptions {
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-
-    if (isHelpFlag(argument)) {
-      throw new PromptCommandError(renderRenderHelp());
-    }
 
     switch (argument) {
       case "--config":
@@ -160,10 +166,6 @@ function parseDiffOptions(args: string[]): PromptDiffOptions {
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-
-    if (isHelpFlag(argument)) {
-      throw new PromptCommandError(renderDiffHelp());
-    }
 
     switch (argument) {
       case "--config":
@@ -288,6 +290,7 @@ async function runRenderCommand(
     selection: options.selection,
     contextFilePath: options.contextFilePath,
     cwd,
+    configSourcePath: config.sourcePath,
   });
 
   if (options.format === "json") {
@@ -325,6 +328,7 @@ async function runDiffCommand(
     selection: options.selection,
     contextFilePath: options.contextFilePath,
     cwd,
+    configSourcePath: leftConfig.sourcePath,
   });
   const rightPreview = await renderPromptPreview(rightConfig, {
     role: options.role,
@@ -348,6 +352,7 @@ async function runDiffCommand(
     contextFilePath:
       options.variantContextFilePath ?? options.contextFilePath,
     cwd,
+    configSourcePath: rightConfig.sourcePath,
   });
   const diff = diffPromptPreviews(leftPreview, rightPreview);
 

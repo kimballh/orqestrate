@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -63,6 +65,19 @@ export async function main(
   }
 }
 
+export function isDirectExecution(
+  entryPath: string | undefined,
+  moduleUrl: string = import.meta.url,
+  resolveRealPath: (targetPath: string) => string = defaultResolveRealPath,
+): boolean {
+  if (entryPath === undefined) {
+    return false;
+  }
+
+  const modulePath = fileURLToPath(moduleUrl);
+  return resolveRealPath(entryPath) === resolveRealPath(modulePath);
+}
+
 function renderTopLevelHelp(): string {
   return [
     "Usage: orq <command> [options]",
@@ -74,6 +89,14 @@ function renderTopLevelHelp(): string {
   ].join("\n");
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+function defaultResolveRealPath(targetPath: string): string {
+  try {
+    return realpathSync(targetPath);
+  } catch {
+    return path.resolve(targetPath);
+  }
+}
+
+if (isDirectExecution(process.argv[1])) {
   void main();
 }
