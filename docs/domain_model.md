@@ -288,9 +288,14 @@ export type RunRecord = {
     allocationId?: string | null;
     baseRef?: string | null;
     branchName?: string | null;
+    assignedBranch?: string | null;
+    pullRequestUrl?: string | null;
+    pullRequestMode?: string | null;
+    writeScope?: string | null;
   };
   artifactUrl?: string | null;
   requestedBy?: string | null;
+  grantedCapabilities: string[];
   promptContractId: string;
   promptDigests: {
     system?: string | null;
@@ -339,6 +344,7 @@ export type RunRecord = {
 Rules:
 
 - `RunRecord.status` is runtime authority and must not be overloaded with workflow meaning
+- `grantedCapabilities` is the canonical run-scoped capability grant set shared by prompt assembly and runtime enforcement seams
 - `promptContractId` identifies the prompt pack or contract used for the run
 - `promptProvenance` stores safe prompt selection, source, and rendered metadata for historical diagnosis
 - the runtime stores prompt digests and safe provenance, not full prompt bodies, as part of the base run record
@@ -493,8 +499,13 @@ export type RunSubmissionPayload = {
     mode: WorkspaceMode;
     workingDirHint?: string | null;
     baseRef?: string | null;
+    assignedBranch?: string | null;
+    pullRequestUrl?: string | null;
+    pullRequestMode?: string | null;
+    writeScope?: string | null;
   };
   prompt: PromptEnvelope;
+  grantedCapabilities: string[];
   promptProvenance?: PromptProvenanceRecord | null;
   limits: {
     maxWallTimeSec: number;
@@ -509,6 +520,7 @@ Rules:
 
 - runtime submission must be self-contained for one run
 - `phase` is explicit on the payload and must never be inferred by the runtime from planning status text
+- `grantedCapabilities` carries the effective run-scoped capability grants, not just prompt prose
 - runtime should not need to query Linear, Notion, or `config.toml` to execute a run
 - all timestamps crossing process boundaries should be ISO 8601 UTC strings
 - enums serialize as lower-case ASCII strings

@@ -762,6 +762,10 @@ function createPreparedRun(
         mode: "ephemeral_worktree",
         workingDirHint: path.join(REPO_ROOT, ".worktrees", "run-99"),
         baseRef: "main",
+        assignedBranch: "hillkimball/orq-38-implement-run-submission-flow-and-runtime-outcome-write-back",
+        pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/38",
+        pullRequestMode: "draft",
+        writeScope: "repo",
       },
       prompt: {
         contractId: "orqestrate/implement/v1",
@@ -774,6 +778,7 @@ function createPreparedRun(
           user: "user-digest",
         },
       },
+      grantedCapabilities: ["github.read_pr", "github.push_branch"],
       limits: {
         maxWallTimeSec: 3600,
         idleTimeoutSec: 300,
@@ -812,9 +817,14 @@ function createRuntimeRun(input: {
       allocationId: null,
       baseRef: "main",
       branchName: null,
+      assignedBranch: null,
+      pullRequestUrl: null,
+      pullRequestMode: null,
+      writeScope: null,
     },
     artifactUrl: input.artifactUrl,
     requestedBy: "Kimball Hill",
+    grantedCapabilities: [],
     promptContractId: "orqestrate/implement/v1",
     promptDigests: {
       system: "system-digest",

@@ -134,13 +134,17 @@ Response:
     "status": "queued",
     "repoRoot": "/repo",
     "workspace": {
-      "mode": "ephemeral_worktree"
+      "mode": "ephemeral_worktree",
+      "assignedBranch": "hillkimball/orq-16-define-canonical-domain-model-and-cross-layer-contracts",
+      "pullRequestUrl": "https://github.com/kimballh/orqestrate/pull/16",
+      "writeScope": "repo"
     },
+    "grantedCapabilities": ["github.read_pr", "github.push_branch"],
     "promptContractId": "orqestrate/implement/v1",
     "promptProvenance": {
       "selection": {
         "promptPackName": "default",
-        "capabilityNames": ["github_review"],
+        "capabilityNames": ["github.read_pr"],
         "organizationOverlayNames": ["reviewer_qa"],
         "projectOverlayNames": ["reviewer_webapp"],
         "experimentName": "reviewer_v2"

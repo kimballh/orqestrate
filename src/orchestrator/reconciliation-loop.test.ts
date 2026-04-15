@@ -457,6 +457,7 @@ function createRuntimeRun(
     workspace: overrides.workspace ?? { mode: "ephemeral_worktree" },
     artifactUrl: overrides.artifactUrl ?? null,
     requestedBy: overrides.requestedBy ?? null,
+    grantedCapabilities: overrides.grantedCapabilities ?? [],
     promptContractId: overrides.promptContractId ?? "orqestrate/implement/v1",
     promptDigests: overrides.promptDigests ?? { system: null, user: "digest" },
     limits: overrides.limits ?? {

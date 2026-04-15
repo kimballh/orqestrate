@@ -416,6 +416,10 @@ function parseCreateRunBody(body: Record<string, unknown>) {
     workItem: requireWorkItem(body.workItem),
     workspace: requireWorkspace(body.workspace),
     prompt: requirePrompt(body.prompt),
+    grantedCapabilities:
+      body.grantedCapabilities === undefined
+        ? []
+        : requireStringArray(body.grantedCapabilities, "grantedCapabilities"),
     promptProvenance: optionalPromptProvenance(body.promptProvenance),
     limits: requireLimits(body.limits),
     requestedBy: optionalString(body.requestedBy, "requestedBy"),
@@ -487,6 +491,19 @@ function requireWorkspace(value: unknown) {
       "workspace.workingDirHint",
     ),
     baseRef: optionalString(value.baseRef, "workspace.baseRef"),
+    assignedBranch: optionalString(
+      value.assignedBranch,
+      "workspace.assignedBranch",
+    ),
+    pullRequestUrl: optionalString(
+      value.pullRequestUrl,
+      "workspace.pullRequestUrl",
+    ),
+    pullRequestMode: optionalString(
+      value.pullRequestMode,
+      "workspace.pullRequestMode",
+    ),
+    writeScope: optionalString(value.writeScope, "workspace.writeScope"),
   };
 }
 

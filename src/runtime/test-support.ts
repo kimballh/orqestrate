@@ -396,6 +396,10 @@ export function createRunInput(
       mode: "ephemeral_worktree",
       workingDirHint: `/repo/.worktrees/${runId}`,
       baseRef: "main",
+      assignedBranch: `hillkimball/${runId}`,
+      pullRequestUrl: `https://github.com/kimballh/orqestrate/pull/${runId}`,
+      pullRequestMode: "draft",
+      writeScope: "repo",
     },
     prompt: {
       contractId: "orqestrate/implement/v1",
@@ -407,6 +411,7 @@ export function createRunInput(
         user: "sha256-user",
       },
     },
+    grantedCapabilities: ["github.read_pr", "github.push_branch"],
     promptProvenance: {
       selection: {
         promptPackName: "default",

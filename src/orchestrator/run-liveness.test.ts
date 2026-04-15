@@ -204,6 +204,7 @@ function createRuntimeRun(
     },
     artifactUrl: overrides.artifactUrl ?? null,
     requestedBy: overrides.requestedBy ?? null,
+    grantedCapabilities: overrides.grantedCapabilities ?? [],
     promptContractId: overrides.promptContractId ?? "orqestrate/implement/v1",
     promptDigests: overrides.promptDigests ?? {
       system: null,

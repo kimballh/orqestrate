@@ -51,12 +51,49 @@ export const PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS = [
 export type PromptCapabilityContextRequirement =
   (typeof PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS)[number];
 
+export const PROMPT_CAPABILITY_PROVIDERS = ["github"] as const;
+
+export type PromptCapabilityProvider =
+  (typeof PROMPT_CAPABILITY_PROVIDERS)[number];
+
+export const PROMPT_CAPABILITY_SURFACES = [
+  "pull_request",
+  "branch",
+  "review_thread",
+  "review_submission",
+] as const;
+
+export type PromptCapabilitySurface =
+  (typeof PROMPT_CAPABILITY_SURFACES)[number];
+
+export const PROMPT_CAPABILITY_EFFECTS = [
+  "read",
+  "write",
+  "state_transition",
+] as const;
+
+export type PromptCapabilityEffect = (typeof PROMPT_CAPABILITY_EFFECTS)[number];
+
+export const PROMPT_CAPABILITY_TARGET_SCOPES = [
+  "linked_pull_request",
+  "assigned_branch",
+  "pull_request_for_assigned_branch",
+] as const;
+
+export type PromptCapabilityTargetScope =
+  (typeof PROMPT_CAPABILITY_TARGET_SCOPES)[number];
+
 export interface PromptCapabilityDefinition {
   authority: PromptCapabilityAuthority;
   allowedPhases: WorkPhase[];
+  allowedRoles: WorkPhase[];
   requiredContext: PromptCapabilityContextRequirement[];
   requires: string[];
   conflictsWith: string[];
+  provider?: PromptCapabilityProvider;
+  surface?: PromptCapabilitySurface;
+  effect?: PromptCapabilityEffect;
+  targetScope?: PromptCapabilityTargetScope;
 }
 
 export interface PathsConfig {

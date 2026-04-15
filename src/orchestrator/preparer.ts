@@ -174,7 +174,11 @@ export async function prepareClaimedRun(
             repoRoot: input.repoRoot,
             workingDir: workspace.workingDirHint,
             mode: workspace.mode,
+            assignedBranch: workspace.assignedBranch ?? null,
             baseBranch: workspace.baseRef ?? null,
+            pullRequestUrl: workspace.pullRequestUrl ?? null,
+            pullRequestMode: workspace.pullRequestMode ?? null,
+            writeScope: workspace.writeScope ?? null,
           },
           expectations: input.prompt?.expectations ?? {},
           operatorNote: input.prompt?.operatorNote ?? null,
@@ -219,6 +223,7 @@ export async function prepareClaimedRun(
       provider: input.provider,
       workspace,
       prompt: prompt.prompt,
+      grantedCapabilities: prompt.grantedCapabilities,
       promptProvenance: prompt.provenance,
       limits: {
         maxWallTimeSec: dependencies.config.policy.defaultPhaseTimeoutSec,
@@ -308,6 +313,10 @@ function resolveWorkspace(
     workingDirHint:
       workspace?.workingDirHint ?? path.join(repoRoot, ".worktrees", runId),
     baseRef: workspace?.baseRef ?? null,
+    assignedBranch: workspace?.assignedBranch ?? null,
+    pullRequestUrl: workspace?.pullRequestUrl ?? null,
+    pullRequestMode: workspace?.pullRequestMode ?? null,
+    writeScope: workspace?.writeScope ?? null,
   };
 }
 

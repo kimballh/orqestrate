@@ -211,6 +211,10 @@ export type RunWorkspaceRecord = {
   allocationId?: string | null;
   baseRef?: string | null;
   branchName?: string | null;
+  assignedBranch?: string | null;
+  pullRequestUrl?: string | null;
+  pullRequestMode?: string | null;
+  writeScope?: string | null;
 };
 
 export type RunOutcomeRecord = {
@@ -236,6 +240,7 @@ export type RunRecord = {
   workspace: RunWorkspaceRecord;
   artifactUrl?: string | null;
   requestedBy?: string | null;
+  grantedCapabilities: string[];
   promptContractId: string;
   promptDigests: {
     system?: string | null;
@@ -334,8 +339,13 @@ export type RunSubmissionPayload = {
     mode: WorkspaceMode;
     workingDirHint?: string | null;
     baseRef?: string | null;
+    assignedBranch?: string | null;
+    pullRequestUrl?: string | null;
+    pullRequestMode?: string | null;
+    writeScope?: string | null;
   };
   prompt: PromptEnvelope;
+  grantedCapabilities: string[];
   promptProvenance?: PromptProvenanceRecord | null;
   limits: {
     maxWallTimeSec: number;

@@ -22,15 +22,65 @@ invariants = [
   "invariants/blockers.md",
 ]
 
-[prompt_capabilities.github_review]
+[prompt_capabilities."github.read_pr"]
 authority = "execution_surface_read"
-allowed_phases = ["review"]
+provider = "github"
+surface = "pull_request"
+effect = "read"
+target_scope = "linked_pull_request"
+allowed_phases = ["implement", "review"]
+allowed_roles = ["implement", "review"]
 required_context = ["pull_request_url"]
 
-[prompt_capabilities.github_reply]
+[prompt_capabilities."github.push_branch"]
 authority = "execution_surface_write"
-allowed_phases = ["implement", "review"]
-required_context = ["pull_request_url"]
+provider = "github"
+surface = "branch"
+effect = "write"
+target_scope = "assigned_branch"
+allowed_phases = ["implement"]
+allowed_roles = ["implement"]
+required_context = ["assigned_branch", "write_scope"]
+
+[prompt_capabilities."github.create_pr"]
+authority = "execution_surface_write"
+provider = "github"
+surface = "pull_request"
+effect = "write"
+target_scope = "pull_request_for_assigned_branch"
+allowed_phases = ["implement"]
+allowed_roles = ["implement"]
+required_context = ["assigned_branch", "write_scope"]
+
+[prompt_capabilities."github.reply_review_thread"]
+authority = "execution_surface_write"
+provider = "github"
+surface = "review_thread"
+effect = "write"
+target_scope = "linked_pull_request"
+allowed_phases = ["implement"]
+allowed_roles = ["implement"]
+required_context = ["pull_request_url", "write_scope"]
+
+[prompt_capabilities."github.resolve_review_thread"]
+authority = "execution_surface_write"
+provider = "github"
+surface = "review_thread"
+effect = "state_transition"
+target_scope = "linked_pull_request"
+allowed_phases = ["implement"]
+allowed_roles = ["implement"]
+required_context = ["pull_request_url", "write_scope"]
+
+[prompt_capabilities."github.write_review"]
+authority = "execution_surface_write"
+provider = "github"
+surface = "review_submission"
+effect = "write"
+target_scope = "linked_pull_request"
+allowed_phases = ["review"]
+allowed_roles = ["review"]
+required_context = ["pull_request_url", "write_scope"]
 
 [prompt_capabilities.playwright_exploration]
 authority = "behavioral"
@@ -56,8 +106,12 @@ implement = "phases/implement.md"
 review = "phases/review.md"
 
 [prompt_packs.default.capabilities]
-github_review = "capabilities/github-review.md"
-github_reply = "capabilities/github-reply.md"
+"github.read_pr" = "capabilities/github-read-pr.md"
+"github.push_branch" = "capabilities/github-push-branch.md"
+"github.create_pr" = "capabilities/github-create-pr.md"
+"github.reply_review_thread" = "capabilities/github-reply-review-thread.md"
+"github.resolve_review_thread" = "capabilities/github-resolve-review-thread.md"
+"github.write_review" = "capabilities/github-write-review.md"
 playwright_exploration = "capabilities/playwright-exploration.md"
 user_journey_comparison = "capabilities/user-journey-comparison.md"
 

@@ -1,5 +1,6 @@
 export * from "./config.js";
 export * from "./builtins.js";
+export * from "./capability-grants.js";
 export * from "./api/errors.js";
 export * from "./api/event-stream.js";
 export * from "./api/router.js";
