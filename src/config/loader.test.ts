@@ -306,6 +306,69 @@ required_context = ["pull_request_url", "write_scope"]
   );
 });
 
+test("rejects GitHub capabilities that omit allowed phases", () => {
+  const fixture = createFixtureWorkspace();
+
+  assert.throws(
+    () =>
+      parseConfig(
+        `${VALID_CONFIG}
+
+[prompt_capabilities."github.reply_review_thread"]
+authority = "execution_surface_write"
+provider = "github"
+surface = "review_thread"
+effect = "write"
+target_scope = "linked_pull_request"
+allowed_roles = ["implement"]
+required_context = ["pull_request_url", "write_scope"]
+`,
+        {
+          sourcePath: fixture.sourcePath,
+          env: {},
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(
+        error.path,
+        "prompt_capabilities.github.reply_review_thread.allowed_phases",
+      );
+      assert.match(error.message, /must declare at least one allowed phase/i);
+      return true;
+    },
+  );
+});
+
+test("rejects GitHub pull-request read capabilities that are not scoped to the linked PR", () => {
+  const fixture = createFixtureWorkspace();
+
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          'target_scope = "linked_pull_request"',
+          'target_scope = "assigned_branch"',
+        ).replace(
+          'required_context = ["pull_request_url"]',
+          'required_context = ["assigned_branch"]',
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          env: {},
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(error.path, "prompt_capabilities.github.read_pr.target_scope");
+      assert.match(error.message, /must target the linked pull request/i);
+      return true;
+    },
+  );
+});
+
 test("loads the docs example default prompt pack with non-placeholder prompt assets", async () => {
   const config = await loadConfig({
     configPath: path.join(REPO_ROOT, "docs/config.example.toml"),

@@ -1154,6 +1154,16 @@ function validateGitHubCapabilityDefinition(
     );
   }
 
+  if (definition.allowedPhases.length === 0) {
+    throw new ConfigError(
+      `GitHub prompt capability '${name}' must declare at least one allowed phase.`,
+      {
+        code: "invalid_value",
+        path: `prompt_capabilities.${name}.allowed_phases`,
+      },
+    );
+  }
+
   if (definition.authority === "behavioral") {
     throw new ConfigError(
       `GitHub prompt capability '${name}' must use an execution-surface authority.`,
@@ -1257,6 +1267,19 @@ function validateGitHubCapabilityScopePolicy(
         definition,
         definition.effect === "read" ? ["implement", "review"] : ["implement"],
       );
+
+      if (
+        definition.effect === "read" &&
+        definition.targetScope !== "linked_pull_request"
+      ) {
+        throw new ConfigError(
+          `GitHub pull-request read capability '${name}' must target the linked pull request.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.target_scope`,
+          },
+        );
+      }
 
       if (
         definition.effect === "write" &&
