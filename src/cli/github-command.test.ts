@@ -181,6 +181,53 @@ test("github subcommand help prints usage text instead of runtime errors", async
   assert.equal(result.stderr, "");
 });
 
+test("github review-thread-reply allows --help as the body value", async () => {
+  const result = await invokeCli(
+    [
+      "github",
+      "review-thread-reply",
+      "--thread-id",
+      "thread-1",
+      "--body",
+      "--help",
+    ],
+    {
+      loadRun: async () => createRun(),
+      createClient: () =>
+        ({
+          getReviewThread: async () => ({
+            id: "thread-1",
+            pullRequest: {
+              owner: "kimballh",
+              repo: "orqestrate",
+              number: 42,
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+            },
+            comments: [
+              {
+                id: "comment-1",
+                databaseId: 101,
+                url: "https://github.com/comment/101",
+                body: "Needs a reply",
+                createdAt: "2026-04-15T20:00:00.000Z",
+                authorLogin: "reviewer",
+              },
+            ],
+          }),
+          replyToReviewComment: async ({ body }: { body: string }) => ({
+            id: 12,
+            url: "https://github.com/kimballh/orqestrate/pull/42#discussion_r12",
+            body,
+          }),
+        }) as never,
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.reply.body, "--help");
+});
+
 async function invokeCli(
   args: string[],
   dependencies: {

@@ -382,10 +382,6 @@ async function handleReviewWrite(
 }
 
 function parsePrUpsertOptions(args: string[]): PrUpsertOptions {
-  if (containsHelpFlag(args)) {
-    throw createCommandError("help_requested", renderPrUpsertHelp());
-  }
-
   const options: Partial<PrUpsertOptions> = {};
 
   for (let index = 0; index < args.length; index += 1) {
@@ -429,10 +425,6 @@ function parsePrUpsertOptions(args: string[]): PrUpsertOptions {
 }
 
 function parseThreadReplyOptions(args: string[]): ThreadReplyOptions {
-  if (containsHelpFlag(args)) {
-    throw createCommandError("help_requested", renderReviewThreadReplyHelp());
-  }
-
   const options: Partial<ThreadReplyOptions> = {};
 
   for (let index = 0; index < args.length; index += 1) {
@@ -472,13 +464,6 @@ function parseThreadReplyOptions(args: string[]): ThreadReplyOptions {
 }
 
 function parseThreadResolveOptions(args: string[]): ThreadResolveOptions {
-  if (containsHelpFlag(args)) {
-    throw createCommandError(
-      "help_requested",
-      renderReviewThreadResolveHelp(),
-    );
-  }
-
   if (args.length !== 2 || args[0] !== "--thread-id") {
     throw createCommandError(
       "missing_argument",
@@ -492,10 +477,6 @@ function parseThreadResolveOptions(args: string[]): ThreadResolveOptions {
 }
 
 function parseReviewWriteOptions(args: string[]): ReviewWriteOptions {
-  if (containsHelpFlag(args)) {
-    throw createCommandError("help_requested", renderReviewWriteHelp());
-  }
-
   const options: ReviewWriteOptions = {
     body: "",
     event: "COMMENT",
@@ -694,7 +675,7 @@ function renderGitHubSubcommandHelp(
   subcommand: string,
   args: string[],
 ): string | null {
-  if (!containsHelpFlag(args)) {
+  if (!isSubcommandHelpRequest(subcommand, args)) {
     return null;
   }
 
@@ -743,6 +724,44 @@ function isHelpFlag(argument: string): boolean {
 
 function containsHelpFlag(args: string[]): boolean {
   return args.some((argument) => isHelpFlag(argument));
+}
+
+function isSubcommandHelpRequest(subcommand: string, args: string[]): boolean {
+  switch (subcommand) {
+    case "pr-read":
+      return args.length === 1 && isHelpFlag(args[0] ?? "");
+    case "pr-upsert":
+      return hasStandaloneHelpFlag(args, new Set(["--title", "--body", "--base"]));
+    case "review-thread-reply":
+      return hasStandaloneHelpFlag(args, new Set(["--thread-id", "--body"]));
+    case "review-thread-resolve":
+      return args.length === 1 && isHelpFlag(args[0] ?? "");
+    case "review-write":
+      return hasStandaloneHelpFlag(
+        args,
+        new Set(["--body", "--event", "--comment-json"]),
+      );
+    default:
+      return containsHelpFlag(args);
+  }
+}
+
+function hasStandaloneHelpFlag(
+  args: string[],
+  optionsWithValues: ReadonlySet<string>,
+): boolean {
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index] ?? "";
+    if (isHelpFlag(argument)) {
+      return true;
+    }
+
+    if (optionsWithValues.has(argument)) {
+      index += 1;
+    }
+  }
+
+  return false;
 }
 
 function readOptionValue(
