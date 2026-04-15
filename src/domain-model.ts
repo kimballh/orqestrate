@@ -246,6 +246,7 @@ export type RunRecord = {
     system?: string | null;
     user: string;
   };
+  promptProvenance?: PromptProvenanceRecord | null;
   limits: {
     maxWallTimeSec: number;
     idleTimeoutSec: number;
@@ -285,6 +286,33 @@ export type PromptSourceRef = {
   ref: string;
 };
 
+export type PromptProvenanceSelection = {
+  promptPackName: string;
+  capabilityNames: string[];
+  organizationOverlayNames: string[];
+  projectOverlayNames: string[];
+  experimentName?: string | null;
+};
+
+export type PromptProvenanceSource = {
+  kind: PromptSourceKind;
+  ref: string;
+  digest: string;
+};
+
+export type PromptRenderedMetadata = {
+  systemPromptLength: number;
+  userPromptLength: number;
+  attachmentKinds: PromptAttachmentKind[];
+  attachmentCount: number;
+};
+
+export type PromptProvenanceRecord = {
+  selection: PromptProvenanceSelection;
+  sources: PromptProvenanceSource[];
+  rendered: PromptRenderedMetadata;
+};
+
 export type PromptEnvelope = {
   contractId: string;
   systemPrompt?: string | null;
@@ -318,6 +346,7 @@ export type RunSubmissionPayload = {
   };
   prompt: PromptEnvelope;
   grantedCapabilities: string[];
+  promptProvenance?: PromptProvenanceRecord | null;
   limits: {
     maxWallTimeSec: number;
     idleTimeoutSec: number;

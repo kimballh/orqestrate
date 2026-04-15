@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-15T00:10:00.000Z",
+  "items": [
+    {
+      "id": "LOCAL-001",
+      "identifier": "LOCAL-001",
+      "title": "Implement the local bootstrap happy path",
+      "status": "implement",
+      "phase": "implement",
+      "priority": 1,
+      "updatedAt": "2026-04-15T00:00:00.000Z",
+      "dependencyIds": [
+        "LOCAL-002"
+      ],
+      "blockedByIds": [
+        "LOCAL-002"
+      ],
+      "orchestration": {
+        "state": "queued",
+        "owner": null,
+        "runId": null,
+        "leaseUntil": null
+      }
+    },
+    {
+      "id": "LOCAL-002",
+      "identifier": "LOCAL-002",
+      "title": "Seed the local-only provider fixtures",
+      "status": "done",
+      "phase": "none",
+      "priority": 2,
+      "updatedAt": "2026-04-14T23:45:00.000Z",
+      "dependencyIds": [],
+      "blockedByIds": [],
+      "orchestration": {
+        "state": "completed",
+        "owner": null,
+        "runId": "seed-run-1",
+        "leaseUntil": null
+      }
+    },
+    {
+      "id": "LOCAL-003",
+      "identifier": "LOCAL-003",
+      "title": "Review the local bootstrap evidence",
+      "status": "plan",
+      "phase": "plan",
+      "priority": 3,
+      "updatedAt": "2026-04-15T00:10:00.000Z",
+      "dependencyIds": [
+        "LOCAL-001"
+      ],
+      "blockedByIds": [
+        "LOCAL-001"
+      ],
+      "orchestration": {
+        "state": "queued",
+        "owner": null,
+        "runId": null,
+        "leaseUntil": null
+      }
+    }
+  ]
+}

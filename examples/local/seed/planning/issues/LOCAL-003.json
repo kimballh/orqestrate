@@ -1,0 +1,35 @@
+{
+  "id": "LOCAL-003",
+  "identifier": "LOCAL-003",
+  "title": "Review the local bootstrap evidence",
+  "description": "This downstream review task stays non-actionable until the local bootstrap implementation work item is complete.",
+  "status": "plan",
+  "phase": "plan",
+  "priority": 3,
+  "labels": [
+    "local-first",
+    "review"
+  ],
+  "url": null,
+  "parentId": null,
+  "dependencyIds": [
+    "LOCAL-001"
+  ],
+  "blockedByIds": [
+    "LOCAL-001"
+  ],
+  "blocksIds": [],
+  "artifactUrl": null,
+  "updatedAt": "2026-04-15T00:10:00.000Z",
+  "createdAt": "2026-04-14T23:10:00.000Z",
+  "orchestration": {
+    "state": "queued",
+    "owner": null,
+    "runId": null,
+    "leaseUntil": null,
+    "reviewOutcome": "none",
+    "blockedReason": null,
+    "lastError": null,
+    "attemptCount": 0
+  }
+}

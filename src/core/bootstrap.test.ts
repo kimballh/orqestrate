@@ -332,7 +332,7 @@ async function loadExampleConfig(
   env?: NodeJS.ProcessEnv,
 ) {
   return loadConfig({
-    configPath: path.join(REPO_ROOT, "docs", "config.example.toml"),
+    configPath: path.join(REPO_ROOT, "config.example.toml"),
     activeProfile,
     env: env ?? {},
   });

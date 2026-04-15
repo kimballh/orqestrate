@@ -394,7 +394,7 @@ test("executePreparedRun does not rewrite partial write-back failures as retryab
 
 async function loadLocalConfig(): Promise<LoadedConfig> {
   return loadConfig({
-    configPath: path.join(REPO_ROOT, "docs/config.example.toml"),
+    configPath: path.join(REPO_ROOT, "config.example.toml"),
     cwd: REPO_ROOT,
   });
 }

@@ -49,8 +49,11 @@ else
   npm install
 fi
 
+npm run bootstrap:local
+
 echo
 echo "Orqestrate worktree bootstrap complete."
 echo "Useful next steps:"
+echo "  npm run bootstrap:local -- --force   # re-seed the local example roots"
 echo "  npm run typecheck"
 echo "  npm run build"

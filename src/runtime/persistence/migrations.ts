@@ -22,8 +22,12 @@ const RUN_OUTCOME_DETAILS_SQL = readFileSync(
   new URL("./sql/0003_run_outcome_details.sql", import.meta.url),
   "utf8",
 );
+const RUN_PROMPT_PROVENANCE_SQL = readFileSync(
+  new URL("./sql/0004_run_prompt_provenance.sql", import.meta.url),
+  "utf8",
+);
 const RUN_CAPABILITY_GRANTS_SQL = readFileSync(
-  new URL("./sql/0004_run_capability_grants.sql", import.meta.url),
+  new URL("./sql/0005_run_capability_grants.sql", import.meta.url),
   "utf8",
 );
 
@@ -45,6 +49,11 @@ const RUNTIME_MIGRATIONS: RuntimeMigration[] = [
   },
   {
     version: 4,
+    name: "run_prompt_provenance",
+    sql: RUN_PROMPT_PROVENANCE_SQL,
+  },
+  {
+    version: 5,
     name: "run_capability_grants",
     sql: RUN_CAPABILITY_GRANTS_SQL,
   },

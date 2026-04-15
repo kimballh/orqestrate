@@ -5,6 +5,7 @@ import {
 import type {
   ArtifactRecord,
   PromptEnvelope,
+  PromptProvenanceRecord,
   ProviderError,
   RunLedgerRecord,
   RunRecord,
@@ -108,6 +109,34 @@ const promptFixture = {
   },
 } satisfies PromptEnvelope;
 
+const promptProvenanceFixture = {
+  selection: {
+    promptPackName: "default",
+    capabilityNames: ["github-review"],
+    organizationOverlayNames: ["org-reviewer"],
+    projectOverlayNames: ["webapp-reviewer"],
+    experimentName: "reviewer-v2",
+  },
+  sources: [
+    {
+      kind: "base_pack",
+      ref: "prompt-pack:default/base/system.md",
+      digest: "sha256-base-pack",
+    },
+    {
+      kind: "role_prompt",
+      ref: "prompt-pack:default/roles/review.md",
+      digest: "sha256-role",
+    },
+  ],
+  rendered: {
+    systemPromptLength: 42,
+    userPromptLength: 17,
+    attachmentKinds: ["artifact_url"],
+    attachmentCount: 1,
+  },
+} satisfies PromptProvenanceRecord;
+
 const runRecordFixture = {
   runId: "run-2026-04-14-001",
   workItemId: workItemFixture.id,
@@ -129,6 +158,7 @@ const runRecordFixture = {
   grantedCapabilities: ["github.read_pr", "github.create_pr"],
   promptContractId: promptFixture.contractId,
   promptDigests: promptFixture.digests,
+  promptProvenance: promptProvenanceFixture,
   limits: {
     maxWallTimeSec: 5400,
     idleTimeoutSec: 300,
@@ -192,6 +222,7 @@ const runSubmissionFixture = {
   },
   prompt: promptFixture,
   grantedCapabilities: runRecordFixture.grantedCapabilities,
+  promptProvenance: promptProvenanceFixture,
   limits: runRecordFixture.limits,
   requestedBy: runRecordFixture.requestedBy,
 } satisfies RunSubmissionPayload;

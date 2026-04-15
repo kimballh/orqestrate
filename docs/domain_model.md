@@ -301,6 +301,26 @@ export type RunRecord = {
     system?: string | null;
     user: string;
   };
+  promptProvenance?: {
+    selection: {
+      promptPackName: string;
+      capabilityNames: string[];
+      organizationOverlayNames: string[];
+      projectOverlayNames: string[];
+      experimentName?: string | null;
+    };
+    sources: Array<{
+      kind: PromptSourceKind;
+      ref: string;
+      digest: string;
+    }>;
+    rendered: {
+      systemPromptLength: number;
+      userPromptLength: number;
+      attachmentKinds: PromptAttachmentKind[];
+      attachmentCount: number;
+    };
+  } | null;
   limits: {
     maxWallTimeSec: number;
     idleTimeoutSec: number;
@@ -326,7 +346,8 @@ Rules:
 - `RunRecord.status` is runtime authority and must not be overloaded with workflow meaning
 - `grantedCapabilities` is the canonical run-scoped capability grant set shared by prompt assembly and runtime enforcement seams
 - `promptContractId` identifies the prompt pack or contract used for the run
-- the runtime stores prompt digests, not full prompt bodies, as part of the base run record
+- `promptProvenance` stores safe prompt selection, source, and rendered metadata for historical diagnosis
+- the runtime stores prompt digests and safe provenance, not full prompt bodies, as part of the base run record
 - full prompt text belongs in diagnostics or replay surfaces, not the canonical runtime row
 
 ### 4.6 `RunLedgerRecord`
@@ -428,6 +449,27 @@ export type PromptEnvelope = {
     user: string;
   };
 };
+
+export type PromptProvenanceRecord = {
+  selection: {
+    promptPackName: string;
+    capabilityNames: string[];
+    organizationOverlayNames: string[];
+    projectOverlayNames: string[];
+    experimentName?: string | null;
+  };
+  sources: Array<{
+    kind: PromptSourceKind;
+    ref: string;
+    digest: string;
+  }>;
+  rendered: {
+    systemPromptLength: number;
+    userPromptLength: number;
+    attachmentKinds: PromptAttachmentKind[];
+    attachmentCount: number;
+  };
+};
 ```
 
 Rules:
@@ -464,6 +506,7 @@ export type RunSubmissionPayload = {
   };
   prompt: PromptEnvelope;
   grantedCapabilities: string[];
+  promptProvenance?: PromptProvenanceRecord | null;
   limits: {
     maxWallTimeSec: number;
     idleTimeoutSec: number;

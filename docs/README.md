@@ -60,7 +60,7 @@ This mirrors one of the most important lessons from OMX: do not overload one fie
 - [deployment_topology.md](./deployment_topology.md) - public webhook ingress vs private orchestrator/runtime deployment boundary and service topology
 - [provider_architecture.md](./provider_architecture.md) - abstract planning/context backend model, provider registry, and local-files built-ins
 - [config_model.md](./config_model.md) - `config.toml` schema with named provider instances and profiles
-- [config.example.toml](./config.example.toml) - example config showing SaaS, local, and hybrid profiles
+- [config.example.toml](../config.example.toml) - example config showing SaaS, local, and hybrid profiles
 - [linear_model.md](./linear_model.md) - proposed Linear statuses, fields, labels, and transitions
 - [linear_api_spec.md](./linear_api_spec.md) - implementation-facing Linear query shapes, mutation sequence, and webhook queue contract
 - [agent_runtime.md](./agent_runtime.md) - provider-neutral runtime service between the orchestrator and Codex or Claude
@@ -99,6 +99,8 @@ Those choices make the system harder to poll, harder to reconcile, and harder fo
 
 ## Current scaffold
 
-- `npm run dev` starts the local runtime daemon against `docs/config.example.toml`
+- `npm run setup` installs dependencies and materializes the source-controlled local example into the repo-root `.harness/local/*` roots
+- `npm run dev` starts the local runtime daemon against `config.example.toml`
 - `npm start` runs the built runtime daemon with the same example profile
+- `examples/local/` contains the canonical planning seed pack and local context templates that drive the zero-credential bootstrap path
 - the first runtime scaffold now lives under `src/runtime/` with SQLite-backed persistence for runs, events, heartbeats, and workspace allocations

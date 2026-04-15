@@ -141,6 +141,28 @@ Response:
     },
     "grantedCapabilities": ["github.read_pr", "github.push_branch"],
     "promptContractId": "orqestrate/implement/v1",
+    "promptProvenance": {
+      "selection": {
+        "promptPackName": "default",
+        "capabilityNames": ["github_review"],
+        "organizationOverlayNames": ["reviewer_qa"],
+        "projectOverlayNames": ["reviewer_webapp"],
+        "experimentName": "reviewer_v2"
+      },
+      "sources": [
+        {
+          "kind": "base_pack",
+          "ref": "prompt-pack:default/base/system.md",
+          "digest": "sha256:base-pack"
+        }
+      ],
+      "rendered": {
+        "systemPromptLength": 412,
+        "userPromptLength": 1867,
+        "attachmentKinds": ["planning_url", "artifact_url"],
+        "attachmentCount": 2
+      }
+    },
     "createdAt": "2026-04-12T20:00:00.000Z"
   }
 }
@@ -157,7 +179,7 @@ Response includes:
 - run metadata
 - current status
 - workspace allocation summary
-- current issue summary if any
+- safe prompt provenance for diagnosis and replay setup
 - last event cursor
 
 ### 6.3 `GET /v1/runs`
@@ -175,6 +197,8 @@ Supported filters:
 - `repoRoot`
 - `limit`
 - `cursor`
+
+List items use the same canonical run shape as `GET /v1/runs/:runId`, including `promptProvenance` when available and `null` for legacy rows created before prompt provenance was stored.
 
 ### 6.4 `POST /v1/runs/:runId/actions/interrupt`
 

@@ -3,6 +3,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import type {
   AgentProvider,
   PromptEnvelope,
+  PromptProvenanceRecord,
   ProviderError,
   ReviewOutcome,
   RunStatus,
@@ -48,6 +49,7 @@ type RunRow = {
   granted_capabilities_json: string | null;
   prompt_contract: string;
   prompt_envelope_json: string | null;
+  prompt_provenance_json: string | null;
   system_prompt_hash: string | null;
   user_prompt_hash: string;
   artifact_url: string | null;
@@ -199,6 +201,7 @@ export class RuntimeRepository {
                 granted_capabilities_json,
                 prompt_contract,
                 prompt_envelope_json,
+                prompt_provenance_json,
                 system_prompt_hash,
                 user_prompt_hash,
                 artifact_url,
@@ -226,7 +229,7 @@ export class RuntimeRepository {
                 last_heartbeat_at,
                 version
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
           )
           .run(
@@ -249,6 +252,7 @@ export class RuntimeRepository {
             encodeJson(createRunInput.grantedCapabilities),
             createRunInput.prompt.contractId,
             encodeJson(createRunInput.prompt),
+            encodeJson(createRunInput.promptProvenance ?? null),
             createRunInput.prompt.digests.system ?? null,
             createRunInput.prompt.digests.user,
             createRunInput.artifact?.url ?? null,
@@ -1293,6 +1297,9 @@ export class RuntimeRepository {
       parseJson<string[]>(row.granted_capabilities_json) ?? [];
     const verification = parseJson<VerificationSummary>(row.verification_json);
     const error = parseJson<ProviderError>(row.last_error);
+    const promptProvenance = parseJson<PromptProvenanceRecord>(
+      row.prompt_provenance_json,
+    );
     const hasOutcome =
       row.outcome_code !== null ||
       row.exit_code !== null ||
@@ -1333,6 +1340,7 @@ export class RuntimeRepository {
         system: row.system_prompt_hash,
         user: row.user_prompt_hash,
       },
+      promptProvenance,
       limits: {
         maxWallTimeSec: row.max_wall_time_sec,
         idleTimeoutSec: row.idle_timeout_sec,

@@ -195,6 +195,47 @@ test("recordHeartbeat does not regress the canonical liveness timestamp", (t) =>
   assert.equal(refreshedRun?.lastHeartbeatAt, "2026-04-14T10:00:00.000Z");
 });
 
+test("enqueueRun persists prompt provenance on canonical run reads", (t) => {
+  const repository = createRepository(t);
+  const run = repository.enqueueRun(createRunInput());
+  const refreshedRun = repository.getRun(run.runId);
+
+  assert.deepEqual(refreshedRun?.promptProvenance, {
+    selection: {
+      promptPackName: "default",
+      capabilityNames: ["runtime"],
+      organizationOverlayNames: ["org-default"],
+      projectOverlayNames: ["project-default"],
+      experimentName: null,
+    },
+    sources: [
+      {
+        kind: "base_pack",
+        ref: "prompt-pack:default/base/system.md",
+        digest: "sha256-base-pack",
+      },
+    ],
+    rendered: {
+      systemPromptLength: 0,
+      userPromptLength: "Implement ORQ-32.".length,
+      attachmentKinds: [],
+      attachmentCount: 0,
+    },
+  });
+});
+
+test("legacy runs without prompt provenance deserialize with a null provenance field", (t) => {
+  const { database, repository } = createRepositoryFixture(t);
+  const run = repository.enqueueRun(createRunInput());
+
+  database.connection
+    .prepare("UPDATE runs SET prompt_provenance_json = NULL WHERE run_id = ?")
+    .run(run.runId);
+
+  const refreshedRun = repository.getRun(run.runId);
+  assert.equal(refreshedRun?.promptProvenance, null);
+});
+
 test("workspace allocations persist and support explicit state transitions", (t) => {
   const repository = createRepository(t);
 
@@ -420,6 +461,28 @@ function createRunInput(
       },
     },
     grantedCapabilities: ["github.read_pr", "github.push_branch"],
+    promptProvenance: {
+      selection: {
+        promptPackName: "default",
+        capabilityNames: ["runtime"],
+        organizationOverlayNames: ["org-default"],
+        projectOverlayNames: ["project-default"],
+        experimentName: null,
+      },
+      sources: [
+        {
+          kind: "base_pack",
+          ref: "prompt-pack:default/base/system.md",
+          digest: "sha256-base-pack",
+        },
+      ],
+      rendered: {
+        systemPromptLength: 0,
+        userPromptLength: "Implement ORQ-32.".length,
+        attachmentKinds: [],
+        attachmentCount: 0,
+      },
+    },
     limits: {
       maxWallTimeSec: 5400,
       idleTimeoutSec: 300,

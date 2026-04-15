@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import test from "node:test";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -110,13 +110,58 @@ context = "local_context"
 
 test("loads the docs example with its default local profile without SaaS env vars", async () => {
   const config = await loadConfig({
-    configPath: path.join(REPO_ROOT, "docs/config.example.toml"),
+    configPath: path.join(REPO_ROOT, "config.example.toml"),
     env: {},
   });
 
   assert.equal(config.activeProfileName, "local");
   assert.equal(config.activeProfile.planningProvider.kind, "planning.local_files");
   assert.equal(config.activeProfile.contextProvider.kind, "context.local_files");
+  const planningProvider = config.activeProfile.planningProvider;
+  const contextProvider = config.activeProfile.contextProvider;
+
+  if (planningProvider.kind !== "planning.local_files") {
+    throw new Error("expected the docs example to use planning.local_files");
+  }
+
+  if (contextProvider.kind !== "context.local_files") {
+    throw new Error("expected the docs example to use context.local_files");
+  }
+
+  assert.equal(
+    config.paths.stateDir,
+    path.join(REPO_ROOT, ".harness", "state"),
+  );
+  assert.equal(
+    planningProvider.root,
+    path.join(REPO_ROOT, ".harness", "local", "planning"),
+  );
+  assert.equal(
+    contextProvider.root,
+    path.join(REPO_ROOT, ".harness", "local", "context"),
+  );
+  assert.equal(
+    contextProvider.templates.artifact_template,
+    path.join(
+      REPO_ROOT,
+      "examples",
+      "local",
+      "context",
+      "templates",
+      "artifact.md",
+    ),
+  );
+  assert.equal(
+    contextProvider.templates.run_template,
+    path.join(
+      REPO_ROOT,
+      "examples",
+      "local",
+      "context",
+      "templates",
+      "evidence.md",
+    ),
+  );
   assert.equal(
     config.activeProfile.promptPack.baseSystem,
     path.join(REPO_ROOT, "docs", "prompts", "base", "system.md"),
@@ -134,7 +179,7 @@ test("loads the docs example with its default local profile without SaaS env var
 
 test("loads the docs example for the saas profile when required env vars exist", async () => {
   const config = await loadConfig({
-    configPath: path.join(REPO_ROOT, "docs/config.example.toml"),
+    configPath: path.join(REPO_ROOT, "config.example.toml"),
     activeProfile: "saas",
     env: {
       LINEAR_API_KEY: "linear-token",
@@ -156,6 +201,61 @@ test("loads the docs example for the saas profile when required env vars exist",
   assert.equal(
     config.activeProfile.promptBehavior.defaultExperimentName,
     "reviewer_v2",
+  );
+});
+
+test("copied example config resolves local roots inside the copied workspace", async () => {
+  const workspaceDir = mkdtempSync(
+    path.join(tmpdir(), "orqestrate-copied-config-fixture-"),
+  );
+  const configPath = path.join(workspaceDir, "config.toml");
+
+  mkdirSync(path.join(workspaceDir, "docs"), { recursive: true });
+  cpSync(
+    path.join(REPO_ROOT, "docs", "prompts"),
+    path.join(workspaceDir, "docs", "prompts"),
+    { recursive: true },
+  );
+  writeFileSync(
+    configPath,
+    readFileSync(path.join(REPO_ROOT, "config.example.toml"), "utf8"),
+    "utf8",
+  );
+
+  const config = await loadConfig({
+    configPath,
+    env: {},
+  });
+  const planningProvider = config.activeProfile.planningProvider;
+  const contextProvider = config.activeProfile.contextProvider;
+
+  if (planningProvider.kind !== "planning.local_files") {
+    throw new Error("expected copied config to use planning.local_files");
+  }
+
+  if (contextProvider.kind !== "context.local_files") {
+    throw new Error("expected copied config to use context.local_files");
+  }
+
+  assert.equal(config.paths.stateDir, path.join(workspaceDir, ".harness", "state"));
+  assert.equal(
+    planningProvider.root,
+    path.join(workspaceDir, ".harness", "local", "planning"),
+  );
+  assert.equal(
+    contextProvider.root,
+    path.join(workspaceDir, ".harness", "local", "context"),
+  );
+  assert.equal(
+    contextProvider.templates.artifact_template,
+    path.join(
+      workspaceDir,
+      "examples",
+      "local",
+      "context",
+      "templates",
+      "artifact.md",
+    ),
   );
 });
 
@@ -371,7 +471,7 @@ test("rejects GitHub pull-request read capabilities that are not scoped to the l
 
 test("loads the docs example default prompt pack with non-placeholder prompt assets", async () => {
   const config = await loadConfig({
-    configPath: path.join(REPO_ROOT, "docs/config.example.toml"),
+    configPath: path.join(REPO_ROOT, "config.example.toml"),
     env: {},
   });
   const pack = config.promptPacks.default;

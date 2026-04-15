@@ -324,6 +324,28 @@ export function createRunInput(
       },
     },
     grantedCapabilities: ["github.read_pr", "github.push_branch"],
+    promptProvenance: {
+      selection: {
+        promptPackName: "default",
+        capabilityNames: ["runtime"],
+        organizationOverlayNames: ["org-default"],
+        projectOverlayNames: ["project-default"],
+        experimentName: null,
+      },
+      sources: [
+        {
+          kind: "base_pack",
+          ref: "prompt-pack:default/base/system.md",
+          digest: "sha256-base-pack",
+        },
+      ],
+      rendered: {
+        systemPromptLength: 0,
+        userPromptLength: "Implement ORQ-33.".length,
+        attachmentKinds: [],
+        attachmentCount: 0,
+      },
+    },
     limits: {
       maxWallTimeSec: 5400,
       idleTimeoutSec: 300,
