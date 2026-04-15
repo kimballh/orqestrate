@@ -17,8 +17,9 @@ import { HttpRuntimeApiClient } from "../orchestrator/runtime-client.js";
 import { runCli } from "../index.js";
 
 test("run list renders operator-friendly summaries and work-item filtering", async () => {
+  const listRunsCalls: Array<Record<string, unknown>> = [];
   const result = await invokeCli(
-    ["run", "list", "--work-item", "ORQ-48"],
+    ["run", "list", "--work-item", "issue-48"],
     {
       loadConfig: async () => ({}) as LoadedConfig,
       createRuntimeClient: () => ({
@@ -28,25 +29,25 @@ test("run list renders operator-friendly summaries and work-item filtering", asy
         getRun: async () => {
           throw new Error("unused");
         },
-        listRuns: async () => ({
-          runs: [
-            createRun({
-              runId: "run-048",
-              workItemIdentifier: "ORQ-48",
-              status: "failed",
-              outcome: {
-                code: "provider_bootstrap_timeout",
-                summary: "Provider failed to bootstrap in time.",
-                error: null,
-              },
-            }),
-            createRun({
-              runId: "run-999",
-              workItemIdentifier: "ORQ-99",
-            }),
-          ],
-          nextCursor: null,
-        }),
+        listRuns: async (query) => {
+          listRunsCalls.push(query ?? {});
+          return {
+            runs: [
+              createRun({
+                runId: "run-048",
+                workItemId: "issue-48",
+                workItemIdentifier: "ORQ-48",
+                status: "failed",
+                outcome: {
+                  code: "provider_bootstrap_timeout",
+                  summary: "Provider failed to bootstrap in time.",
+                  error: null,
+                },
+              }),
+            ],
+            nextCursor: null,
+          };
+        },
         listRunEvents: async () => {
           throw new Error("unused");
         },
@@ -61,12 +62,24 @@ test("run list renders operator-friendly summaries and work-item filtering", asy
   assert.match(result.stdout, /^Recent Runs$/m);
   assert.match(result.stdout, /run-048 \| ORQ-48 \| implement \| codex \| failed/);
   assert.match(result.stdout, /Provider failed to bootstrap in time\./);
-  assert.doesNotMatch(result.stdout, /run-999/);
+  assert.equal(listRunsCalls.length, 1);
+  assert.equal(listRunsCalls[0]?.workItemId, "issue-48");
 });
 
 test("run inspect emits focused JSON diagnostics", async () => {
+  const eventQueries: Array<Record<string, unknown>> = [];
   const result = await invokeCli(
-    ["run", "inspect", "run-048", "--view", "failure", "--format", "json"],
+    [
+      "run",
+      "inspect",
+      "run-048",
+      "--view",
+      "failure",
+      "--format",
+      "json",
+      "--events-limit",
+      "3",
+    ],
     {
       loadConfig: async () => ({}) as LoadedConfig,
       createRuntimeClient: () => ({
@@ -95,21 +108,88 @@ test("run inspect emits focused JSON diagnostics", async () => {
           runs: [],
           nextCursor: null,
         }),
-        listRunEvents: async () => [
-          {
-            seq: 1,
-            runId: "run-048",
-            eventType: "runtime_issue_detected",
-            occurredAt: "2026-04-15T18:04:00.000Z",
-            level: "warn",
-            source: "provider",
-            payload: {
-              code: "provider_bootstrap_timeout",
-              message: "Provider bootstrap timed out.",
-              retryable: true,
+        listRunEvents: async (_runId, query) => {
+          eventQueries.push(query ?? {});
+          if ((query?.after ?? 0) === 0) {
+            return [
+              {
+                seq: 1,
+                runId: "run-048",
+                eventType: "run_enqueued",
+                occurredAt: "2026-04-15T18:00:00.000Z",
+                level: "info",
+                source: "api",
+                payload: {},
+              },
+              {
+                seq: 2,
+                runId: "run-048",
+                eventType: "run_admitted",
+                occurredAt: "2026-04-15T18:01:00.000Z",
+                level: "info",
+                source: "scheduler",
+                payload: {},
+              },
+              {
+                seq: 3,
+                runId: "run-048",
+                eventType: "session_started",
+                occurredAt: "2026-04-15T18:02:00.000Z",
+                level: "info",
+                source: "supervisor",
+                payload: {},
+              },
+            ];
+          }
+
+          if ((query?.after ?? 0) === 3) {
+            return [
+              {
+                seq: 4,
+                runId: "run-048",
+                eventType: "session_ready",
+                occurredAt: "2026-04-15T18:03:00.000Z",
+                level: "info",
+                source: "provider",
+                payload: {},
+              },
+              {
+                seq: 5,
+                runId: "run-048",
+                eventType: "progress_update",
+                occurredAt: "2026-04-15T18:03:30.000Z",
+                level: "info",
+                source: "provider",
+                payload: { chunk: "Still running" },
+              },
+              {
+                seq: 6,
+                runId: "run-048",
+                eventType: "runtime_issue_detected",
+                occurredAt: "2026-04-15T18:04:00.000Z",
+                level: "warn",
+                source: "provider",
+                payload: {
+                  code: "provider_bootstrap_timeout",
+                  message: "Provider bootstrap timed out.",
+                  retryable: true,
+                },
+              },
+            ];
+          }
+
+          return [
+            {
+              seq: 7,
+              runId: "run-048",
+              eventType: "run_failed",
+              occurredAt: "2026-04-15T18:05:00.000Z",
+              level: "info",
+              source: "provider",
+              payload: { status: "failed" },
             },
-          },
-        ],
+          ];
+        },
         getHealth: async () => {
           throw new Error("unused");
         },
@@ -125,6 +205,70 @@ test("run inspect emits focused JSON diagnostics", async () => {
     parsed.diagnostics.failure.headline,
     "Provider bootstrap timed out.",
   );
+  assert.equal(eventQueries.length, 3);
+  assert.equal(eventQueries[0]?.after, 0);
+  assert.equal(eventQueries[1]?.after, 3);
+  assert.equal(eventQueries[2]?.after, 6);
+  assert.equal(
+    parsed.diagnostics.timeline.entries.at(-1)?.eventType,
+    "run_failed",
+  );
+});
+
+test("run list pages by work item identifier when the runtime work item id filter does not match", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const result = await invokeCli(
+    ["run", "list", "--work-item", "ORQ-48", "--limit", "2"],
+    {
+      loadConfig: async () => ({}) as LoadedConfig,
+      createRuntimeClient: () => ({
+        createRun: async () => {
+          throw new Error("unused");
+        },
+        getRun: async () => {
+          throw new Error("unused");
+        },
+        listRuns: async (query) => {
+          calls.push(query ?? {});
+          if (query?.workItemId === "ORQ-48") {
+            return { runs: [], nextCursor: null };
+          }
+
+          if (query?.cursor === undefined) {
+            return {
+              runs: [
+                createRun({ runId: "run-001", workItemIdentifier: "ORQ-01" }),
+                createRun({ runId: "run-002", workItemIdentifier: "ORQ-02" }),
+              ],
+              nextCursor: "page-2",
+            };
+          }
+
+          return {
+            runs: [
+              createRun({ runId: "run-048", workItemIdentifier: "ORQ-48" }),
+              createRun({ runId: "run-049", workItemIdentifier: "ORQ-48" }),
+            ],
+            nextCursor: null,
+          };
+        },
+        listRunEvents: async () => {
+          throw new Error("unused");
+        },
+        getHealth: async () => {
+          throw new Error("unused");
+        },
+      }),
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /run-048 \| ORQ-48/);
+  assert.match(result.stdout, /run-049 \| ORQ-48/);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[0]?.workItemId, "ORQ-48");
+  assert.equal(calls[1]?.cursor, undefined);
+  assert.equal(calls[2]?.cursor, "page-2");
 });
 
 test("run command works against an in-process runtime API server", async (t) => {

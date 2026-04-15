@@ -126,24 +126,9 @@ async function runListCommand(
   dependencies: RunCommandDependencies,
 ): Promise<number> {
   const client = await resolveRuntimeClient(options, dependencies);
-  const runtimeLimit = options.workItem === undefined ? options.limit : Math.max(options.limit, 100);
-  const response = await client.listRuns({
-    status: options.status,
-    provider: options.provider,
-    phase: options.phase,
-    limit: runtimeLimit,
-  });
+  const response = await listRunsForFilters(client, options);
 
-  let runs = response.runs;
-  if (options.workItem !== undefined) {
-    runs = runs.filter(
-      (run) =>
-        run.workItemId === options.workItem ||
-        run.workItemIdentifier === options.workItem,
-    );
-  }
-
-  const entries = runs.slice(0, options.limit).map((run) => buildRunListEntry(run));
+  const entries = response.runs.map((run) => buildRunListEntry(run));
   const output =
     options.format === "json"
       ? JSON.stringify(
@@ -174,11 +159,7 @@ async function runInspectCommand(
   const client = await resolveRuntimeClient(options, dependencies);
   const [run, events] = await Promise.all([
     client.getRun(options.runId),
-    client.listRunEvents(options.runId, {
-      after: 0,
-      limit: options.eventsLimit,
-      waitMs: 0,
-    }),
+    fetchLatestRunEvents(client, options.runId, options.eventsLimit),
   ]);
   const diagnostics = buildRunDiagnostics(run, events);
 
@@ -211,6 +192,109 @@ async function resolveRuntimeClient(
   });
 
   return (dependencies.createRuntimeClient ?? createRuntimeClient)(loadedConfig);
+}
+
+async function listRunsForFilters(
+  client: RuntimeClient,
+  options: RunListOptions,
+): Promise<{ runs: Awaited<ReturnType<RuntimeClient["getRun"]>>[]; nextCursor: string | null }> {
+  if (options.workItem === undefined) {
+    const response = await client.listRuns({
+      status: options.status,
+      provider: options.provider,
+      phase: options.phase,
+      limit: options.limit,
+    });
+    return {
+      runs: response.runs,
+      nextCursor: response.nextCursor ?? null,
+    };
+  }
+
+  const filteredById = await client.listRuns({
+    status: options.status,
+    provider: options.provider,
+    phase: options.phase,
+    workItemId: options.workItem,
+    limit: options.limit,
+  });
+
+  if (filteredById.runs.length > 0) {
+    return {
+      runs: filteredById.runs,
+      nextCursor: filteredById.nextCursor ?? null,
+    };
+  }
+
+  const matchedRuns: Awaited<ReturnType<RuntimeClient["getRun"]>>[] = [];
+  const seenRunIds = new Set<string>();
+  let cursor: string | null = null;
+
+  do {
+    const response = await client.listRuns({
+      status: options.status,
+      provider: options.provider,
+      phase: options.phase,
+      limit: Math.max(options.limit, 100),
+      cursor: cursor ?? undefined,
+    });
+
+    for (const run of response.runs) {
+      if (run.workItemIdentifier !== options.workItem || seenRunIds.has(run.runId)) {
+        continue;
+      }
+
+      matchedRuns.push(run);
+      seenRunIds.add(run.runId);
+      if (matchedRuns.length === options.limit) {
+        return {
+          runs: matchedRuns,
+          nextCursor: response.nextCursor ?? null,
+        };
+      }
+    }
+
+    cursor = response.nextCursor ?? null;
+  } while (cursor !== null);
+
+  return {
+    runs: matchedRuns,
+    nextCursor: null,
+  };
+}
+
+async function fetchLatestRunEvents(
+  client: RuntimeClient,
+  runId: string,
+  eventsLimit: number,
+): Promise<Awaited<ReturnType<RuntimeClient["listRunEvents"]>>> {
+  const pageSize = eventsLimit;
+  const latestEvents: Awaited<ReturnType<RuntimeClient["listRunEvents"]>> = [];
+  let after = 0;
+
+  while (true) {
+    const page = await client.listRunEvents(runId, {
+      after,
+      limit: pageSize,
+      waitMs: 0,
+    });
+
+    if (page.length === 0) {
+      break;
+    }
+
+    latestEvents.push(...page);
+    if (latestEvents.length > eventsLimit) {
+      latestEvents.splice(0, latestEvents.length - eventsLimit);
+    }
+
+    after = page.at(-1)?.seq ?? after;
+    if (page.length < pageSize) {
+      break;
+    }
+  }
+
+  return latestEvents;
 }
 
 function renderRunList(entries: RunListEntry[], options: RunListOptions): string {
