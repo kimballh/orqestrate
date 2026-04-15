@@ -14,9 +14,11 @@
     "bootstrap:local": "node --import tsx ./scripts/materialize-local-example.mjs",
     "build": "tsc -p tsconfig.json && node ./scripts/copy-runtime-assets.mjs",
     "check": "npm run typecheck && npm run build && npm run test",
-    "dev": "tsx src/runtime/main.ts --config config.example.toml",
+    "dev": "tsx src/runtime/main.ts",
+    "orq:bootstrap": "tsx src/index.ts bootstrap",
+    "orq:init": "tsx src/index.ts init",
     "setup": "bash ./scripts/codex-setup.sh",
-    "start": "node --enable-source-maps dist/runtime/main.js --config config.example.toml",
+    "start": "node --enable-source-maps dist/runtime/main.js",
     "test": "tsx --test $(find src -name '*.test.ts' | sort)",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

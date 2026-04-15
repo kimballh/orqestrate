@@ -10,6 +10,11 @@ import {
   renderPromptHelp,
   runPromptCommand,
 } from "./cli/prompt-command.js";
+import {
+  SetupCommandError,
+  renderSetupHelp,
+  runSetupCommand,
+} from "./cli/setup-command.js";
 
 export * from "./config/index.js";
 export * from "./core/index.js";
@@ -20,8 +25,10 @@ export * from "./runtime/index.js";
 export * from "./cli/prompt-command.js";
 export * from "./cli/prompt-diff.js";
 export * from "./cli/prompt-preview.js";
+export * from "./cli/setup-command.js";
 
-export type CliDependencies = Parameters<typeof runPromptCommand>[1] & {
+export type CliDependencies = Parameters<typeof runPromptCommand>[1] &
+  Parameters<typeof runSetupCommand>[1] & {
   stderr?: (message: string) => void;
 };
 
@@ -36,11 +43,15 @@ export async function runCli(
 
   const command = argv[0];
 
+  if (command === "init" || command === "bootstrap") {
+    return runSetupCommand(argv, dependencies);
+  }
+
   if (command === "prompt") {
     return runPromptCommand(argv.slice(1), dependencies);
   }
 
-  throw new PromptCommandError(`Unknown command '${command}'.`);
+  throw new SetupCommandError(`Unknown command '${command}'.`);
 }
 
 export async function main(
@@ -83,7 +94,11 @@ function renderTopLevelHelp(): string {
     "Usage: orq <command> [options]",
     "",
     "Commands:",
+    "  init     Create a starter config.toml from config.example.toml.",
+    "  bootstrap Validate the selected profile and prepare local state.",
     "  prompt   Render and diff resolved prompt variants.",
+    "",
+    renderSetupHelp(),
     "",
     renderPromptHelp(),
   ].join("\n");

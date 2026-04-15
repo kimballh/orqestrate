@@ -73,6 +73,7 @@ web_modules/
 # Local Orqestrate runtime and bootstrap state
 .orqestrate/
 .harness/
+config.toml
 
 # Local Codex environment state
 .codex/environments/
