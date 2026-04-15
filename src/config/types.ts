@@ -48,14 +48,36 @@ export interface PromptsConfig {
   activePack?: string;
 }
 
+export const PROMPT_OVERLAY_GROUPS = ["organization", "project"] as const;
+
+export type PromptOverlayGroup = (typeof PROMPT_OVERLAY_GROUPS)[number];
+
+export interface NamedPromptAsset {
+  name: string;
+  assetPath: string;
+}
+
+export type PromptOverlayCatalog = Record<PromptOverlayGroup, Record<string, string>>;
+
 export interface PromptPackConfig {
   name: string;
   baseSystem: string;
   roles: Record<string, string>;
   phases: Record<string, string>;
   capabilities: Record<string, string>;
-  overlays: Record<string, string[]>;
+  overlays: PromptOverlayCatalog;
   experiments: Record<string, string>;
+}
+
+export interface ResolvedPromptBehavior {
+  promptPackName: string;
+  promptPack: PromptPackConfig;
+  organizationOverlayNames: string[];
+  projectOverlayNames: string[];
+  organizationOverlays: NamedPromptAsset[];
+  projectOverlays: NamedPromptAsset[];
+  defaultExperimentName?: string;
+  defaultExperimentAssetPath?: string;
 }
 
 export interface BaseProviderConfig<
@@ -124,6 +146,7 @@ export interface ProfileConfig {
   planningProvider: PlanningProviderConfig;
   contextProvider: ContextProviderConfig;
   promptPack: PromptPackConfig;
+  promptBehavior: ResolvedPromptBehavior;
 }
 
 export interface LoadedConfig {

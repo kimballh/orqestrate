@@ -38,6 +38,15 @@ implement = "roles/implement.md"
 [prompt_packs.default.phases]
 review = "phases/review.md"
 
+[prompt_packs.default.overlays.organization]
+reviewer_qa = "overlays/org/reviewer-qa.md"
+
+[prompt_packs.default.overlays.project]
+reviewer_webapp = "overlays/project/reviewer-webapp.md"
+
+[prompt_packs.default.experiments]
+reviewer_v2 = "experiments/reviewer-v2.md"
+
 [providers.linear_main]
 kind = "planning.linear"
 token_env = "LINEAR_API_KEY"
@@ -62,6 +71,11 @@ root = ".harness/local/context"
 planning = "linear_main"
 context = "notion_main"
 prompt_pack = "default"
+
+[profiles.saas.prompt]
+organization_overlays = ["reviewer_qa"]
+project_overlays = ["reviewer_webapp"]
+default_experiment = "reviewer_v2"
 
 [profiles.local]
 planning = "local_planning"
@@ -106,6 +120,16 @@ test("loads the docs example for the saas profile when required env vars exist",
   assert.equal(config.activeProfile.planningProvider.kind, "planning.linear");
   assert.equal(config.activeProfile.planningProvider.project, "Orqestrate Build");
   assert.equal(config.activeProfile.contextProvider.kind, "context.notion");
+  assert.deepEqual(config.activeProfile.promptBehavior.organizationOverlayNames, [
+    "reviewer_qa",
+  ]);
+  assert.deepEqual(config.activeProfile.promptBehavior.projectOverlayNames, [
+    "reviewer_webapp",
+  ]);
+  assert.equal(
+    config.activeProfile.promptBehavior.defaultExperimentName,
+    "reviewer_v2",
+  );
 });
 
 test("activeProfile override takes precedence over the file default", () => {
@@ -122,6 +146,8 @@ test("activeProfile override takes precedence over the file default", () => {
   assert.equal(config.activeProfile.promptPackName, "default");
   assert.equal(config.activeProfile.planningProvider.name, "linear_main");
   assert.equal(config.activeProfile.contextProvider.name, "local_context");
+  assert.deepEqual(config.activeProfile.promptBehavior.organizationOverlayNames, []);
+  assert.deepEqual(config.activeProfile.promptBehavior.projectOverlayNames, []);
 });
 
 test("normalizes relative filesystem and prompt asset paths against the config location", () => {
@@ -151,6 +177,14 @@ test("normalizes relative filesystem and prompt asset paths against the config l
   assert.equal(
     config.promptPacks.default.phases.review,
     path.join(fixture.workspaceDir, "prompts", "phases", "review.md"),
+  );
+  assert.equal(
+    config.promptPacks.default.overlays.organization.reviewer_qa,
+    path.join(fixture.workspaceDir, "prompts", "overlays", "org", "reviewer-qa.md"),
+  );
+  assert.equal(
+    config.promptPacks.default.experiments.reviewer_v2,
+    path.join(fixture.workspaceDir, "prompts", "experiments", "reviewer-v2.md"),
   );
 });
 
@@ -192,7 +226,8 @@ test("loads the docs example default prompt pack with non-placeholder prompt ass
     ...Object.values(pack.roles),
     ...Object.values(pack.phases),
     ...Object.values(pack.capabilities),
-    ...Object.values(pack.overlays).flat(),
+    ...Object.values(pack.overlays.organization),
+    ...Object.values(pack.overlays.project),
     ...Object.values(pack.experiments),
   ];
 
@@ -385,6 +420,143 @@ test("fails clearly when a prompt asset path does not exist", () => {
   );
 });
 
+test("resolves profile-owned prompt behavior from the selected prompt pack", () => {
+  const fixture = createFixtureWorkspace();
+  const config = parseConfig(VALID_CONFIG, {
+    sourcePath: fixture.sourcePath,
+    activeProfile: "saas",
+    env: {
+      LINEAR_API_KEY: "linear-token",
+      NOTION_TOKEN: "notion-token",
+    },
+  });
+
+  assert.deepEqual(config.activeProfile.promptBehavior.organizationOverlayNames, [
+    "reviewer_qa",
+  ]);
+  assert.deepEqual(config.activeProfile.promptBehavior.projectOverlayNames, [
+    "reviewer_webapp",
+  ]);
+  assert.deepEqual(config.activeProfile.promptBehavior.organizationOverlays, [
+    {
+      name: "reviewer_qa",
+      assetPath: path.join(
+        fixture.workspaceDir,
+        "prompts",
+        "overlays",
+        "org",
+        "reviewer-qa.md",
+      ),
+    },
+  ]);
+  assert.deepEqual(config.activeProfile.promptBehavior.projectOverlays, [
+    {
+      name: "reviewer_webapp",
+      assetPath: path.join(
+        fixture.workspaceDir,
+        "prompts",
+        "overlays",
+        "project",
+        "reviewer-webapp.md",
+      ),
+    },
+  ]);
+  assert.equal(
+    config.activeProfile.promptBehavior.defaultExperimentAssetPath,
+    path.join(fixture.workspaceDir, "prompts", "experiments", "reviewer-v2.md"),
+  );
+});
+
+test("rejects unknown profile organization overlays", () => {
+  const fixture = createFixtureWorkspace();
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          'organization_overlays = ["reviewer_qa"]',
+          'organization_overlays = ["missing_overlay"]',
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          activeProfile: "saas",
+          env: {
+            LINEAR_API_KEY: "linear-token",
+            NOTION_TOKEN: "notion-token",
+          },
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(error.path, "profiles.saas.prompt.organization_overlays");
+      assert.match(error.message, /Unknown organization overlay 'missing_overlay'/);
+      return true;
+    },
+  );
+});
+
+test("rejects prompt overlay group mismatches", () => {
+  const fixture = createFixtureWorkspace();
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          'organization_overlays = ["reviewer_qa"]',
+          'organization_overlays = ["reviewer_webapp"]',
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          activeProfile: "saas",
+          env: {
+            LINEAR_API_KEY: "linear-token",
+            NOTION_TOKEN: "notion-token",
+          },
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(error.path, "profiles.saas.prompt.organization_overlays");
+      assert.match(
+        error.message,
+        /configured as a project overlay, not an organization overlay/,
+      );
+      return true;
+    },
+  );
+});
+
+test("rejects unknown default prompt experiments", () => {
+  const fixture = createFixtureWorkspace();
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          'default_experiment = "reviewer_v2"',
+          'default_experiment = "missing_experiment"',
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          activeProfile: "saas",
+          env: {
+            LINEAR_API_KEY: "linear-token",
+            NOTION_TOKEN: "notion-token",
+          },
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(error.path, "profiles.saas.prompt.default_experiment");
+      assert.match(
+        error.message,
+        /Unknown default prompt experiment 'missing_experiment' configured\./,
+      );
+      return true;
+    },
+  );
+});
+
 function createFixtureWorkspace(): { sourcePath: string; workspaceDir: string } {
   const workspaceDir = mkdtempSync(
     path.join(tmpdir(), "orqestrate-config-fixture-"),
@@ -404,6 +576,9 @@ function writePromptFixtureFiles(promptRoot: string): void {
     "roles/design.md": "# Design\n",
     "roles/implement.md": "# Implement\n",
     "phases/review.md": "# Review Phase\n",
+    "overlays/org/reviewer-qa.md": "# Reviewer QA\n",
+    "overlays/project/reviewer-webapp.md": "# Reviewer Webapp\n",
+    "experiments/reviewer-v2.md": "# Reviewer V2\n",
   };
 
   for (const [relativePath, contents] of Object.entries(files)) {
