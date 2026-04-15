@@ -497,6 +497,76 @@ test("run ledgers, evidence, and context bundles are persisted in notion", async
   );
 });
 
+test("run ledgers preserve the artifact link when the run schema uses a url property", async () => {
+  const client = createArtifactAwareClient({
+    runDataSource: createDataSource(
+      RUNS_DATA_SOURCE_ID,
+      {
+        "Artifact Page": "url",
+      },
+      {
+        title: "Harness Runs",
+        url: "https://notion.so/data-source/runs",
+        parentDatabaseId: RUNS_DATABASE_ID,
+      },
+    ),
+  });
+  const backend = createBackend({}, { client });
+
+  await backend.validateConfig();
+
+  const artifact = await backend.ensureArtifact({ workItem: WORK_ITEM });
+  const createdRun = await backend.createRunLedgerEntry({
+    runId: "run-url-artifact",
+    workItem: WORK_ITEM,
+    phase: "implement",
+    status: "running",
+  });
+  const finalizedRun = await backend.finalizeRunLedgerEntry({
+    runId: "run-url-artifact",
+    status: "completed",
+    summary: "done",
+  });
+
+  assert.equal(createdRun.artifactId, artifact.url);
+  assert.equal(finalizedRun.artifactId, artifact.url);
+});
+
+test("loadContextBundle pages through sorted run rows to keep the newest runs", async () => {
+  const client = createArtifactAwareClient();
+  const backend = createBackend({}, { client });
+
+  await backend.validateConfig();
+
+  const artifact = await backend.ensureArtifact({ workItem: WORK_ITEM });
+
+  for (const run of [
+    { id: "run-older", startedAt: "2026-04-14T18:00:00.000Z" },
+    { id: "run-old", startedAt: "2026-04-14T19:00:00.000Z" },
+    { id: "run-newer", startedAt: "2026-04-14T20:00:00.000Z" },
+    { id: "run-newest", startedAt: "2026-04-14T21:00:00.000Z" },
+  ]) {
+    client.seedRunPage({
+      runId: run.id,
+      workItemId: WORK_ITEM.id,
+      startedAt: run.startedAt,
+      parentId: RUNS_DATA_SOURCE_ID,
+    });
+  }
+
+  const bundle = await backend.loadContextBundle({
+    workItem: WORK_ITEM,
+    artifact,
+    phase: "implement",
+  });
+
+  assert.equal(client.runQueryCount, 1);
+  assert.match(bundle.contextText, /run-newest/);
+  assert.match(bundle.contextText, /run-newer/);
+  assert.match(bundle.contextText, /run-old/);
+  assert.doesNotMatch(bundle.contextText, /run-older/);
+});
+
 test("bootstraps the notion backend through the shared provider lifecycle with a fake client", async () => {
   const fixture = createFixtureWorkspace();
   const config = parseConfig(
@@ -639,6 +709,7 @@ function createArtifactAwareClient(
   overrides: {
     pages?: Record<string, NotionPage>;
     pageMarkdown?: Record<string, string>;
+    runDataSource?: NotionDataSource;
   } = {},
 ) {
   return new FakeNotionClient({
@@ -660,16 +731,18 @@ function createArtifactAwareClient(
       [ARTIFACTS_DATA_SOURCE_ID]: createArtifactDataSource(),
       [RUNS_DATA_SOURCE_ID]: createDataSource(
         RUNS_DATA_SOURCE_ID,
-        {
-          "Run ID": "rich_text",
-          Status: "rich_text",
-        },
+        {},
         {
           title: "Harness Runs",
           url: "https://notion.so/data-source/runs",
           parentDatabaseId: RUNS_DATABASE_ID,
         },
       ),
+      ...(overrides.runDataSource === undefined
+        ? {}
+        : {
+            [RUNS_DATA_SOURCE_ID]: overrides.runDataSource,
+          }),
     },
     pages: overrides.pages,
     pageMarkdown: overrides.pageMarkdown,
@@ -752,6 +825,7 @@ class FakeNotionClient implements NotionClientLike {
   private readonly pageMarkdown: Record<string, string>;
   private pageSequence: number;
   readonly createdPageIds: string[];
+  runQueryCount: number;
 
   constructor(options: {
     user?: NotionBotUser;
@@ -775,6 +849,7 @@ class FakeNotionClient implements NotionClientLike {
     this.pageMarkdown = options.pageMarkdown ?? {};
     this.pageSequence = Object.keys(this.pages).length + 1;
     this.createdPageIds = [];
+    this.runQueryCount = 0;
   }
 
   async getTokenBotUser(): Promise<NotionBotUser> {
@@ -821,7 +896,7 @@ class FakeNotionClient implements NotionClientLike {
   async queryDataSourcePages(
     input: QueryDataSourceInput,
   ): Promise<NotionCursorPage<NotionPage>> {
-    const results = Object.values(this.pages).filter((page) => {
+    let results = Object.values(this.pages).filter((page) => {
       if (page.parentId !== input.dataSourceId) {
         return false;
       }
@@ -833,11 +908,25 @@ class FakeNotionClient implements NotionClientLike {
       return matchesFilter(page, input.filter);
     });
 
+    if (input.dataSourceId === RUNS_DATA_SOURCE_ID) {
+      this.runQueryCount += 1;
+    }
+
+    if (Array.isArray(input.sorts) && input.sorts.length > 0) {
+      results = sortPages(results, input.sorts);
+    }
+
+    const startIndex =
+      input.startCursor === undefined ? 0 : Number.parseInt(input.startCursor, 10) || 0;
+    const pageSize = input.pageSize ?? results.length;
+    const pagedResults = results.slice(startIndex, startIndex + pageSize);
+    const nextIndex = startIndex + pagedResults.length;
+
     return {
       object: "list",
-      results,
-      nextCursor: null,
-      hasMore: false,
+      results: pagedResults,
+      nextCursor: nextIndex < results.length ? String(nextIndex) : null,
+      hasMore: nextIndex < results.length,
     };
   }
 
@@ -952,6 +1041,78 @@ class FakeNotionClient implements NotionClientLike {
       hasMore: false,
     };
   }
+
+  seedRunPage(input: {
+    runId: string;
+    workItemId: string;
+    startedAt: string;
+    parentId: string;
+  }): void {
+    const id = `seeded-${input.runId}`;
+    const dataSource = this.dataSources[input.parentId];
+
+    this.pages[id] = {
+      id,
+      object: "page",
+      url: `https://notion.so/${id}`,
+      createdTime: input.startedAt,
+      lastEditedTime: input.startedAt,
+      parentType: "data_source_id",
+      parentId: input.parentId,
+      properties: hydrateProperties(dataSource, {
+        Title: {
+          title: [
+            {
+              type: "text",
+              text: {
+                content: input.runId,
+              },
+            },
+          ],
+        },
+        "Run ID": {
+          rich_text: [
+            {
+              type: "text",
+              text: {
+                content: input.runId,
+              },
+            },
+          ],
+        },
+        "Linear Issue ID": {
+          rich_text: [
+            {
+              type: "text",
+              text: {
+                content: input.workItemId,
+              },
+            },
+          ],
+        },
+        Phase: {
+          rich_text: [{ type: "text", text: { content: "implement" } }],
+        },
+        Status: {
+          rich_text: [{ type: "text", text: { content: "completed" } }],
+        },
+        "Started At": {
+          date: { start: input.startedAt },
+        },
+        Summary: {
+          rich_text: [
+            {
+              type: "text",
+              text: {
+                content: input.runId,
+              },
+            },
+          ],
+        },
+      }),
+    };
+    this.pageMarkdown[id] = renderSeededRunMarkdown(input.runId);
+  }
 }
 
 function createDataSource(
@@ -1031,6 +1192,62 @@ function matchesFilter(page: NotionPage, filter: Record<string, unknown>): boole
   }
 
   return false;
+}
+
+function sortPages(
+  pages: NotionPage[],
+  sorts: Array<Record<string, unknown>>,
+): NotionPage[] {
+  return [...pages].sort((left, right) => {
+    for (const sort of sorts) {
+      const property = typeof sort.property === "string" ? sort.property : null;
+      const direction = sort.direction === "descending" ? -1 : 1;
+
+      if (property === null) {
+        continue;
+      }
+
+      const leftValue = sortablePropertyValue(left.properties[property]);
+      const rightValue = sortablePropertyValue(right.properties[property]);
+
+      if (leftValue < rightValue) {
+        return -1 * direction;
+      }
+
+      if (leftValue > rightValue) {
+        return 1 * direction;
+      }
+    }
+
+    return 0;
+  });
+}
+
+function sortablePropertyValue(value: unknown): string {
+  if (typeof value !== "object" || value === null) {
+    return "";
+  }
+
+  const property = value as Record<string, unknown>;
+
+  if (property.type === "date") {
+    const date = property.date as Record<string, unknown> | null;
+    return typeof date?.start === "string" ? date.start : "";
+  }
+
+  return readRichTextProperty(value) ?? "";
+}
+
+function renderSeededRunMarkdown(runId: string): string {
+  return [
+    "# Run Summary",
+    "",
+    `- Run ID: \`${runId}\``,
+    "",
+    "# Evidence",
+    "",
+    "No evidence captured yet.",
+  ].join("\n");
 }
 
 function hydrateProperties(
