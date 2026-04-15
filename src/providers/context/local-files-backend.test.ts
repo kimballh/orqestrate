@@ -242,8 +242,14 @@ test("config parsing resolves local context template paths relative to the confi
   const promptRoot = path.join(fixture.rootDir, "prompts");
 
   await mkdir(path.join(promptRoot, "base"), { recursive: true });
+  await mkdir(path.join(promptRoot, "invariants"), { recursive: true });
   await mkdir(path.join(fixture.rootDir, "templates"), { recursive: true });
   await writeFile(path.join(promptRoot, "base", "system.md"), "system prompt", "utf8");
+  await writeFile(
+    path.join(promptRoot, "invariants", "run-scope.md"),
+    "run scope invariant",
+    "utf8",
+  );
   await writeFile(
     configPath,
     `version = 1
@@ -256,6 +262,7 @@ log_dir = ".harness/logs"
 
 [prompts]
 root = "./prompts"
+invariants = ["invariants/run-scope.md"]
 
 [prompt_packs.default]
 base_system = "base/system.md"

@@ -27,6 +27,19 @@ max_concurrent_runs = 8
 [prompts]
 root = "./prompts"
 active_pack = "default"
+invariants = [
+  "invariants/run-scope.md",
+  "invariants/verification.md",
+]
+
+[prompt_capabilities.github_review]
+authority = "execution_surface_read"
+allowed_phases = ["review"]
+required_context = ["pull_request_url"]
+
+[prompt_capabilities.playwright_exploration]
+authority = "behavioral"
+allowed_phases = ["implement", "review"]
 
 [prompt_packs.default]
 base_system = "base/system.md"
@@ -37,6 +50,10 @@ implement = "roles/implement.md"
 
 [prompt_packs.default.phases]
 review = "phases/review.md"
+
+[prompt_packs.default.capabilities]
+github_review = "capabilities/github-review.md"
+playwright_exploration = "capabilities/playwright-exploration.md"
 
 [prompt_packs.default.overlays.organization]
 reviewer_qa = "overlays/org/reviewer-qa.md"
@@ -102,6 +119,11 @@ test("loads the docs example with its default local profile without SaaS env var
   assert.equal(
     config.activeProfile.promptPack.phases.implement,
     path.join(REPO_ROOT, "docs", "prompts", "phases", "implement.md"),
+  );
+  assert.ok(config.prompts.invariants.length > 0);
+  assert.equal(
+    config.promptCapabilities.github_reply.authority,
+    "execution_surface_write",
   );
 });
 
@@ -178,6 +200,17 @@ test("normalizes relative filesystem and prompt asset paths against the config l
     config.promptPacks.default.phases.review,
     path.join(fixture.workspaceDir, "prompts", "phases", "review.md"),
   );
+  assert.deepEqual(config.prompts.invariants, [
+    path.join(fixture.workspaceDir, "prompts", "invariants", "run-scope.md"),
+    path.join(fixture.workspaceDir, "prompts", "invariants", "verification.md"),
+  ]);
+  assert.equal(
+    config.promptCapabilities.github_review.authority,
+    "execution_surface_read",
+  );
+  assert.deepEqual(config.promptCapabilities.github_review.allowedPhases, [
+    "review",
+  ]);
   assert.equal(
     config.promptPacks.default.overlays.organization.reviewer_qa,
     path.join(fixture.workspaceDir, "prompts", "overlays", "org", "reviewer-qa.md"),
@@ -223,6 +256,7 @@ test("loads the docs example default prompt pack with non-placeholder prompt ass
   const pack = config.promptPacks.default;
   const assetPaths = [
     pack.baseSystem,
+    ...config.prompts.invariants,
     ...Object.values(pack.roles),
     ...Object.values(pack.phases),
     ...Object.values(pack.capabilities),
@@ -526,6 +560,109 @@ test("rejects prompt overlay group mismatches", () => {
   );
 });
 
+test("rejects empty invariant prompt assets", () => {
+  const fixture = createFixtureWorkspace();
+  writeFileSync(
+    path.join(fixture.workspaceDir, "prompts", "invariants", "run-scope.md"),
+    "\n",
+    "utf8",
+  );
+
+  assert.throws(
+    () =>
+      parseConfig(VALID_CONFIG, {
+        sourcePath: fixture.sourcePath,
+        env: {},
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(error.path, "prompts.invariants[0]");
+      return true;
+    },
+  );
+});
+
+test("rejects configs that omit prompt invariants", () => {
+  const fixture = createFixtureWorkspace();
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          "invariants = [\n  \"invariants/run-scope.md\",\n  \"invariants/verification.md\",\n]\n\n",
+          "",
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          env: {},
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_type");
+      assert.equal(error.path, "prompts.invariants");
+      return true;
+    },
+  );
+});
+
+test("rejects prompt packs that reference undefined prompt capabilities", () => {
+  const fixture = createFixtureWorkspace();
+
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          'github_review = "capabilities/github-review.md"',
+          'missing_capability = "capabilities/github-review.md"',
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          env: {},
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(
+        error.path,
+        "prompt_packs.default.capabilities.missing_capability",
+      );
+      return true;
+    },
+  );
+});
+
+test("rejects prompt packs whose capabilities omit required peer capabilities", () => {
+  const fixture = createFixtureWorkspace();
+
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          '[prompt_capabilities.playwright_exploration]\nauthority = "behavioral"\nallowed_phases = ["implement", "review"]\n',
+          '[prompt_capabilities.playwright_exploration]\nauthority = "behavioral"\nallowed_phases = ["implement", "review"]\n\n[prompt_capabilities.cap_missing_peer]\nauthority = "behavioral"\nallowed_phases = ["review"]\n\n[prompt_capabilities.cap_requires_missing]\nauthority = "behavioral"\nallowed_phases = ["review"]\nrequires = ["cap_missing_peer"]\n',
+        ).replace(
+          'playwright_exploration = "capabilities/playwright-exploration.md"',
+          'playwright_exploration = "capabilities/playwright-exploration.md"\ncap_requires_missing = "capabilities/github-review.md"',
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          env: {},
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(
+        error.path,
+        "prompt_packs.default.capabilities.cap_requires_missing",
+      );
+      return true;
+    },
+  );
+});
+
 test("rejects reverse-direction prompt overlay group mismatches on the project field", () => {
   const fixture = createFixtureWorkspace();
   assert.throws(
@@ -603,10 +740,20 @@ function createFixtureWorkspace(): { sourcePath: string; workspaceDir: string } 
 
 function writePromptFixtureFiles(promptRoot: string): void {
   const files = {
-    "base/system.md": "# Base System\n",
-    "roles/design.md": "# Design\n",
-    "roles/implement.md": "# Implement\n",
-    "phases/review.md": "# Review Phase\n",
+    "base/system.md": "# Base System\nStay focused on the assigned work item.\n",
+    "invariants/run-scope.md":
+      "# Run Scope\nOne run owns one work item and the assigned phase remains authoritative.\n",
+    "invariants/verification.md":
+      "# Verification\nRun required checks and report evidence honestly before claiming completion.\n",
+    "roles/design.md": "# Design\nProduce a durable design artifact.\n",
+    "roles/implement.md":
+      "# Implement\nShip the smallest verified implementation that solves the issue.\n",
+    "phases/review.md":
+      "# Review Phase\nPrioritize correctness, regressions, and missing verification.\n",
+    "capabilities/github-review.md":
+      "# GitHub Review\nInspect the pull request and relevant review feedback.\n",
+    "capabilities/playwright-exploration.md":
+      "# Browser Exploration\nUse browser evidence when a changed flow needs UI verification.\n",
     "overlays/org/reviewer-qa.md": "# Reviewer QA\n",
     "overlays/project/reviewer-webapp.md": "# Reviewer Webapp\n",
     "experiments/reviewer-v2.md": "# Reviewer V2\n",

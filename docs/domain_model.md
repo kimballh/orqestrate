@@ -399,6 +399,7 @@ export type PromptAttachment = {
 export type PromptSourceRef = {
   kind:
     | "base_pack"
+    | "invariant"
     | "role_prompt"
     | "phase_prompt"
     | "capability"

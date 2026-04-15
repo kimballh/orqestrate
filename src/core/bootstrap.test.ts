@@ -470,7 +470,9 @@ function createFakeLoadedConfig(): LoadedConfig {
     prompts: {
       root: "/tmp/prompts",
       activePack: "default",
+      invariants: [],
     },
+    promptCapabilities: {},
     promptPacks: {
       default: profile.promptPack,
     },

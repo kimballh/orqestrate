@@ -31,7 +31,7 @@ type PrepareClaimedRunDependencies = {
   context: ContextBackend;
   config: Pick<
     LoadedConfig,
-    "activeProfile" | "policy" | "promptPacks" | "prompts"
+    "activeProfile" | "policy" | "promptCapabilities" | "promptPacks" | "prompts"
   >;
   classifyPostClaimFailure?: ClassifyPostClaimFailure;
 };
