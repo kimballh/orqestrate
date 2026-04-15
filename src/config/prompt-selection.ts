@@ -23,6 +23,8 @@ export type PromptSelectionField =
 export type PromptSelectionOverrides = {
   promptPackName?: string;
   experiment?: string | null;
+  organizationOverlays?: string[];
+  projectOverlays?: string[];
 };
 
 export type ResolvedPromptSelection = {
@@ -99,12 +101,14 @@ export function resolvePromptSelection(
     organization: resolveNamedPromptAssets(
       promptPack,
       "organization",
-      config.activeProfile.promptBehavior.organizationOverlayNames,
+      overrides.organizationOverlays ??
+        config.activeProfile.promptBehavior.organizationOverlayNames,
     ),
     project: resolveNamedPromptAssets(
       promptPack,
       "project",
-      config.activeProfile.promptBehavior.projectOverlayNames,
+      overrides.projectOverlays ??
+        config.activeProfile.promptBehavior.projectOverlayNames,
     ),
   } satisfies Record<PromptOverlayGroup, NamedPromptAsset[]>;
 

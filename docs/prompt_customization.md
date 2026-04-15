@@ -356,18 +356,56 @@ This should print:
 - source fragments used
 - prompt digest
 
+Useful preview options now supported:
+
+```text
+orq prompt render \
+  --role review \
+  --phase review \
+  --profile saas \
+  --context-file ./fixtures/review-context.json \
+  --organization-overlay reviewer_qa \
+  --project-overlay reviewer_webapp \
+  --no-experiment
+```
+
+Notes:
+
+- if `--context-file` is omitted, the CLI renders against a synthetic `Prompt Preview` work item so contributors can inspect prompts without instrumenting the runtime
+- explicit overlay flags replace that overlay group for the preview render
+- `--format json` returns the resolved selection, prompt envelope, and resolved layers for scripting
+
 ### 11.2 Variant comparison
 
 Users should be able to compare prompt variants:
 
 ```text
-orq prompt diff --role review --phase review --experiment reviewer_v2
+orq prompt diff --role review --phase review --variant-experiment reviewer_v2
 ```
 
 This should show:
 
 - what text changed
 - what fragment sources differ
+
+The shipped diff surface also supports comparing profile defaults and preview inputs:
+
+```text
+orq prompt diff \
+  --role review \
+  --phase review \
+  --profile saas \
+  --variant-profile hybrid \
+  --variant-no-experiment \
+  --variant-context-file ./fixtures/review-context.json
+```
+
+The text output reports:
+
+- left and right selection summaries
+- contract ids and prompt digests
+- source refs that were added, removed, or changed
+- unified diffs for `systemPrompt` and `userPrompt`
 
 ### 11.3 Replay test
 
@@ -377,7 +415,7 @@ Users should be able to replay a past run context against a prompt variant:
 orq prompt replay --run-id run-123 --experiment reviewer_playwright_heavy
 ```
 
-This is critical for prompt iteration without mutating live workflow state.
+This is still a future workflow. ORQ-45 ships `render` and `diff` plus optional JSON preview context files; historical replay remains a later ticket so prompt iteration can land now without coupling to persisted run records.
 
 ### 11.4 Fixture-based tests
 
