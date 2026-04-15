@@ -5,7 +5,7 @@ This file defines the ideal ingress model for the harness.
 The core recommendation is:
 
 - use Linear webhooks for wakeup and targeting
-- use polling for reconciliation and recovery
+- use a bounded actionable sweep plus polling for reconciliation and recovery
 - keep Linear as the source of truth
 
 This is the best long-term model even if v1 starts as polling only.
@@ -176,6 +176,7 @@ Purpose:
 
 - find claimable issues that were missed by webhook delivery
 - pick up newly queued work after service restarts
+- enqueue those discoveries through the same internal wakeup queue used by webhook-triggered issue events
 
 Selector:
 

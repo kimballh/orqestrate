@@ -5,6 +5,9 @@ import type { LoadedConfig } from "../config/types.js";
 import { bootstrapActiveProfile } from "../core/bootstrap.js";
 
 import {
+  ActionableSweepLoop,
+} from "./actionable-sweep-loop.js";
+import {
   createOrchestratorOwner,
 } from "./identity.js";
 import { ReconciliationLoop } from "./reconciliation-loop.js";
@@ -21,6 +24,7 @@ import {
 } from "./webhook-server.js";
 import type { ContextBackend } from "../core/context-backend.js";
 import type { PlanningBackend } from "../core/planning-backend.js";
+import { executeClaimedRun } from "./execute-run.js";
 
 export type StartOrchestratorServiceOptions = {
   repoRoot: string;
@@ -31,6 +35,8 @@ export type StartOrchestratorServiceOptions = {
   leaseDurationMs?: number;
   webhookListen?: WebhookListenOptions;
   wakeupIntervalMs?: number;
+  actionableSweepIntervalMs?: number;
+  actionableSweepLimit?: number;
   now?: () => Date;
 };
 
@@ -41,6 +47,7 @@ type StartOrchestratorServiceDependencies = {
   runtime?: RuntimeClient;
   runtimeObserver?: RuntimeObserver;
   wakeupDatabase?: WakeupDatabase;
+  executeClaimedRunFn?: typeof executeClaimedRun;
 };
 
 export type OrchestratorService = {
@@ -48,6 +55,7 @@ export type OrchestratorService = {
   context: ContextBackend;
   runtime: RuntimeClient;
   runtimeObserver: RuntimeObserver;
+  actionableSweepLoop: ActionableSweepLoop | null;
   reconciliationLoop: ReconciliationLoop;
   wakeupRepository: WakeupRepository;
   wakeupLoop: WakeupLoop;
@@ -98,6 +106,7 @@ export async function startOrchestratorService(
     requestedBy: options.requestedBy,
     leaseDurationMs: options.leaseDurationMs,
     now: options.now,
+    executeClaimedRunFn: dependencies.executeClaimedRunFn,
   });
   const wakeupLoop = new WakeupLoop({
     repository: wakeupRepository,
@@ -118,6 +127,16 @@ export async function startOrchestratorService(
         limit: 100,
       }),
   });
+  const actionableSweepLoop =
+    planning.kind === "planning.linear"
+      ? new ActionableSweepLoop({
+          planning,
+          repository: wakeupRepository,
+          intervalMs: options.actionableSweepIntervalMs,
+          limit: options.actionableSweepLimit,
+          now: options.now,
+        })
+      : null;
 
   const linearSigningSecret = resolveLinearSigningSecret(loadedConfig);
   const webhookServer =
@@ -136,6 +155,7 @@ export async function startOrchestratorService(
         );
 
   wakeupLoop.start();
+  actionableSweepLoop?.start();
   reconciliationLoop.start();
 
   try {
@@ -144,11 +164,13 @@ export async function startOrchestratorService(
     }
   } catch (error) {
     wakeupLoop.stop();
+    await actionableSweepLoop?.stop();
     reconciliationLoop.stop();
     wakeupDatabase.close();
     throw error;
   }
 
+  await actionableSweepLoop?.runOnce();
   await wakeupLoop.runOnce();
 
   return {
@@ -156,12 +178,14 @@ export async function startOrchestratorService(
     context,
     runtime,
     runtimeObserver,
+    actionableSweepLoop,
     reconciliationLoop,
     wakeupRepository,
     wakeupLoop,
     webhookServer,
     async stop(): Promise<void> {
       wakeupLoop.stop();
+      await actionableSweepLoop?.stop();
       reconciliationLoop.stop();
       await webhookServer?.stop();
       wakeupDatabase.close();
