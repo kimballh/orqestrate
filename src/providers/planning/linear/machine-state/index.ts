@@ -22,7 +22,9 @@ export type LinearMachineState = LinearDescriptionMachineState & {
 };
 
 export function readLinearMachineState(
-  issue: Pick<LinearHydratedIssueRecord, "id" | "identifier" | "labels" | "description">,
+  issue: Pick<LinearHydratedIssueRecord, "id" | "identifier" | "description"> & {
+    labels: string[];
+  },
 ): LinearMachineState {
   try {
     const labelState = readLinearMachineStateLabels(issue.labels);

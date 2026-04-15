@@ -39,6 +39,10 @@ const REVIEW_VALUES = new Set<ReviewOutcome>([
   "approved",
 ]);
 
+export function normalizeLinearLabelName(label: string): string {
+  return label.trim().toLowerCase();
+}
+
 export function readLinearMachineStateLabels(
   labels: string[],
 ): LinearMachineStateLabels {
@@ -49,6 +53,28 @@ export function readLinearMachineStateLabels(
   };
 }
 
+export function isLinearProviderOwnedLabel(label: string): boolean {
+  const normalized = normalizeLinearLabelName(label);
+
+  return (
+    normalized.startsWith(PHASE_PREFIX) ||
+    normalized.startsWith(STATE_PREFIX) ||
+    normalized.startsWith(REVIEW_PREFIX)
+  );
+}
+
+export function buildLinearMachineStateLabelNames(input: {
+  phase: WorkPhaseOrNone;
+  state: OrchestrationState;
+  reviewOutcome: ReviewOutcome;
+}): string[] {
+  return [
+    `${PHASE_PREFIX}${input.phase}`,
+    `${STATE_PREFIX}${input.state}`,
+    `${REVIEW_PREFIX}${input.reviewOutcome}`,
+  ];
+}
+
 function readSinglePrefixedLabel<TValue extends string>(
   labels: string[],
   prefix: string,
@@ -57,7 +83,7 @@ function readSinglePrefixedLabel<TValue extends string>(
   const values = new Set<TValue>();
 
   for (const label of labels) {
-    const normalized = label.trim().toLowerCase();
+    const normalized = normalizeLinearLabelName(label);
 
     if (!normalized.startsWith(prefix)) {
       continue;
