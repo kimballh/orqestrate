@@ -38,10 +38,10 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 mkdir -p \
-  .orqestrate/artifacts \
-  .orqestrate/logs \
-  .orqestrate/state \
-  .orqestrate/tmp
+  .harness/data \
+  .harness/logs \
+  .harness/state \
+  .harness/tmp
 
 if [[ -f package-lock.json ]]; then
   npm ci

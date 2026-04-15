@@ -1,12 +1,24 @@
-# Orqestrate Agent Harness
+# Orqestrate Docs
 
-This directory is the first-pass product architecture for Orqestrate.
+This directory is the main documentation index for Orqestrate.
 
-The initial MVP target is:
+If you are new to the repo, start with the task-oriented guides before diving into the full architecture set.
+
+## Start Here
+
+- Repo overview and quickstart: [../README.md](../README.md)
+- Contributor onboarding and the current human-orchestrated workflow: [contributor_workflow.md](./contributor_workflow.md)
+- Runtime and orchestrator troubleshooting: [operator_runbook.md](./operator_runbook.md)
+- Verification and done criteria: [quality_policy.md](./quality_policy.md)
+
+## Current System Shape
+
+The current MVP target is:
 
 - Linear as the planning system and dispatch control plane
 - Notion as the artifact store and run-history surface
-- an autonomous orchestrator service that claims actionable tickets and dispatches one phase at a time
+- a runtime daemon that executes runs locally
+- a future autonomous orchestrator service that will eventually claim actionable tickets and dispatch one phase at a time
 
 The architecture is intentionally providerized so the same harness can later support:
 
@@ -49,7 +61,12 @@ The core rule is: one authority per state dimension.
 
 This mirrors one of the most important lessons from OMX: do not overload one field with multiple meanings.
 
-## Documents
+## Task-Oriented Guides
+
+- [contributor_workflow.md](./contributor_workflow.md) - bootstrap the repo, work tickets in the current human-orchestrated model, and understand what belongs in Linear, Notion, `docs/`, and git
+- [operator_runbook.md](./operator_runbook.md) - run, inspect, and troubleshoot the runtime daemon and live runs using the current API surface
+
+## Architecture Reference
 
 - [architecture.md](./architecture.md) - end-to-end implementation review diagram covering config, providers, orchestrator, runtime, persistence, and deployment profiles
 - [domain_model.md](./domain_model.md) - canonical shared records, enums, authority boundaries, and serialization rules for cross-layer contracts
