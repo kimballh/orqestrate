@@ -526,6 +526,37 @@ test("rejects prompt overlay group mismatches", () => {
   );
 });
 
+test("rejects reverse-direction prompt overlay group mismatches on the project field", () => {
+  const fixture = createFixtureWorkspace();
+  assert.throws(
+    () =>
+      parseConfig(
+        VALID_CONFIG.replace(
+          'project_overlays = ["reviewer_webapp"]',
+          'project_overlays = ["reviewer_qa"]',
+        ),
+        {
+          sourcePath: fixture.sourcePath,
+          activeProfile: "saas",
+          env: {
+            LINEAR_API_KEY: "linear-token",
+            NOTION_TOKEN: "notion-token",
+          },
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof ConfigError);
+      assert.equal(error.code, "invalid_value");
+      assert.equal(error.path, "profiles.saas.prompt.project_overlays");
+      assert.match(
+        error.message,
+        /configured as an organization overlay, not a project overlay/,
+      );
+      return true;
+    },
+  );
+});
+
 test("rejects unknown default prompt experiments", () => {
   const fixture = createFixtureWorkspace();
   assert.throws(

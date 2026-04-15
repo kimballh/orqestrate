@@ -5,7 +5,10 @@ import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 
 import { ConfigError } from "./errors.js";
-import { resolveProfilePromptBehavior } from "./prompt-selection.js";
+import {
+  PromptSelectionError,
+  resolveProfilePromptBehavior,
+} from "./prompt-selection.js";
 import {
   type BuiltinProviderKind,
   BUILTIN_PROVIDER_KINDS,
@@ -618,20 +621,20 @@ function parseProfilesSection(
           promptSelection,
         );
       } catch (error) {
-        if (error instanceof Error) {
-          const defaultExperimentField = `${profilePath}.prompt.default_experiment`;
-          const organizationOverlayField = `${profilePath}.prompt.organization_overlays`;
-          const projectOverlayField = `${profilePath}.prompt.project_overlays`;
-          const fieldPath = error.message.includes("default prompt experiment")
-            ? defaultExperimentField
-            : error.message.includes("organization overlay")
-              ? organizationOverlayField
-              : projectOverlayField;
-
+        if (error instanceof PromptSelectionError) {
+          const fieldPath = `${profilePath}.prompt.${error.field}`;
           throw new ConfigError(error.message, {
             code: "invalid_value",
             path: fieldPath,
             hint: buildPromptSelectionHint(promptPack, fieldPath),
+            cause: error,
+          });
+        }
+
+        if (error instanceof Error) {
+          throw new ConfigError(error.message, {
+            code: "invalid_value",
+            path: `${profilePath}.prompt`,
             cause: error,
           });
         }

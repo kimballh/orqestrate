@@ -15,6 +15,11 @@ type ProfilePromptSelection = {
   defaultExperimentName?: string;
 };
 
+export type PromptSelectionField =
+  | "organization_overlays"
+  | "project_overlays"
+  | "default_experiment";
+
 export type PromptSelectionOverrides = {
   promptPackName?: string;
   experiment?: string | null;
@@ -26,6 +31,16 @@ export type ResolvedPromptSelection = {
   overlays: Record<PromptOverlayGroup, NamedPromptAsset[]>;
   experiment: NamedPromptAsset | null;
 };
+
+export class PromptSelectionError extends Error {
+  readonly field: PromptSelectionField;
+
+  constructor(message: string, field: PromptSelectionField) {
+    super(message);
+    this.name = "PromptSelectionError";
+    this.field = field;
+  }
+}
 
 export function resolveProfilePromptBehavior(
   profile: Pick<ProfileConfig, "name">,
@@ -130,10 +145,11 @@ function resolveNamedPromptAssets(
     const alternateGroup = group === "organization" ? "project" : "organization";
     const alternatePath = promptPack.overlays[alternateGroup][name];
 
-    throw new Error(
+    throw new PromptSelectionError(
       alternatePath === undefined
         ? `Unknown ${group} overlay '${name}' requested.`
         : `Overlay '${name}' is configured as ${withIndefiniteArticle(alternateGroup)} overlay, not ${withIndefiniteArticle(group)} overlay.`,
+      group === "organization" ? "organization_overlays" : "project_overlays",
     );
   });
 }
@@ -146,10 +162,11 @@ function resolveNamedExperiment(
   const assetPath = promptPack.experiments[name];
 
   if (assetPath === undefined) {
-    throw new Error(
+    throw new PromptSelectionError(
       fieldPath === "experiment"
         ? `Unknown prompt experiment '${name}' requested.`
         : `Unknown default prompt experiment '${name}' configured.`,
+      "default_experiment",
     );
   }
 
