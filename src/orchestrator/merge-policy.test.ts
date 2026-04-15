@@ -70,6 +70,38 @@ test("evaluateMergePolicy waits for explicit human approval when configured", ()
   assert.equal(decision.requiresHumanApproval, true);
 });
 
+test("evaluateMergePolicy honors any requested allowed merge method", () => {
+  const decision = evaluateMergePolicy({
+    policy: {
+      allowedMethods: ["squash", "rebase"],
+      requireHumanApproval: false,
+    },
+    reviewLoop: createReviewLoopSnapshot(),
+    readiness: createMergeReadiness(),
+    requestedMethod: "rebase",
+  });
+
+  assert.equal(decision.disposition, "ready_to_execute");
+  assert.equal(decision.mergeMethod, "rebase");
+});
+
+test("evaluateMergePolicy ignores missing rollup state when no required checks exist", () => {
+  const decision = evaluateMergePolicy({
+    policy: {
+      allowedMethods: ["squash"],
+      requireHumanApproval: false,
+    },
+    reviewLoop: createReviewLoopSnapshot(),
+    readiness: createMergeReadiness({
+      statusCheckRollupState: null,
+      requiredChecks: [],
+    }),
+  });
+
+  assert.equal(decision.disposition, "ready_to_execute");
+  assert.doesNotMatch(decision.reasons.join(" "), /required status checks are unavailable/i);
+});
+
 function createReviewLoopSnapshot(
   overrides: Partial<{
     implementerActionThreadIds: string[];

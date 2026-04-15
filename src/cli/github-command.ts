@@ -306,18 +306,8 @@ async function handlePrMerge(
     reviewLoop: classifyPullRequestReviewLoop(pullRequestState),
     readiness,
     humanApproved: options.humanApproved,
+    requestedMethod: options.method,
   });
-
-  if (options.method !== undefined && decision.mergeMethod !== options.method) {
-    throw createCommandError(
-      "merge_method_not_allowed",
-      `Requested merge method '${options.method}' is not allowed by policy.`,
-      {
-        requestedMethod: options.method,
-        allowedMethod: decision.mergeMethod,
-      },
-    );
-  }
 
   if (options.dryRun) {
     write(
@@ -339,7 +329,9 @@ async function handlePrMerge(
     throw createCommandError(
       decision.disposition === "ready_waiting_human"
         ? "approval_required"
-        : "merge_policy_blocked",
+        : options.method !== undefined
+          ? "merge_method_not_allowed"
+          : "merge_policy_blocked",
       decision.reasons.join(" "),
       {
         pullRequestUrl: linkedPullRequest.url,

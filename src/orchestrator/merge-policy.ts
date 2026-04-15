@@ -26,9 +26,13 @@ export function evaluateMergePolicy(input: {
   reviewLoop: PullRequestReviewLoopSnapshot;
   readiness: GitHubPullRequestMergeReadiness;
   humanApproved?: boolean;
+  requestedMethod?: MergeMethod;
 }): MergePolicyDecision {
   const reasons: string[] = [];
-  const mergeMethod = input.policy.allowedMethods[0] ?? null;
+  const mergeMethod = selectMergeMethod(
+    input.policy.allowedMethods,
+    input.requestedMethod,
+  );
   const requiresHumanApproval = input.policy.requireHumanApproval;
 
   if (mergeMethod === null) {
@@ -103,7 +107,10 @@ export function evaluateMergePolicy(input: {
     );
   }
 
-  if (input.readiness.statusCheckRollupState !== "SUCCESS") {
+  if (
+    input.readiness.requiredChecks.length > 0 &&
+    input.readiness.statusCheckRollupState !== "SUCCESS"
+  ) {
     reasons.push(
       input.readiness.statusCheckRollupState === null
         ? "Required status checks are unavailable."
@@ -156,4 +163,15 @@ function blocked(
     mergeMethod: null,
     requiresHumanApproval,
   };
+}
+
+function selectMergeMethod(
+  allowedMethods: MergeMethod[],
+  requestedMethod: MergeMethod | undefined,
+): MergeMethod | null {
+  if (requestedMethod !== undefined) {
+    return allowedMethods.includes(requestedMethod) ? requestedMethod : null;
+  }
+
+  return allowedMethods[0] ?? null;
 }

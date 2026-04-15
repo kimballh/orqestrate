@@ -453,6 +453,93 @@ test("github pr-merge executes a bounded merge when policy allows it", async () 
   assert.equal(parsed.merge.pullRequest.state, "MERGED");
 });
 
+test("github pr-merge accepts a non-default allowed merge method", async () => {
+  let mergeMethod = "";
+  const result = await invokeCli(
+    ["github", "pr-merge", "--method", "rebase"],
+    {
+      loadRun: async () =>
+        createRun({
+          grantedCapabilities: ["github.merge_pr"],
+        }),
+      loadConfig: async () =>
+        ({
+          policy: {
+            merge: {
+              allowedMethods: ["squash", "rebase"],
+              requireHumanApproval: false,
+            },
+          },
+        }) as never,
+      createClient: () =>
+        ({
+          readPullRequest: async () => ({
+            viewerLogin: "reviewer",
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              title: "Implement ORQ-44",
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: false,
+              body: "Body",
+              baseRefName: "main",
+              headRefName: "hillkimball/orq-44",
+              reviewDecision: "APPROVED",
+              authorLogin: "kimballh",
+            },
+            files: [],
+            reviews: [],
+            threads: [],
+          }),
+          readPullRequestMergeReadiness: async () => ({
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: false,
+              reviewDecision: "APPROVED",
+              mergeStateStatus: "CLEAN",
+              mergeable: "MERGEABLE",
+              merged: false,
+              mergedAt: null,
+              headRefOid: "abc123",
+            },
+            statusCheckRollupState: "SUCCESS",
+            requiredChecks: [],
+          }),
+          mergePullRequest: async ({
+            method,
+          }: {
+            method: string;
+          }) => {
+            mergeMethod = method;
+            return {
+              method: "rebase",
+              pullRequest: {
+                id: "PR_kwDO44",
+                number: 44,
+                url: "https://github.com/kimballh/orqestrate/pull/42",
+                state: "MERGED",
+                isDraft: false,
+                reviewDecision: "APPROVED",
+                mergeStateStatus: "CLEAN",
+                mergeable: "MERGEABLE",
+                merged: true,
+                mergedAt: "2026-04-15T22:00:00.000Z",
+                headRefOid: "abc123",
+              },
+            };
+          },
+        }) as never,
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(mergeMethod, "rebase");
+});
+
 async function invokeCli(
   args: string[],
   dependencies: {
