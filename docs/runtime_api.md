@@ -144,7 +144,7 @@ Response:
     "promptProvenance": {
       "selection": {
         "promptPackName": "default",
-        "capabilityNames": ["github_review"],
+        "capabilityNames": ["github.read_pr"],
         "organizationOverlayNames": ["reviewer_qa"],
         "projectOverlayNames": ["reviewer_webapp"],
         "experimentName": "reviewer_v2"
