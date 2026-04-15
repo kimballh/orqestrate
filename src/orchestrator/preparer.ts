@@ -219,6 +219,7 @@ export async function prepareClaimedRun(
       provider: input.provider,
       workspace,
       prompt: prompt.prompt,
+      promptProvenance: prompt.provenance,
       limits: {
         maxWallTimeSec: dependencies.config.policy.defaultPhaseTimeoutSec,
         idleTimeoutSec: DEFAULT_IDLE_TIMEOUT_SEC,

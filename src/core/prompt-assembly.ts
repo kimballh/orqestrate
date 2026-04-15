@@ -12,6 +12,7 @@ import type {
   ArtifactRecord,
   PromptAttachment,
   PromptEnvelope,
+  PromptProvenanceRecord,
   PromptSourceKind,
   WorkItemRecord,
   WorkPhase,
@@ -74,6 +75,7 @@ export type ResolvedPromptLayer = {
 
 export type PromptAssemblyResult = {
   prompt: PromptEnvelope;
+  provenance: PromptProvenanceRecord;
   resolvedLayers: ResolvedPromptLayer[];
 };
 
@@ -359,11 +361,12 @@ export async function assemblePrompt(
 
   const systemPrompt = systemPromptLayers.join("\n\n");
   const userPrompt = userLayers.map((layer) => layer.content).join("\n\n");
+  const attachments = buildAttachments(request.context);
   const prompt: PromptEnvelope = {
     contractId: `orqestrate/${promptPackName}/${request.role}/${request.phase}/v2`,
     systemPrompt,
     userPrompt,
-    attachments: buildAttachments(request.context),
+    attachments,
     sources: resolvedLayers.map((layer) => ({
       kind: layer.kind,
       ref: layer.ref,
@@ -373,9 +376,32 @@ export async function assemblePrompt(
       user: hashPromptText(userPrompt),
     },
   };
+  const provenance: PromptProvenanceRecord = {
+    selection: {
+      promptPackName,
+      capabilityNames: resolvedCapabilities.map((capability) => capability.name),
+      organizationOverlayNames: selection.overlays.organization.map(
+        (overlay) => overlay.name,
+      ),
+      projectOverlayNames: selection.overlays.project.map((overlay) => overlay.name),
+      experimentName: selection.experiment?.name ?? null,
+    },
+    sources: resolvedLayers.map((layer) => ({
+      kind: layer.kind,
+      ref: layer.ref,
+      digest: layer.digest,
+    })),
+    rendered: {
+      systemPromptLength: systemPrompt.length,
+      userPromptLength: userPrompt.length,
+      attachmentKinds: collectAttachmentKinds(attachments),
+      attachmentCount: attachments.length,
+    },
+  };
 
   return {
     prompt,
+    provenance,
     resolvedLayers,
   };
 }
@@ -431,6 +457,24 @@ function buildAttachments(context: PromptAssemblyContext): PromptAttachment[] {
   }
 
   return deduped;
+}
+
+function collectAttachmentKinds(
+  attachments: readonly PromptAttachment[],
+): PromptAttachment["kind"][] {
+  const seen = new Set<PromptAttachment["kind"]>();
+  const attachmentKinds: PromptAttachment["kind"][] = [];
+
+  for (const attachment of attachments) {
+    if (seen.has(attachment.kind)) {
+      continue;
+    }
+
+    seen.add(attachment.kind);
+    attachmentKinds.push(attachment.kind);
+  }
+
+  return attachmentKinds;
 }
 
 function renderRunAddition(addition: PromptAssemblyAddition): string | null {

@@ -36,6 +36,14 @@ test("runtime API exposes runs, pagination, health, capacity, and event replay",
     assert.equal(firstCreate.status, 201);
     assert.equal(firstCreate.body.created, true);
     assert.equal(secondCreate.status, 201);
+    assert.equal(
+      firstCreate.body.run.promptProvenance.selection.promptPackName,
+      "default",
+    );
+    assert.equal(
+      firstCreate.body.run.promptProvenance.sources[0]?.digest,
+      "sha256-base-pack",
+    );
 
     await waitForAsyncTurn();
 
@@ -49,6 +57,10 @@ test("runtime API exposes runs, pagination, health, capacity, and event replay",
     const firstPage = await getJson(apiServer.info.endpoint, "/v1/runs?limit=1");
     assert.equal(firstPage.body.runs.length, 1);
     assert.equal(typeof firstPage.body.nextCursor, "string");
+    assert.equal(
+      firstPage.body.runs[0]?.promptProvenance.selection.promptPackName,
+      "default",
+    );
 
     const secondPage = await getJson(
       apiServer.info.endpoint,
@@ -60,6 +72,7 @@ test("runtime API exposes runs, pagination, health, capacity, and event replay",
     const run = await getJson(apiServer.info.endpoint, "/v1/runs/run-001");
     assert.equal(run.body.run.runId, "run-001");
     assert.equal(typeof run.body.run.lastEventSeq, "number");
+    assert.deepEqual(run.body.run.promptProvenance.rendered.attachmentKinds, []);
 
     const events = await getJson(apiServer.info.endpoint, "/v1/runs/run-001/events?after=0");
     const eventTypes = events.body.events.map((event: { eventType: string }) => event.eventType);

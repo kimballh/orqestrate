@@ -277,6 +277,26 @@ type PromptAssemblyResult = {
       user: string;
     };
   };
+  provenance: {
+    selection: {
+      promptPackName: string;
+      capabilityNames: string[];
+      organizationOverlayNames: string[];
+      projectOverlayNames: string[];
+      experimentName?: string | null;
+    };
+    sources: Array<{
+      kind: PromptSourceKind;
+      ref: string;
+      digest: string;
+    }>;
+    rendered: {
+      systemPromptLength: number;
+      userPromptLength: number;
+      attachmentKinds: PromptAttachmentKind[];
+      attachmentCount: number;
+    };
+  };
   resolvedLayers: Array<{
     kind: PromptSourceKind;
     ref: string;
@@ -287,6 +307,7 @@ type PromptAssemblyResult = {
 ```
 
 The `sources` list matters for traceability and debugging, and the public refs should stay symbolic so they can be persisted safely across machines and workspaces.
+The separate `provenance` object is the canonical run-facing summary: it preserves source digests and selection metadata without exposing raw prompt bodies or attachment values.
 
 ## 9. Capability fragments
 
@@ -447,7 +468,7 @@ Recommended model:
 - a run may optionally specify an experiment name
 - `experiment = null` explicitly disables the profile default for replay or testing
 - experiment prompts are appended late in the composition chain
-- the runtime stores the final prompt digest and source list
+- the runtime stores the final prompt digest plus safe prompt provenance on the canonical run record
 
 That gives us:
 
