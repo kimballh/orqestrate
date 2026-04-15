@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { CreateRunInput, PersistedRunRecord } from "./types.js";
 import type { RuntimeConfig } from "./config.js";
@@ -247,6 +248,93 @@ export class FakeProviderAdapter implements ProviderAdapter {
         retryable: false,
       }),
     };
+  }
+}
+
+export type ScriptedSessionStep =
+  | {
+      kind: "output";
+      chunk: string;
+      delayMs?: number;
+    }
+  | {
+      kind: "exit";
+      exitCode: number | null;
+      signal?: string | null;
+      delayMs?: number;
+    };
+
+export class ScriptedSessionSupervisor extends FakeSessionSupervisor {
+  constructor(
+    private readonly steps: ScriptedSessionStep[] = [
+      {
+        kind: "output",
+        chunk: "READY\n",
+      },
+      {
+        kind: "exit",
+        exitCode: 0,
+      },
+    ],
+  ) {
+    super();
+  }
+
+  override async launch(
+    spec: LaunchSpec,
+    observer: SessionObserver,
+  ): Promise<{ sessionId: string; pid: number; runId: string }> {
+    const handle = await super.launch(spec, observer);
+
+    void this.playScript(handle.sessionId);
+
+    return handle;
+  }
+
+  private async playScript(sessionId: string): Promise<void> {
+    for (const step of this.steps) {
+      if ((step.delayMs ?? 0) > 0) {
+        await delay(step.delayMs);
+      } else {
+        await Promise.resolve();
+      }
+
+      if (step.kind === "output") {
+        this.emitOutput(sessionId, step.chunk);
+        continue;
+      }
+
+      this.emitExit(sessionId, step.exitCode, step.signal ?? null);
+      return;
+    }
+  }
+}
+
+export class ScriptedProviderAdapter extends FakeProviderAdapter {
+  constructor(
+    private readonly completedOutcome: Partial<RunOutcome>,
+    options: {
+      failHumanInput?: boolean;
+    } = {},
+  ) {
+    super(options);
+  }
+
+  override async collectOutcome(
+    session: RuntimeSessionController,
+    exit: SessionExit | null,
+  ): Promise<RunOutcome> {
+    if (exit?.exitCode === 0) {
+      return {
+        status: "completed",
+        code: "completed",
+        exitCode: 0,
+        summary: "Run completed.",
+        ...structuredClone(this.completedOutcome),
+      };
+    }
+
+    return super.collectOutcome(session, exit);
   }
 }
 
