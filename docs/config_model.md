@@ -78,6 +78,15 @@ merge = "roles/merge.md"
 implement = "phases/implement.md"
 review = "phases/review.md"
 
+[prompt_packs.default.overlays.organization]
+reviewer_qa = "overlays/org/reviewer-qa.md"
+
+[prompt_packs.default.overlays.project]
+reviewer_webapp = "overlays/project/reviewer-webapp.md"
+
+[prompt_packs.default.experiments]
+reviewer_v2 = "experiments/reviewer-v2.md"
+
 [providers.linear_main]
 kind = "planning.linear"
 token_env = "LINEAR_API_KEY"
@@ -103,6 +112,11 @@ root = ".harness/local/context"
 planning = "linear_main"
 context = "notion_main"
 prompt_pack = "default"
+
+[profiles.saas.prompt]
+organization_overlays = ["reviewer_qa"]
+project_overlays = ["reviewer_webapp"]
+default_experiment = "reviewer_v2"
 
 [profiles.local]
 planning = "local_planning"
@@ -152,6 +166,22 @@ This lets the same installation support multiple deployment modes:
 - local development profile
 - self-hosted file-based profile
 - prompt-pack variations for the same backend combination
+
+Profiles may also own prompt behavior for the selected pack:
+
+```toml
+[profiles.default]
+planning = "linear_main"
+context = "notion_main"
+prompt_pack = "default"
+
+[profiles.default.prompt]
+organization_overlays = ["reviewer_qa"]
+project_overlays = ["reviewer_webapp"]
+default_experiment = "reviewer_v2"
+```
+
+That keeps prompt assets in the pack catalog while making overlay and default-experiment choice profile-specific.
 
 ## 8. Environment variable references
 
@@ -266,12 +296,24 @@ active_pack = "default"
 implement = "phases/implement.md"
 review = "phases/review.md"
 
-[prompt_packs.default.overlays]
-organization = ["overlays/org/reviewer-qa.md"]
-project = ["overlays/project/reviewer-webapp.md"]
+[prompt_packs.default.overlays.organization]
+reviewer_qa = "overlays/org/reviewer-qa.md"
+
+[prompt_packs.default.overlays.project]
+reviewer_webapp = "overlays/project/reviewer-webapp.md"
 
 [prompt_packs.default.experiments]
 reviewer_v2 = "experiments/reviewer-v2.md"
+
+[profiles.saas]
+planning = "linear_main"
+context = "notion_main"
+prompt_pack = "default"
+
+[profiles.saas.prompt]
+organization_overlays = ["reviewer_qa"]
+project_overlays = ["reviewer_webapp"]
+default_experiment = "reviewer_v2"
 ```
 
 This keeps prompt customization config-driven instead of hardcoded.
