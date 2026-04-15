@@ -32,6 +32,35 @@ Start the runtime daemon:
 npm run dev
 ```
 
+## Cross-Project Package Smoke Test
+
+To validate Orqestrate as an installed package from another workspace:
+
+```bash
+npm run build
+npm pack
+
+SHORT_TMP_DIR="$(mktemp -d /tmp/orq-package-smoke.XXXXXX)"
+cp orqestrate-0.1.0.tgz "$SHORT_TMP_DIR/"
+cd "$SHORT_TMP_DIR"
+npm init -y
+npm install ./orqestrate-0.1.0.tgz
+
+./node_modules/.bin/orq init
+./node_modules/.bin/orq bootstrap
+./node_modules/.bin/orq runtime start
+```
+
+Use a short workspace path such as `/tmp/orq-package-smoke.*` for this smoke test on macOS so the runtime Unix socket path stays within platform limits.
+
+For a linked-package workflow, `npm link` is also supported. The generated `config.toml` should point at the linked package location under the consumer workspace's `node_modules/orqestrate/...`, not back at the source checkout path.
+
+That flow is the supported cross-project validation path for this ticket:
+
+- `orq init` writes `./config.toml` from the packaged example config
+- `orq bootstrap` seeds local planning and context state under `./.harness/local`
+- `orq runtime start` starts the runtime daemon without depending on repo-local source paths
+
 Inspect recent runs through the CLI-first diagnostics surface:
 
 ```bash
@@ -61,7 +90,8 @@ On Windows, the runtime binds a named pipe instead of a Unix socket:
 ## What Exists Today
 
 - `npm run setup`, `npm run orq:init`, and `npm run orq:bootstrap` for local bootstrap
-- `npm run dev` and `npm start` for the runtime daemon
+- `orq init`, `orq bootstrap`, and `orq runtime start` for installed-package testing
+- `npm run dev` and `npm start` for the repo-local runtime daemon
 - `npx tsx src/index.ts run list` and `npx tsx src/index.ts run inspect <run-id>` for operator-friendly run diagnostics
 - a SQLite-backed runtime with health, capacity, run listing, event streaming, cancel, interrupt, and human-input APIs
 - built-in planning backends for Linear and local files

@@ -30,6 +30,12 @@ Start the built daemon:
 npm start
 ```
 
+Start the installed-package daemon from any configured workspace:
+
+```bash
+orq runtime start
+```
+
 The daemon:
 
 - reads `config.toml`

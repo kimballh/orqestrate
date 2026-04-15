@@ -43,6 +43,33 @@ After setup, start the runtime daemon:
 npm run dev
 ```
 
+## Installed Package Smoke Path
+
+When you need to validate Orqestrate outside the repo:
+
+```bash
+npm run build
+npm pack
+```
+
+Then in a separate workspace:
+
+```bash
+TMP_DIR="$(mktemp -d /tmp/orq-package-smoke.XXXXXX)"
+cd "$TMP_DIR"
+npm init -y
+npm install /path/to/orqestrate-0.1.0.tgz
+orq init
+orq bootstrap
+orq runtime start
+```
+
+That installed path should work without copying `config.example.toml`, `docs/prompts`, or `examples/local` into the target workspace first.
+
+Use a short `/tmp` workspace for this smoke path on macOS so the runtime socket path does not exceed the Unix domain socket limit.
+
+If you prefer `npm link`, the generated config should reference the linked package path under the consumer workspace's `node_modules/orqestrate/...` tree rather than the source checkout path.
+
 ## Manual Bootstrap
 
 If you want to inspect or control each step directly:
@@ -63,7 +90,7 @@ If you switch to a non-local profile:
 
 1. Update `config.toml` to point at the right providers and credentials.
 2. Re-run `npm run orq:bootstrap`.
-3. Start the daemon with `npm run dev` or `npm start`.
+3. Start the daemon with `orq runtime start`, `npm run dev`, or `npm start`.
 
 ## Important Local Paths
 
@@ -181,6 +208,7 @@ If you change behavior and do not add automated coverage, call out:
 npm run setup
 npm run orq:init -- --help
 npm run orq:bootstrap -- --help
+npx tsx src/index.ts runtime start --help
 npm run dev
 npm start
 npm run check

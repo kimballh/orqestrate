@@ -12,6 +12,10 @@ import {
   materializeLocalExampleForProfile,
   type LocalExampleMaterializationResult,
 } from "./local-example.js";
+import {
+  resolveWorkspacePackageAssetPaths,
+  type PackageAssetPaths,
+} from "./package-assets.js";
 
 export type InitializeWorkspaceOptions = {
   cwd?: string;
@@ -50,7 +54,12 @@ export async function initializeWorkspace(
   options: InitializeWorkspaceOptions = {},
 ): Promise<InitializeWorkspaceResult> {
   const workingDirectory = resolveWorkingDirectory(options.cwd);
-  const exampleConfigPath = path.join(workingDirectory, "config.example.toml");
+  const assetPaths = resolveWorkspacePackageAssetPaths(
+    workingDirectory,
+    import.meta.url,
+    process.argv[1],
+  );
+  const exampleConfigPath = assetPaths.configExamplePath;
   const configPath = resolveConfigPath(workingDirectory, options.configPath);
   const exampleConfig = await loadConfig({
     cwd: workingDirectory,
@@ -74,7 +83,11 @@ export async function initializeWorkspace(
   }
 
   const configSource = await readFile(exampleConfigPath, "utf8");
-  const initializedConfigSource = replaceActiveProfile(configSource, profileName);
+  const initializedConfigSource = prepareInitializedConfig(
+    configSource,
+    profileName,
+    assetPaths,
+  );
 
   await mkdir(path.dirname(configPath), { recursive: true });
   await writeFile(configPath, initializedConfigSource, "utf8");
@@ -92,6 +105,11 @@ export async function bootstrapWorkspace(
   options: BootstrapWorkspaceOptions = {},
 ): Promise<BootstrapWorkspaceResult> {
   const workingDirectory = resolveWorkingDirectory(options.cwd);
+  const assetPaths = resolveWorkspacePackageAssetPaths(
+    workingDirectory,
+    import.meta.url,
+    process.argv[1],
+  );
   const loadedConfig = await loadConfig({
     cwd: workingDirectory,
     configPath: options.configPath,
@@ -100,7 +118,7 @@ export async function bootstrapWorkspace(
   });
   const localExample = shouldMaterializeLocalExample(loadedConfig)
     ? await materializeLocalExampleForProfile(loadedConfig, {
-        repoRoot: workingDirectory,
+        repoRoot: assetPaths.packageRoot,
         overwrite: options.force,
       })
     : null;
@@ -134,18 +152,57 @@ function resolveConfigPath(workingDirectory: string, configPath?: string): strin
     : path.resolve(workingDirectory, configPath);
 }
 
-function replaceActiveProfile(source: string, profileName: string): string {
+function prepareInitializedConfig(
+  source: string,
+  profileName: string,
+  assetPaths: PackageAssetPaths,
+): string {
   const activeProfilePattern = /^active_profile = "[^"]+"$/m;
 
   if (!activeProfilePattern.test(source)) {
     throw new Error("config.example.toml is missing an active_profile declaration.");
   }
 
-  return source.replace(activeProfilePattern, `active_profile = "${profileName}"`);
+  return replaceRequiredConfigValue(
+    replaceRequiredConfigValue(
+      replaceRequiredConfigValue(
+        source.replace(
+          activeProfilePattern,
+          `active_profile = ${formatTomlString(profileName)}`,
+        ),
+        /^root = "\.\/docs\/prompts"$/m,
+        `root = ${formatTomlString(assetPaths.promptsRoot)}`,
+        "config.example.toml is missing the canonical prompts root.",
+      ),
+      /^artifact_template = "\.\/examples\/local\/context\/templates\/artifact\.md"$/m,
+      `artifact_template = ${formatTomlString(assetPaths.artifactTemplatePath)}`,
+      "config.example.toml is missing the local artifact template path.",
+    ),
+    /^run_template = "\.\/examples\/local\/context\/templates\/evidence\.md"$/m,
+    `run_template = ${formatTomlString(assetPaths.evidenceTemplatePath)}`,
+    "config.example.toml is missing the local evidence template path.",
+  );
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
   return stat(targetPath)
     .then(() => true)
     .catch(() => false);
+}
+
+function replaceRequiredConfigValue(
+  source: string,
+  pattern: RegExp,
+  replacement: string,
+  missingMessage: string,
+): string {
+  if (!pattern.test(source)) {
+    throw new Error(missingMessage);
+  }
+
+  return source.replace(pattern, replacement);
+}
+
+function formatTomlString(value: string): string {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
 }
