@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { resolvePromptSelection } from "../config/prompt-selection.js";
 import type {
   LoadedConfig,
   PromptCapabilityContextRequirement,
@@ -17,7 +18,6 @@ import type {
   WorkspaceMode,
 } from "../domain-model.js";
 
-const CONFIGURED_OVERLAY_GROUPS = ["organization", "project"] as const;
 const MISSING_VALUE = "(none)";
 
 export type PromptRole = WorkPhase;
@@ -115,20 +115,20 @@ export async function assemblePrompt(
   config: PromptAssemblyConfig,
   request: PromptAssemblyRequest,
 ): Promise<PromptAssemblyResult> {
-  const promptPackName =
-    request.promptPackName ?? config.activeProfile.promptPackName;
-  const promptPack =
-    config.promptPacks[promptPackName] ??
-    (promptPackName === config.activeProfile.promptPackName
-      ? config.activeProfile.promptPack
-      : undefined);
+  let selection;
 
-  if (promptPack === undefined) {
+  try {
+    selection = resolvePromptSelection(config, {
+      promptPackName: request.promptPackName,
+      experiment: request.experiment,
+    });
+  } catch (error) {
     throw new PromptAssemblyError(
-      `Prompt pack '${promptPackName}' is not defined in the loaded config.`,
+      error instanceof Error ? error.message : "Failed to resolve prompt selection.",
     );
   }
 
+  const { promptPackName, promptPack } = selection;
   const promptRoot = config.prompts.root;
   const requestedCapabilities = dedupeStrings(request.capabilities);
   const unknownCapabilities = requestedCapabilities.filter(
@@ -156,16 +156,6 @@ export async function assemblePrompt(
     config.promptCapabilities,
   );
   validateCapabilitySelections(resolvedCapabilities, request);
-
-  if (
-    request.experiment !== undefined &&
-    request.experiment !== null &&
-    !hasOwn(promptPack.experiments, request.experiment)
-  ) {
-    throw new PromptAssemblyError(
-      `Unknown prompt experiment '${request.experiment}' requested.`,
-    );
-  }
 
   const systemLayers: FileLayerSpec[] = [];
   systemLayers.push({
@@ -214,28 +204,27 @@ export async function assemblePrompt(
     });
   }
 
-  for (const overlayGroup of CONFIGURED_OVERLAY_GROUPS) {
-    const overlayPaths = promptPack.overlays[overlayGroup] ?? [];
-
-    for (const overlayPath of overlayPaths) {
-      userFileLayers.push({
-        kind: "overlay",
-        path: overlayPath,
-        ref: createPackRef(promptPackName, promptRoot, overlayPath),
-      });
-    }
+  for (const overlay of [
+    ...selection.overlays.organization,
+    ...selection.overlays.project,
+  ]) {
+    userFileLayers.push({
+      kind: "overlay",
+      path: overlay.assetPath,
+      ref: createPackRef(promptPackName, promptRoot, overlay.assetPath),
+    });
   }
 
   const experimentLayer =
-    request.experiment === undefined || request.experiment === null
+    selection.experiment === null
       ? null
       : {
           kind: "experiment" as const,
-          path: promptPack.experiments[request.experiment],
+          path: selection.experiment.assetPath,
           ref: createPackRef(
             promptPackName,
             promptRoot,
-            promptPack.experiments[request.experiment],
+            selection.experiment.assetPath,
           ),
         };
 

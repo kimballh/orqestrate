@@ -400,6 +400,68 @@ test("rejects explicitly conflicting capabilities", async () => {
   );
 });
 
+test("uses the profile default experiment when no experiment override is provided", async () => {
+  const fixture = createFixtureWorkspace();
+
+  const result = await assemblePrompt(fixture.loadedConfig, {
+    role: "implement",
+    phase: "implement",
+    context: {
+      workItem: {
+        id: "work-22",
+        identifier: "ORQ-22",
+        title: "Config-driven prompt selection",
+        description: null,
+        labels: [],
+        url: null,
+      },
+      workspace: {
+        repoRoot: fixture.workspaceDir,
+        mode: "ephemeral_worktree",
+      },
+      expectations: {},
+    },
+  });
+
+  assert.ok(
+    result.resolvedLayers.some(
+      (layer) => layer.ref === "prompt-pack:default/experiments/review.md",
+    ),
+  );
+  assert.match(result.prompt.userPrompt, /Experiment variant instructions\./);
+});
+
+test("allows callers to disable the profile default experiment explicitly", async () => {
+  const fixture = createFixtureWorkspace();
+
+  const result = await assemblePrompt(fixture.loadedConfig, {
+    role: "implement",
+    phase: "implement",
+    experiment: null,
+    context: {
+      workItem: {
+        id: "work-22",
+        identifier: "ORQ-22",
+        title: "Config-driven prompt selection",
+        description: null,
+        labels: [],
+        url: null,
+      },
+      workspace: {
+        repoRoot: fixture.workspaceDir,
+        mode: "ephemeral_worktree",
+      },
+      expectations: {},
+    },
+  });
+
+  assert.equal(
+    result.resolvedLayers.some((layer) => layer.kind === "experiment"),
+    false,
+  );
+  assert.doesNotMatch(result.prompt.userPrompt, /Experiment variant instructions\./);
+});
+
 test("produces stable digests for equivalent capability requests", async () => {
   const fixture = createFixtureWorkspace();
   const baseRequest = {
@@ -605,9 +667,11 @@ cap_review_only = "capabilities/cap-review-only.md"
 cap_requires_first = "capabilities/cap-requires-first.md"
 cap_conflicts_first = "capabilities/cap-conflicts-first.md"
 
-[prompt_packs.default.overlays]
-organization = ["overlays/org/org.md"]
-project = ["overlays/project/project.md"]
+[prompt_packs.default.overlays.organization]
+default_org = "overlays/org/org.md"
+
+[prompt_packs.default.overlays.project]
+default_project = "overlays/project/project.md"
 
 [prompt_packs.default.experiments]
 exp_review = "experiments/review.md"
@@ -625,6 +689,11 @@ root = ".context"
 planning = "local_planning"
 context = "local_context"
 prompt_pack = "default"
+
+[profiles.local.prompt]
+organization_overlays = ["default_org"]
+project_overlays = ["default_project"]
+default_experiment = "exp_review"
 `;
 
   return {

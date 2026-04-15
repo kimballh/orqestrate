@@ -198,16 +198,28 @@ github_reply = "capabilities/github-reply.md"
 playwright_exploration = "capabilities/playwright-exploration.md"
 user_journey_comparison = "capabilities/user-journey-comparison.md"
 
-[prompt_packs.default.overlays]
-organization = ["overlays/org/reviewer-qa.md"]
-project = ["overlays/project/reviewer-webapp.md"]
+[prompt_packs.default.overlays.organization]
+reviewer_qa = "overlays/org/reviewer-qa.md"
+
+[prompt_packs.default.overlays.project]
+reviewer_webapp = "overlays/project/reviewer-webapp.md"
 
 [prompt_packs.default.experiments]
 reviewer_v2 = "experiments/reviewer-v2.md"
 reviewer_playwright_heavy = "experiments/reviewer-playwright-heavy.md"
+
+[profiles.saas]
+planning = "linear_main"
+context = "notion_main"
+prompt_pack = "default"
+
+[profiles.saas.prompt]
+organization_overlays = ["reviewer_qa"]
+project_overlays = ["reviewer_webapp"]
+default_experiment = "reviewer_v2"
 ```
 
-This gives users a stable way to swap prompt assets without code edits.
+This gives users a stable way to swap prompt assets without code edits while keeping overlay and default-experiment choice profile-owned.
 
 ## 8. Run-time prompt assembly
 
@@ -431,7 +443,9 @@ Prompt experiments should be first-class.
 Recommended model:
 
 - prompt packs define named experiments
+- profiles may select a default experiment from the chosen prompt pack
 - a run may optionally specify an experiment name
+- `experiment = null` explicitly disables the profile default for replay or testing
 - experiment prompts are appended late in the composition chain
 - the runtime stores the final prompt digest and source list
 
