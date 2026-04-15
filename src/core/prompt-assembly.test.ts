@@ -52,7 +52,6 @@ test("assembles a deterministic prompt with layered overrides and symbolic sourc
         verificationRequired: true,
         requiredRepoChecks: ["npm run check"],
         testExpectations: "Add focused automated coverage for prompt assembly.",
-        authorizedCapabilities: ["cap_first", "cap_second"],
       },
       operatorNote: "Keep the implementation narrow and deterministic.",
       additionalContext: "The runtime should receive a fully rendered prompt payload.",
@@ -68,11 +67,11 @@ test("assembles a deterministic prompt with layered overrides and symbolic sourc
 
   assert.equal(
     result.prompt.contractId,
-    "orqestrate/default/implement/implement/v1",
+    "orqestrate/default/implement/implement/v2",
   );
   assert.equal(
     result.prompt.systemPrompt,
-    "Base system prompt.\nFollow the repository safety contract.",
+    "Base system prompt.\nFollow the repository safety contract.\n\nRun scope invariant.\nStay inside the assigned work item.\n\nVerification invariant.\nReport real evidence and explain coverage gaps.",
   );
   assert.deepEqual(result.prompt.attachments, [
     {
@@ -95,6 +94,8 @@ test("assembles a deterministic prompt with layered overrides and symbolic sourc
   const layerRefs = result.resolvedLayers.map((layer) => layer.ref);
   assert.deepEqual(layerRefs, [
     "prompt-pack:default/base/system.md",
+    "prompt-invariant:invariants/run-scope.md",
+    "prompt-invariant:invariants/verification.md",
     "prompt-pack:default/roles/implement.md",
     "prompt-pack:default/phases/implement.md",
     "prompt-pack:default/capabilities/cap-first.md",
@@ -155,7 +156,11 @@ test("allows phases without a configured phase fragment", async () => {
 
   assert.equal(
     result.prompt.contractId,
-    "orqestrate/default/design/design/v1",
+    "orqestrate/default/design/design/v2",
+  );
+  assert.equal(
+    result.resolvedLayers.filter((layer) => layer.kind === "invariant").length,
+    2,
   );
   assert.equal(
     result.resolvedLayers.some((layer) => layer.kind === "phase_prompt"),
@@ -230,6 +235,171 @@ test("fails clearly when a requested experiment is unknown", async () => {
   );
 });
 
+test("rejects capabilities that are unavailable in the selected prompt pack", async () => {
+  const fixture = createFixtureWorkspace();
+
+  await assert.rejects(
+    () =>
+      assemblePrompt(fixture.loadedConfig, {
+        role: "implement",
+        phase: "implement",
+        capabilities: ["cap_registry_only"],
+        context: {
+          workItem: {
+            id: "work-20",
+            identifier: "ORQ-20",
+            title: "Implement prompt assembly pipeline",
+            description: null,
+            labels: [],
+            url: null,
+          },
+          workspace: {
+            repoRoot: fixture.workspaceDir,
+            mode: "ephemeral_worktree",
+          },
+          expectations: {},
+        },
+      }),
+    (error) =>
+      error instanceof PromptAssemblyError &&
+      /Prompt pack 'default' does not define requested capabilities: cap_registry_only\./.test(
+        error.message,
+      ),
+  );
+});
+
+test("rejects capabilities that are not allowed in the active phase", async () => {
+  const fixture = createFixtureWorkspace();
+
+  await assert.rejects(
+    () =>
+      assemblePrompt(fixture.loadedConfig, {
+        role: "implement",
+        phase: "implement",
+        capabilities: ["cap_review_only"],
+        context: {
+          workItem: {
+            id: "work-20",
+            identifier: "ORQ-20",
+            title: "Implement prompt assembly pipeline",
+            description: null,
+            labels: [],
+            url: null,
+          },
+          workspace: {
+            repoRoot: fixture.workspaceDir,
+            mode: "ephemeral_worktree",
+          },
+          expectations: {},
+        },
+      }),
+    (error) =>
+      error instanceof PromptAssemblyError &&
+      /Prompt capability 'cap_review_only' is not allowed in phase 'implement'\./.test(
+        error.message,
+      ),
+  );
+});
+
+test("rejects capabilities when required context is missing", async () => {
+  const fixture = createFixtureWorkspace();
+
+  await assert.rejects(
+    () =>
+      assemblePrompt(fixture.loadedConfig, {
+        role: "implement",
+        phase: "implement",
+        capabilities: ["cap_second"],
+        context: {
+          workItem: {
+            id: "work-20",
+            identifier: "ORQ-20",
+            title: "Implement prompt assembly pipeline",
+            description: null,
+            labels: [],
+            url: null,
+          },
+          workspace: {
+            repoRoot: fixture.workspaceDir,
+            mode: "ephemeral_worktree",
+          },
+          expectations: {},
+        },
+      }),
+    (error) =>
+      error instanceof PromptAssemblyError &&
+      /Prompt capability 'cap_second' requires context: pull_request_url\./.test(
+        error.message,
+      ),
+  );
+});
+
+test("rejects capabilities when required peer capabilities are missing", async () => {
+  const fixture = createFixtureWorkspace();
+
+  await assert.rejects(
+    () =>
+      assemblePrompt(fixture.loadedConfig, {
+        role: "implement",
+        phase: "implement",
+        capabilities: ["cap_requires_first"],
+        context: {
+          workItem: {
+            id: "work-20",
+            identifier: "ORQ-20",
+            title: "Implement prompt assembly pipeline",
+            description: null,
+            labels: [],
+            url: null,
+          },
+          workspace: {
+            repoRoot: fixture.workspaceDir,
+            mode: "ephemeral_worktree",
+          },
+          expectations: {},
+        },
+      }),
+    (error) =>
+      error instanceof PromptAssemblyError &&
+      /Prompt capability 'cap_requires_first' requires capabilities: cap_first\./.test(
+        error.message,
+      ),
+  );
+});
+
+test("rejects explicitly conflicting capabilities", async () => {
+  const fixture = createFixtureWorkspace();
+
+  await assert.rejects(
+    () =>
+      assemblePrompt(fixture.loadedConfig, {
+        role: "implement",
+        phase: "implement",
+        capabilities: ["cap_first", "cap_conflicts_first"],
+        context: {
+          workItem: {
+            id: "work-20",
+            identifier: "ORQ-20",
+            title: "Implement prompt assembly pipeline",
+            description: null,
+            labels: [],
+            url: null,
+          },
+          workspace: {
+            repoRoot: fixture.workspaceDir,
+            mode: "ephemeral_worktree",
+          },
+          expectations: {},
+        },
+      }),
+    (error) =>
+      error instanceof PromptAssemblyError &&
+      /Prompt capabilities conflict: cap_conflicts_first conflicts with cap_first\./.test(
+        error.message,
+      ),
+  );
+});
+
 test("produces stable digests for equivalent capability requests", async () => {
   const fixture = createFixtureWorkspace();
   const baseRequest = {
@@ -247,6 +417,7 @@ test("produces stable digests for equivalent capability requests", async () => {
       workspace: {
         repoRoot: fixture.workspaceDir,
         mode: "ephemeral_worktree" as const,
+        pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/20",
       },
       expectations: {},
     },
@@ -336,11 +507,36 @@ function createFixtureWorkspace(options: {
     "base/system.md",
     "Base system prompt.  \r\nFollow the repository safety contract.\r\n",
   );
+  writePromptFile(
+    promptRoot,
+    "invariants/run-scope.md",
+    "Run scope invariant.\nStay inside the assigned work item.\n",
+  );
+  writePromptFile(
+    promptRoot,
+    "invariants/verification.md",
+    "Verification invariant.\nReport real evidence and explain coverage gaps.\n",
+  );
   writePromptFile(promptRoot, "roles/design.md", "Design role instructions.\n");
   writePromptFile(promptRoot, "roles/implement.md", "Implement role instructions.\n");
   writePromptFile(promptRoot, "phases/implement.md", "Implementation phase instructions.\n");
   writePromptFile(promptRoot, "capabilities/cap-first.md", "Capability one comes first.\n");
   writePromptFile(promptRoot, "capabilities/cap-second.md", "Capability two comes second.\n");
+  writePromptFile(
+    promptRoot,
+    "capabilities/cap-review-only.md",
+    "Capability available only during review.\n",
+  );
+  writePromptFile(
+    promptRoot,
+    "capabilities/cap-requires-first.md",
+    "Capability that depends on cap_first.\n",
+  );
+  writePromptFile(
+    promptRoot,
+    "capabilities/cap-conflicts-first.md",
+    "Capability that conflicts with cap_first.\n",
+  );
   writePromptFile(promptRoot, "overlays/org/org.md", "Organization overlay instructions.\n");
   writePromptFile(promptRoot, "overlays/project/project.md", "Project overlay instructions.\n");
   writePromptFile(promptRoot, "experiments/review.md", "Experiment variant instructions.\n");
@@ -360,6 +556,37 @@ log_dir = ".logs"
 [prompts]
 root = "./prompts"
 active_pack = "default"
+invariants = [
+  "invariants/run-scope.md",
+  "invariants/verification.md",
+]
+
+[prompt_capabilities.cap_first]
+authority = "behavioral"
+allowed_phases = ["implement", "review"]
+
+[prompt_capabilities.cap_second]
+authority = "behavioral"
+allowed_phases = ["implement", "review"]
+required_context = ["pull_request_url"]
+
+[prompt_capabilities.cap_review_only]
+authority = "execution_surface_read"
+allowed_phases = ["review"]
+
+[prompt_capabilities.cap_requires_first]
+authority = "behavioral"
+allowed_phases = ["implement", "review"]
+requires = ["cap_first"]
+
+[prompt_capabilities.cap_conflicts_first]
+authority = "behavioral"
+allowed_phases = ["implement", "review"]
+conflicts_with = ["cap_first"]
+
+[prompt_capabilities.cap_registry_only]
+authority = "behavioral"
+allowed_phases = ["implement", "review"]
 
 [prompt_packs.default]
 base_system = "base/system.md"
@@ -374,6 +601,9 @@ implement = "phases/implement.md"
 [prompt_packs.default.capabilities]
 cap_first = "capabilities/cap-first.md"
 cap_second = "capabilities/cap-second.md"
+cap_review_only = "capabilities/cap-review-only.md"
+cap_requires_first = "capabilities/cap-requires-first.md"
+cap_conflicts_first = "capabilities/cap-conflicts-first.md"
 
 [prompt_packs.default.overlays]
 organization = ["overlays/org/org.md"]

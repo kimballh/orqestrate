@@ -433,7 +433,9 @@ function createLoadedConfigFixture(): LoadedConfig {
     prompts: {
       root: "/tmp/prompts",
       activePack: "default",
+      invariants: [],
     },
+    promptCapabilities: {},
     promptPacks: {
       default: {
         name: "default",

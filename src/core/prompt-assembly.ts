@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { LoadedConfig } from "../config/types.js";
+import type {
+  LoadedConfig,
+  PromptCapabilityContextRequirement,
+  PromptCapabilityDefinition,
+} from "../config/types.js";
 import type {
   ArtifactRecord,
   PromptAttachment,
@@ -45,7 +49,6 @@ export type PromptAssemblyContext = {
     verificationRequired?: boolean;
     requiredRepoChecks?: string[];
     testExpectations?: string | null;
-    authorizedCapabilities?: string[];
   };
   operatorNote?: string | null;
   additionalContext?: string | null;
@@ -76,13 +79,19 @@ export type PromptAssemblyResult = {
 
 type PromptAssemblyConfig = Pick<
   LoadedConfig,
-  "activeProfile" | "promptPacks" | "prompts"
+  "activeProfile" | "promptCapabilities" | "promptPacks" | "prompts"
 >;
 
 type FileLayerSpec = {
   kind: Extract<
     PromptSourceKind,
-    "base_pack" | "role_prompt" | "phase_prompt" | "capability" | "overlay" | "experiment"
+    | "base_pack"
+    | "invariant"
+    | "role_prompt"
+    | "phase_prompt"
+    | "capability"
+    | "overlay"
+    | "experiment"
   >;
   path: string;
   ref: string;
@@ -122,16 +131,31 @@ export async function assemblePrompt(
 
   const promptRoot = config.prompts.root;
   const requestedCapabilities = dedupeStrings(request.capabilities);
-  const capabilityOrder = Object.keys(promptPack.capabilities);
   const unknownCapabilities = requestedCapabilities.filter(
-    (capability) => !hasOwn(promptPack.capabilities, capability),
+    (capability) => !hasOwn(config.promptCapabilities, capability),
   );
-
   if (unknownCapabilities.length > 0) {
     throw new PromptAssemblyError(
       `Unknown prompt capabilities requested: ${unknownCapabilities.join(", ")}.`,
     );
   }
+  const unavailableCapabilities = requestedCapabilities.filter(
+    (capability) => !hasOwn(promptPack.capabilities, capability),
+  );
+
+  if (unavailableCapabilities.length > 0) {
+    throw new PromptAssemblyError(
+      `Prompt pack '${promptPackName}' does not define requested capabilities: ${unavailableCapabilities.join(", ")}.`,
+    );
+  }
+
+  const capabilityOrder = Object.keys(promptPack.capabilities);
+  const resolvedCapabilities = resolveRequestedCapabilities(
+    requestedCapabilities,
+    capabilityOrder,
+    config.promptCapabilities,
+  );
+  validateCapabilitySelections(resolvedCapabilities, request);
 
   if (
     request.experiment !== undefined &&
@@ -143,12 +167,21 @@ export async function assemblePrompt(
     );
   }
 
-  const fileLayers: FileLayerSpec[] = [];
-  fileLayers.push({
+  const systemLayers: FileLayerSpec[] = [];
+  systemLayers.push({
     kind: "base_pack",
     path: promptPack.baseSystem,
     ref: createPackRef(promptPackName, promptRoot, promptPack.baseSystem),
   });
+  for (const invariantPath of config.prompts.invariants) {
+    systemLayers.push({
+      kind: "invariant",
+      path: invariantPath,
+      ref: createInvariantRef(promptRoot, invariantPath),
+    });
+  }
+
+  const userFileLayers: FileLayerSpec[] = [];
 
   const rolePath = promptPack.roles[request.role];
   if (rolePath === undefined) {
@@ -157,7 +190,7 @@ export async function assemblePrompt(
     );
   }
 
-  fileLayers.push({
+  userFileLayers.push({
     kind: "role_prompt",
     path: rolePath,
     ref: createPackRef(promptPackName, promptRoot, rolePath),
@@ -165,20 +198,16 @@ export async function assemblePrompt(
 
   const phasePath = promptPack.phases[request.phase];
   if (phasePath !== undefined) {
-    fileLayers.push({
+    userFileLayers.push({
       kind: "phase_prompt",
       path: phasePath,
       ref: createPackRef(promptPackName, promptRoot, phasePath),
     });
   }
 
-  for (const capability of capabilityOrder) {
-    if (!requestedCapabilities.includes(capability)) {
-      continue;
-    }
-
-    const capabilityPath = promptPack.capabilities[capability];
-    fileLayers.push({
+  for (const capability of resolvedCapabilities) {
+    const capabilityPath = promptPack.capabilities[capability.name];
+    userFileLayers.push({
       kind: "capability",
       path: capabilityPath,
       ref: createPackRef(promptPackName, promptRoot, capabilityPath),
@@ -189,7 +218,7 @@ export async function assemblePrompt(
     const overlayPaths = promptPack.overlays[overlayGroup] ?? [];
 
     for (const overlayPath of overlayPaths) {
-      fileLayers.push({
+      userFileLayers.push({
         kind: "overlay",
         path: overlayPath,
         ref: createPackRef(promptPackName, promptRoot, overlayPath),
@@ -212,36 +241,41 @@ export async function assemblePrompt(
 
   const fileLayersByPath = new Map<string, string>();
   await Promise.all(
-    [...fileLayers, ...(experimentLayer === null ? [] : [experimentLayer])].map(
-      async (layer) => {
+    [
+      ...systemLayers,
+      ...userFileLayers,
+      ...(experimentLayer === null ? [] : [experimentLayer]),
+    ].map(async (layer) => {
       const contents = normalizePromptText(await readFile(layer.path, "utf8"));
       fileLayersByPath.set(layer.path, contents);
-      },
-    ),
+    }),
   );
-
-  const baseLayerSpec = fileLayers[0];
-  const systemPrompt = fileLayersByPath.get(baseLayerSpec.path);
-
-  if (systemPrompt === undefined || systemPrompt.length === 0) {
-    throw new PromptAssemblyError(
-      `Prompt pack '${promptPackName}' base system prompt '${baseLayerSpec.path}' is empty.`,
-    );
-  }
 
   const resolvedLayers: ResolvedPromptLayer[] = [];
   const userLayers: RenderedLayer[] = [];
+  const systemPromptLayers: string[] = [];
 
-  resolvedLayers.push(
-    createResolvedLayer(
-      baseLayerSpec.kind,
-      baseLayerSpec.ref,
-      systemPrompt,
-      baseLayerSpec.path,
-    ),
-  );
+  for (const fileLayer of systemLayers) {
+    const contents = fileLayersByPath.get(fileLayer.path);
 
-  for (const fileLayer of fileLayers.slice(1)) {
+    if (contents === undefined || contents.length === 0) {
+      throw new PromptAssemblyError(
+        `Prompt layer '${fileLayer.path}' resolved to empty content.`,
+      );
+    }
+
+    systemPromptLayers.push(contents);
+    resolvedLayers.push(
+      createResolvedLayer(
+        fileLayer.kind,
+        fileLayer.ref,
+        contents,
+        fileLayer.path,
+      ),
+    );
+  }
+
+  for (const fileLayer of userFileLayers) {
     const contents = fileLayersByPath.get(fileLayer.path);
 
     if (contents === undefined || contents.length === 0) {
@@ -291,7 +325,11 @@ export async function assemblePrompt(
   userLayers.push({
     kind: "system_generated",
     ref: "run-context",
-    content: renderRunContext(request),
+    content: renderRunContext(
+      request.context,
+      request.phase,
+      resolvedCapabilities.map((capability) => capability.name),
+    ),
   });
 
   if (request.context.artifact !== undefined && request.context.artifact !== null) {
@@ -330,10 +368,12 @@ export async function assemblePrompt(
     );
   }
 
+  const systemPrompt = systemPromptLayers.join("\n\n");
+  const userPrompt = userLayers.map((layer) => layer.content).join("\n\n");
   const prompt: PromptEnvelope = {
-    contractId: `orqestrate/${promptPackName}/${request.role}/${request.phase}/v1`,
+    contractId: `orqestrate/${promptPackName}/${request.role}/${request.phase}/v2`,
     systemPrompt,
-    userPrompt: userLayers.map((layer) => layer.content).join("\n\n"),
+    userPrompt,
     attachments: buildAttachments(request.context),
     sources: resolvedLayers.map((layer) => ({
       kind: layer.kind,
@@ -341,7 +381,7 @@ export async function assemblePrompt(
     })),
     digests: {
       system: hashPromptText(systemPrompt),
-      user: hashPromptText(userLayers.map((layer) => layer.content).join("\n\n")),
+      user: hashPromptText(userPrompt),
     },
   };
 
@@ -416,8 +456,11 @@ function renderRunAddition(addition: PromptAssemblyAddition): string | null {
   return `## ${sectionTitle}\n${body}`;
 }
 
-function renderRunContext(request: PromptAssemblyRequest): string {
-  const { context, phase } = request;
+function renderRunContext(
+  context: PromptAssemblyContext,
+  phase: WorkPhase,
+  authorizedCapabilities: readonly string[],
+): string {
   const lines = [
     "## Run Context",
     `Run ID: ${formatScalar(context.runId)}`,
@@ -441,9 +484,7 @@ function renderRunContext(request: PromptAssemblyRequest): string {
     )}`,
     `Required repo checks: ${formatList(context.expectations.requiredRepoChecks)}`,
     `Test expectations: ${formatScalar(context.expectations.testExpectations)}`,
-    `Authorized capabilities: ${formatList(
-      context.expectations.authorizedCapabilities,
-    )}`,
+    `Authorized capabilities: ${formatList(authorizedCapabilities)}`,
   ];
 
   if (hasMeaningfulText(context.workItem.description)) {
@@ -490,6 +531,11 @@ function createPackRef(
   return `prompt-pack:${promptPackName}/${relativePath}`;
 }
 
+function createInvariantRef(promptRoot: string, assetPath: string): string {
+  const relativePath = toPosixPath(path.relative(promptRoot, assetPath));
+  return `prompt-invariant:${relativePath}`;
+}
+
 function normalizePromptText(input: string): string {
   return input
     .replace(/\r\n?/g, "\n")
@@ -521,6 +567,125 @@ function dedupeStrings(values: readonly string[] | undefined): string[] {
   }
 
   return deduped;
+}
+
+type ResolvedCapability = {
+  name: string;
+  definition: PromptCapabilityDefinition;
+};
+
+function resolveRequestedCapabilities(
+  requestedCapabilities: readonly string[],
+  capabilityOrder: readonly string[],
+  capabilityRegistry: Record<string, PromptCapabilityDefinition>,
+): ResolvedCapability[] {
+  return capabilityOrder
+    .filter((capability) => requestedCapabilities.includes(capability))
+    .map((capability) => ({
+      name: capability,
+      definition: capabilityRegistry[capability],
+    }));
+}
+
+function validateCapabilitySelections(
+  capabilities: readonly ResolvedCapability[],
+  request: PromptAssemblyRequest,
+): void {
+  const requestedCapabilityNames = capabilities.map((capability) => capability.name);
+
+  for (const capability of capabilities) {
+    validateCapabilityPhase(capability, request.phase);
+    validateCapabilityContext(capability, request.context);
+    validateCapabilityRequirements(capability, requestedCapabilityNames);
+  }
+
+  validateCapabilityConflicts(capabilities);
+}
+
+function validateCapabilityPhase(
+  capability: ResolvedCapability,
+  phase: WorkPhase,
+): void {
+  const allowedPhases = capability.definition.allowedPhases;
+  if (
+    allowedPhases.length > 0 &&
+    !allowedPhases.includes(phase)
+  ) {
+    throw new PromptAssemblyError(
+      `Prompt capability '${capability.name}' is not allowed in phase '${phase}'.`,
+    );
+  }
+}
+
+function validateCapabilityContext(
+  capability: ResolvedCapability,
+  context: PromptAssemblyContext,
+): void {
+  const missingRequirements = capability.definition.requiredContext.filter(
+    (requirement) => !hasCapabilityContextRequirement(requirement, context),
+  );
+
+  if (missingRequirements.length > 0) {
+    throw new PromptAssemblyError(
+      `Prompt capability '${capability.name}' requires context: ${missingRequirements.join(", ")}.`,
+    );
+  }
+}
+
+function validateCapabilityRequirements(
+  capability: ResolvedCapability,
+  requestedCapabilities: readonly string[],
+): void {
+  const missingCapabilities = capability.definition.requires.filter(
+    (requiredCapability) => !requestedCapabilities.includes(requiredCapability),
+  );
+
+  if (missingCapabilities.length > 0) {
+    throw new PromptAssemblyError(
+      `Prompt capability '${capability.name}' requires capabilities: ${missingCapabilities.join(", ")}.`,
+    );
+  }
+}
+
+function validateCapabilityConflicts(
+  capabilities: readonly ResolvedCapability[],
+): void {
+  const requested = new Set(capabilities.map((capability) => capability.name));
+  const seenPairs = new Set<string>();
+
+  for (const capability of capabilities) {
+    for (const conflictingCapability of capability.definition.conflictsWith) {
+      if (!requested.has(conflictingCapability)) {
+        continue;
+      }
+
+      const pairKey = [capability.name, conflictingCapability].sort().join("\u0000");
+      if (seenPairs.has(pairKey)) {
+        continue;
+      }
+
+      seenPairs.add(pairKey);
+      throw new PromptAssemblyError(
+        `Prompt capabilities conflict: ${capability.name} conflicts with ${conflictingCapability}.`,
+      );
+    }
+  }
+}
+
+function hasCapabilityContextRequirement(
+  requirement: PromptCapabilityContextRequirement,
+  context: PromptAssemblyContext,
+): boolean {
+  switch (requirement) {
+    case "pull_request_url":
+      return hasMeaningfulText(context.workspace.pullRequestUrl);
+    case "assigned_branch":
+      return hasMeaningfulText(context.workspace.assignedBranch);
+    case "write_scope":
+      return hasMeaningfulText(context.workspace.writeScope);
+    case "artifact":
+      return context.artifact !== undefined && context.artifact !== null;
+  }
 }
 
 function formatScalar(value: string | null | undefined): string {

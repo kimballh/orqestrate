@@ -446,7 +446,9 @@ function createFakeLoadedConfig() {
     prompts: {
       root: "/tmp/prompts",
       activePack: "default",
+      invariants: [],
     },
+    promptCapabilities: {},
     promptPacks: {
       default: profile.promptPack,
     },

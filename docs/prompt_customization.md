@@ -54,6 +54,7 @@ Recommended composition order:
 ```text
 final_prompt =
   base_system_prompt
+  + hard_invariants
   + role_prompt
   + phase_prompt
   + capability_fragments
@@ -151,6 +152,31 @@ Recommended additions to `config.toml`:
 [prompts]
 root = "./prompts"
 active_pack = "default"
+invariants = [
+  "invariants/run-scope.md",
+  "invariants/authority-boundaries.md",
+  "invariants/verification.md",
+  "invariants/blockers.md",
+]
+
+[prompt_capabilities.github_review]
+authority = "execution_surface_read"
+allowed_phases = ["review"]
+required_context = ["pull_request_url"]
+
+[prompt_capabilities.github_reply]
+authority = "execution_surface_write"
+allowed_phases = ["implement", "review"]
+required_context = ["pull_request_url"]
+
+[prompt_capabilities.playwright_exploration]
+authority = "behavioral"
+allowed_phases = ["implement", "review"]
+
+[prompt_capabilities.user_journey_comparison]
+authority = "behavioral"
+allowed_phases = ["review"]
+requires = ["playwright_exploration"]
 
 [prompt_packs.default]
 base_system = "base/system.md"
@@ -223,6 +249,7 @@ type PromptAssemblyResult = {
     sources: Array<{
       kind:
         | "base_pack"
+        | "invariant"
         | "role_prompt"
         | "phase_prompt"
         | "capability"

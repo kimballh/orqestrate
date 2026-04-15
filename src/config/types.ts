@@ -1,3 +1,5 @@
+import type { WorkPhase } from "../domain-model.js";
+
 export const BUILTIN_PROVIDER_KINDS = [
   "planning.linear",
   "planning.local_files",
@@ -30,6 +32,33 @@ export type BuiltinContextProviderKind = Extract<
 >;
 export type LinearStatusMappingKey = (typeof LINEAR_STATUS_MAPPING_KEYS)[number];
 
+export const PROMPT_CAPABILITY_AUTHORITIES = [
+  "behavioral",
+  "execution_surface_read",
+  "execution_surface_write",
+] as const;
+
+export type PromptCapabilityAuthority =
+  (typeof PROMPT_CAPABILITY_AUTHORITIES)[number];
+
+export const PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS = [
+  "pull_request_url",
+  "assigned_branch",
+  "write_scope",
+  "artifact",
+] as const;
+
+export type PromptCapabilityContextRequirement =
+  (typeof PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS)[number];
+
+export interface PromptCapabilityDefinition {
+  authority: PromptCapabilityAuthority;
+  allowedPhases: WorkPhase[];
+  requiredContext: PromptCapabilityContextRequirement[];
+  requires: string[];
+  conflictsWith: string[];
+}
+
 export interface PathsConfig {
   stateDir: string;
   dataDir: string;
@@ -46,6 +75,7 @@ export interface PolicyConfig {
 export interface PromptsConfig {
   root: string;
   activePack?: string;
+  invariants: string[];
 }
 
 export interface PromptPackConfig {
@@ -133,6 +163,7 @@ export interface LoadedConfig {
   paths: PathsConfig;
   policy: PolicyConfig;
   prompts: PromptsConfig;
+  promptCapabilities: Record<string, PromptCapabilityDefinition>;
   promptPacks: Record<string, PromptPackConfig>;
   providers: Record<string, ProviderConfig>;
   profiles: Record<string, ProfileConfig>;

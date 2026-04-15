@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -20,10 +20,16 @@ import {
   type PlanningProviderConfig,
   type PolicyConfig,
   type ProfileConfig,
+  PROMPT_CAPABILITY_AUTHORITIES,
+  PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS,
+  type PromptCapabilityAuthority,
+  type PromptCapabilityContextRequirement,
+  type PromptCapabilityDefinition,
   type PromptPackConfig,
   type PromptsConfig,
   type ProviderConfig,
 } from "./types.js";
+import { WORK_PHASES, type WorkPhase } from "../domain-model.js";
 
 type ValueRecord = Record<string, unknown>;
 
@@ -33,6 +39,7 @@ const TOP_LEVEL_KEYS = [
   "paths",
   "policy",
   "prompts",
+  "prompt_capabilities",
   "prompt_packs",
   "providers",
   "profiles",
@@ -40,6 +47,13 @@ const TOP_LEVEL_KEYS = [
 
 const PROVIDER_KIND_SET = new Set<string>(BUILTIN_PROVIDER_KINDS);
 const ENV_VAR_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const WORK_PHASE_SET = new Set<string>(WORK_PHASES);
+const PROMPT_CAPABILITY_AUTHORITY_SET = new Set<string>(
+  PROMPT_CAPABILITY_AUTHORITIES,
+);
+const PROMPT_CAPABILITY_CONTEXT_REQUIREMENT_SET = new Set<string>(
+  PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS,
+);
 
 const POLICY_DEFAULTS: PolicyConfig = {
   maxConcurrentRuns: 4,
@@ -118,7 +132,12 @@ export function parseConfig(
   const paths = parsePathsSection(document.paths, configDir);
   const policy = parsePolicySection(document.policy);
   const prompts = parsePromptsSection(document.prompts, configDir);
+  const promptCapabilities = parsePromptCapabilitiesSection(
+    document.prompt_capabilities,
+  );
   const promptPacks = parsePromptPacksSection(document.prompt_packs, prompts.root);
+  validatePromptCapabilityRegistry(promptCapabilities);
+  validatePromptPackCapabilityReferences(promptPacks, promptCapabilities);
 
   if (
     prompts.activePack !== undefined &&
@@ -172,6 +191,7 @@ export function parseConfig(
     paths,
     policy,
     prompts,
+    promptCapabilities,
     promptPacks,
     providers,
     profiles,
@@ -269,21 +289,92 @@ function parsePolicySection(value: unknown): PolicyConfig {
 
 function parsePromptsSection(value: unknown, configDir: string): PromptsConfig {
   const section = expectRequiredRecord(value, "prompts");
-  assertAllowedKeys(section, ["root", "active_pack"], "prompts");
+  assertAllowedKeys(section, ["root", "active_pack", "invariants"], "prompts");
 
   const activePack =
     section.active_pack === undefined
       ? undefined
       : expectNonEmptyString(section.active_pack, "prompts.active_pack");
+  const root = resolveFileSystemPath(
+    expectNonEmptyString(section.root, "prompts.root"),
+    configDir,
+    "prompts.root",
+  );
+  const invariants =
+    section.invariants === undefined
+      ? []
+      : expectStringArray(section.invariants, "prompts.invariants").map(
+          (entry, index) => {
+            const fieldPath = `prompts.invariants[${index}]`;
+            const resolvedPath = resolvePromptAssetPath(entry, fieldPath, root);
+            assertPromptAssetHasContent(resolvedPath, fieldPath);
+            return resolvedPath;
+          },
+        );
 
   return {
-    root: resolveFileSystemPath(
-      expectNonEmptyString(section.root, "prompts.root"),
-      configDir,
-      "prompts.root",
-    ),
+    root,
     activePack,
+    invariants,
   };
+}
+
+function parsePromptCapabilitiesSection(
+  value: unknown,
+): Record<string, PromptCapabilityDefinition> {
+  if (value === undefined) {
+    return {};
+  }
+
+  const section = expectRecord(value, "prompt_capabilities");
+
+  return Object.fromEntries(
+    Object.entries(section).map(([name, definitionValue]) => {
+      const definitionPath = joinPath("prompt_capabilities", name);
+      const definition = expectRecord(definitionValue, definitionPath);
+
+      assertAllowedKeys(
+        definition,
+        [
+          "authority",
+          "allowed_phases",
+          "required_context",
+          "requires",
+          "conflicts_with",
+        ],
+        definitionPath,
+      );
+
+      return [
+        name,
+        {
+          authority: parsePromptCapabilityAuthority(
+            definition.authority,
+            `${definitionPath}.authority`,
+          ),
+          allowedPhases: parseWorkPhaseArray(
+            definition.allowed_phases,
+            `${definitionPath}.allowed_phases`,
+          ),
+          requiredContext: parsePromptCapabilityContextRequirementArray(
+            definition.required_context,
+            `${definitionPath}.required_context`,
+          ),
+          requires:
+            definition.requires === undefined
+              ? []
+              : expectStringArray(definition.requires, `${definitionPath}.requires`),
+          conflictsWith:
+            definition.conflicts_with === undefined
+              ? []
+              : expectStringArray(
+                  definition.conflicts_with,
+                  `${definitionPath}.conflicts_with`,
+                ),
+        } satisfies PromptCapabilityDefinition,
+      ];
+    }),
+  );
 }
 
 function parsePromptPacksSection(
@@ -781,6 +872,55 @@ function parseStringMap(value: unknown, fieldPath: string): Record<string, strin
   );
 }
 
+function validatePromptCapabilityRegistry(
+  promptCapabilities: Record<string, PromptCapabilityDefinition>,
+): void {
+  for (const [name, definition] of Object.entries(promptCapabilities)) {
+    for (const requiredCapability of definition.requires) {
+      if (!hasOwn(promptCapabilities, requiredCapability)) {
+        throw new ConfigError(
+          `Prompt capability '${name}' requires unknown capability '${requiredCapability}'.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.requires`,
+          },
+        );
+      }
+    }
+
+    for (const conflictingCapability of definition.conflictsWith) {
+      if (!hasOwn(promptCapabilities, conflictingCapability)) {
+        throw new ConfigError(
+          `Prompt capability '${name}' conflicts with unknown capability '${conflictingCapability}'.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.conflicts_with`,
+          },
+        );
+      }
+    }
+  }
+}
+
+function validatePromptPackCapabilityReferences(
+  promptPacks: Record<string, PromptPackConfig>,
+  promptCapabilities: Record<string, PromptCapabilityDefinition>,
+): void {
+  for (const [packName, promptPack] of Object.entries(promptPacks)) {
+    for (const capabilityName of Object.keys(promptPack.capabilities)) {
+      if (!hasOwn(promptCapabilities, capabilityName)) {
+        throw new ConfigError(
+          `Prompt pack '${packName}' references undefined prompt capability '${capabilityName}'.`,
+          {
+            code: "invalid_value",
+            path: `prompt_packs.${packName}.capabilities.${capabilityName}`,
+          },
+        );
+      }
+    }
+  }
+}
+
 function resolvePromptAssetPath(
   assetPath: string,
   fieldPath: string,
@@ -824,6 +964,20 @@ function assertExistingPromptAsset(
         path: fieldPath,
       },
     );
+  }
+}
+
+function assertPromptAssetHasContent(
+  resolvedPath: string,
+  fieldPath: string,
+): void {
+  const contents = readFileSync(resolvedPath, "utf8").trim();
+
+  if (contents.length === 0) {
+    throw new ConfigError(`Prompt asset '${resolvedPath}' must not be empty.`, {
+      code: "invalid_value",
+      path: fieldPath,
+    });
   }
 }
 
@@ -902,6 +1056,68 @@ function expectStringArray(value: unknown, fieldPath: string): string[] {
   return value.map((entry, index) =>
     expectNonEmptyString(entry, `${fieldPath}[${index}]`),
   );
+}
+
+function parsePromptCapabilityAuthority(
+  value: unknown,
+  fieldPath: string,
+): PromptCapabilityAuthority {
+  const authority = expectNonEmptyString(value, fieldPath);
+
+  if (!PROMPT_CAPABILITY_AUTHORITY_SET.has(authority)) {
+    throw new ConfigError(
+      `Unsupported prompt capability authority '${authority}'.`,
+      {
+        code: "invalid_value",
+        path: fieldPath,
+        hint: `Supported authorities: ${PROMPT_CAPABILITY_AUTHORITIES.join(", ")}`,
+      },
+    );
+  }
+
+  return authority as PromptCapabilityAuthority;
+}
+
+function parseWorkPhaseArray(value: unknown, fieldPath: string): WorkPhase[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  return expectStringArray(value, fieldPath).map((entry, index) => {
+    if (!WORK_PHASE_SET.has(entry)) {
+      throw new ConfigError(`Unsupported work phase '${entry}'.`, {
+        code: "invalid_value",
+        path: `${fieldPath}[${index}]`,
+        hint: `Supported phases: ${WORK_PHASES.join(", ")}`,
+      });
+    }
+
+    return entry as WorkPhase;
+  });
+}
+
+function parsePromptCapabilityContextRequirementArray(
+  value: unknown,
+  fieldPath: string,
+): PromptCapabilityContextRequirement[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  return expectStringArray(value, fieldPath).map((entry, index) => {
+    if (!PROMPT_CAPABILITY_CONTEXT_REQUIREMENT_SET.has(entry)) {
+      throw new ConfigError(
+        `Unsupported prompt capability context requirement '${entry}'.`,
+        {
+          code: "invalid_value",
+          path: `${fieldPath}[${index}]`,
+          hint: `Supported requirements: ${PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS.join(", ")}`,
+        },
+      );
+    }
+
+    return entry as PromptCapabilityContextRequirement;
+  });
 }
 
 function expectBoolean(value: unknown, fieldPath: string): boolean {
