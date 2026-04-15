@@ -540,6 +540,71 @@ test("github pr-merge accepts a non-default allowed merge method", async () => {
   assert.equal(mergeMethod, "rebase");
 });
 
+test("github pr-merge preserves merge_policy_blocked for draft PRs with a valid method", async () => {
+  const result = await invokeCli(
+    ["github", "pr-merge", "--method", "squash"],
+    {
+      loadRun: async () =>
+        createRun({
+          grantedCapabilities: ["github.merge_pr"],
+        }),
+      loadConfig: async () =>
+        ({
+          policy: {
+            merge: {
+              allowedMethods: ["squash", "rebase"],
+              requireHumanApproval: false,
+            },
+          },
+        }) as never,
+      createClient: () =>
+        ({
+          readPullRequest: async () => ({
+            viewerLogin: "reviewer",
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              title: "Implement ORQ-44",
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: true,
+              body: "Body",
+              baseRefName: "main",
+              headRefName: "hillkimball/orq-44",
+              reviewDecision: "APPROVED",
+              authorLogin: "kimballh",
+            },
+            files: [],
+            reviews: [],
+            threads: [],
+          }),
+          readPullRequestMergeReadiness: async () => ({
+            pullRequest: {
+              id: "PR_kwDO44",
+              number: 44,
+              url: "https://github.com/kimballh/orqestrate/pull/42",
+              state: "OPEN",
+              isDraft: true,
+              reviewDecision: "APPROVED",
+              mergeStateStatus: "CLEAN",
+              mergeable: "MERGEABLE",
+              merged: false,
+              mergedAt: null,
+              headRefOid: "abc123",
+            },
+            statusCheckRollupState: "SUCCESS",
+            requiredChecks: [],
+          }),
+        }) as never,
+    },
+  );
+
+  assert.equal(result.exitCode, 1);
+  const parsed = JSON.parse(result.stderr);
+  assert.equal(parsed.error.code, "merge_policy_blocked");
+  assert.match(parsed.error.message, /draft/i);
+});
+
 async function invokeCli(
   args: string[],
   dependencies: {

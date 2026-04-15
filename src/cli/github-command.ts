@@ -297,12 +297,13 @@ async function handlePrMerge(
   requireGrantedCapability(run, "github.merge_pr");
   requireRepoWriteScope(run);
   const linkedPullRequest = requireLinkedPullRequest(run);
+  const mergePolicy = loadedConfig.policy.merge ?? DEFAULT_MERGE_POLICY;
   const [pullRequestState, readiness] = await Promise.all([
     client.readPullRequest(linkedPullRequest),
     client.readPullRequestMergeReadiness(linkedPullRequest),
   ]);
   const decision = evaluateMergePolicy({
-    policy: loadedConfig.policy.merge ?? DEFAULT_MERGE_POLICY,
+    policy: mergePolicy,
     reviewLoop: classifyPullRequestReviewLoop(pullRequestState),
     readiness,
     humanApproved: options.humanApproved,
@@ -326,10 +327,12 @@ async function handlePrMerge(
   }
 
   if (decision.disposition !== "ready_to_execute" || decision.mergeMethod === null) {
+    const requestedMethodAllowed =
+      options.method === undefined || mergePolicy.allowedMethods.includes(options.method);
     throw createCommandError(
       decision.disposition === "ready_waiting_human"
         ? "approval_required"
-        : options.method !== undefined
+        : !requestedMethodAllowed
           ? "merge_method_not_allowed"
           : "merge_policy_blocked",
       decision.reasons.join(" "),
