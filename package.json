@@ -43,5 +43,21 @@
     "better-sqlite3": "^12.4.1",
     "node-pty": "^1.1.0",
     "smol-toml": "^1.6.1"
-  }
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kimballh/orqestrate.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kimballh/orqestrate/issues"
+  },
+  "homepage": "https://github.com/kimballh/orqestrate#readme"
 }
