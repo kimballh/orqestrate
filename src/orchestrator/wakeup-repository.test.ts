@@ -114,6 +114,53 @@ test("claiming increments attempts and supports requeue plus dead-letter transit
   assert.equal(deadLetter.processedAt, "2026-04-15T00:00:11.000Z");
 });
 
+test("a fresh delivery resets queued retry backoff for the deduped issue", (t) => {
+  const repository = createRepository(t);
+
+  repository.enqueue({
+    eventId: "event-1",
+    provider: "linear",
+    deliveryId: "delivery-1",
+    resourceType: "Issue",
+    resourceId: "issue-1",
+    issueId: "issue-1",
+    action: "update",
+    dedupeKey: "linear:Issue:issue-1",
+    receivedAt: "2026-04-15T00:00:00.000Z",
+    payloadJson: null,
+  });
+
+  const claimed = repository.claimNext(
+    "orchestrator:test",
+    "2026-04-15T00:00:05.000Z",
+  );
+  assert.ok(claimed);
+
+  repository.requeue({
+    eventId: claimed.eventId,
+    availableAt: "2026-04-15T00:00:30.000Z",
+    lastError: "temporary failure",
+  });
+
+  const coalesced = repository.enqueue({
+    eventId: "event-2",
+    provider: "linear",
+    deliveryId: "delivery-2",
+    resourceType: "Issue",
+    resourceId: "issue-1",
+    issueId: "issue-1",
+    action: "update",
+    dedupeKey: "linear:Issue:issue-1",
+    receivedAt: "2026-04-15T00:00:10.000Z",
+    payloadJson: "{\"id\":\"issue-1\",\"fresh\":true}",
+  });
+
+  assert.equal(coalesced.kind, "coalesced");
+  assert.equal(coalesced.event.eventId, "event-1");
+  assert.equal(coalesced.event.availableAt, "2026-04-15T00:00:10.000Z");
+  assert.equal(coalesced.event.lastError, null);
+});
+
 function createRepository(t: TestContext): WakeupRepository {
   const fixture = createWakeupFixture(t);
   const database = openWakeupDatabase(fixture.databasePath);

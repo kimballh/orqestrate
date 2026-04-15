@@ -73,6 +73,8 @@ export class WakeupRepository {
                     issue_id = ?,
                     action = ?,
                     last_received_at = ?,
+                    available_at = ?,
+                    last_error = NULL,
                     payload_json = ?,
                     coalesced_count = coalesced_count + 1
                 WHERE event_id = ?
@@ -84,6 +86,7 @@ export class WakeupRepository {
               nextInput.resourceId,
               nextInput.issueId,
               nextInput.action,
+              nextInput.receivedAt,
               nextInput.receivedAt,
               nextInput.payloadJson ?? null,
               existing.event_id,
