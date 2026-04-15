@@ -256,6 +256,15 @@ async function runPostClaimStep<T>(
     return await action();
   } catch (error) {
     const disposition = classifyPostClaimFailure(error, context);
+    if (runLedgerId !== null) {
+      await dependencies.context.finalizeRunLedgerEntry({
+        runId: runLedgerId,
+        status: disposition.kind === "blocked" ? "waiting_human" : "failed",
+        summary: buildPreflightFailureSummary(context.step, disposition),
+        error: disposition.kind === "blocked" ? disposition.error ?? null : disposition.error,
+      });
+    }
+
     await dependencies.planning.transitionWorkItem(
       disposition.kind === "blocked"
         ? buildBlockedTransition({
@@ -270,15 +279,6 @@ async function runPostClaimStep<T>(
             error: disposition.error,
           }),
     );
-
-    if (runLedgerId !== null) {
-      await dependencies.context.finalizeRunLedgerEntry({
-        runId: runLedgerId,
-        status: disposition.kind === "blocked" ? "waiting_human" : "failed",
-        summary: buildPreflightFailureSummary(context.step, disposition),
-        error: disposition.kind === "blocked" ? disposition.error ?? null : disposition.error,
-      });
-    }
     throw error;
   }
 }

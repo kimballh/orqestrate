@@ -219,6 +219,39 @@ test("finalizes the queued run ledger if prompt assembly fails after the ledger 
   assert.match(context.finalizeRunLedgerCalls[0]?.summary ?? "", /assemble_prompt failed/);
 });
 
+test("finalizes the queued run ledger even if the planning transition throws", async () => {
+  const config = await loadLocalConfig();
+  const planning = new FakePlanningBackend(createWorkItem(), {
+    failTransition: new Error("planning transition failed"),
+  });
+  const context = new FakeContextBackend(createArtifact());
+
+  await assert.rejects(
+    () =>
+      prepareClaimedRun(
+        { planning, context, config },
+        {
+          workItemId: "ORQ-37",
+          provider: "codex",
+          repoRoot: REPO_ROOT,
+          owner: "orchestrator:test",
+          createRunId: () => "run-41",
+          now: new Date("2026-04-15T00:00:00.000Z"),
+          prompt: {
+            capabilities: ["missing_capability"],
+          },
+        },
+      ),
+    /planning transition failed/,
+  );
+
+  assert.equal(context.createRunLedgerCalls.length, 1);
+  assert.equal(context.finalizeRunLedgerCalls.length, 1);
+  assert.equal(context.finalizeRunLedgerCalls[0]?.runId, "run-41");
+  assert.equal(context.finalizeRunLedgerCalls[0]?.status, "failed");
+  assert.equal(planning.transitionCalls.length, 1);
+});
+
 async function loadLocalConfig(): Promise<LoadedConfig> {
   return loadConfig({
     configPath: path.join(REPO_ROOT, "docs/config.example.toml"),
@@ -230,8 +263,12 @@ class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConf
   workItem: WorkItemRecord;
   readonly claimCalls: ClaimWorkItemInput[] = [];
   readonly transitionCalls: TransitionWorkItemInput[] = [];
+  private readonly failTransition: Error | null;
 
-  constructor(workItem: WorkItemRecord) {
+  constructor(
+    workItem: WorkItemRecord,
+    options: { failTransition?: Error } = {},
+  ) {
     super({
       name: "planning_test",
       kind: "planning.local_files",
@@ -239,6 +276,7 @@ class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConf
       root: REPO_ROOT,
     });
     this.workItem = structuredClone(workItem);
+    this.failTransition = options.failTransition ?? null;
   }
 
   async validateConfig(): Promise<void> {}
@@ -289,6 +327,11 @@ class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConf
     input: TransitionWorkItemInput,
   ): Promise<WorkItemRecord> {
     this.transitionCalls.push(structuredClone(input));
+
+    if (this.failTransition !== null) {
+      throw this.failTransition;
+    }
+
     this.workItem = {
       ...this.workItem,
       status: input.nextStatus,
