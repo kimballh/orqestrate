@@ -327,10 +327,13 @@ Primary goal:
 
 Execution rules:
 - first understand the current PR state and unresolved feedback
+- use `orq github pr-read` to inspect the linked PR and its unresolved review threads instead of relying on ambient GitHub tools
 - if no PR exists yet, create one after the implementation and verification are ready
 - make the smallest correct code changes needed
 - verify locally where practical
 - push updated commits
+- use `orq github pr-upsert` to create or update the PR for the assigned branch only
+- use `orq github review-thread-reply` for review-thread responses and `orq github review-thread-resolve` only when the capability is granted and the thread is truly ready to close
 - reply to each addressed review comment with a concrete summary of what changed
 - if feedback is incorrect or partially incorrect, respond directly and technically
 - if blocked, ask for one concrete human decision
@@ -408,6 +411,7 @@ Primary goal:
 Review rules:
 - findings come before summary
 - focus on correctness, behavior, and verification gaps before style
+- use `orq github pr-read` for PR inspection and `orq github review-write` for PR-native review output
 - if there are no findings, say that explicitly
 - comments should be actionable and technically specific
 - avoid noise and low-signal nits

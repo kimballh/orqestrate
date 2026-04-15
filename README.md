@@ -2,7 +2,7 @@
 
 Orqestrate is a provider-driven orchestration harness for software delivery work.
 
-Today the repository is focused on a human-orchestrated MVP:
+The initial MVP target is autonomous Orqestrate with Linear as planning:
 
 - Linear is the planning surface
 - Notion is the durable artifact surface
@@ -32,6 +32,13 @@ Start the runtime daemon:
 npm run dev
 ```
 
+Inspect recent runs through the CLI-first diagnostics surface:
+
+```bash
+npx tsx src/index.ts run list
+npx tsx src/index.ts run inspect <run-id>
+```
+
 On macOS or Linux, confirm the daemon is healthy:
 
 ```bash
@@ -55,6 +62,7 @@ On Windows, the runtime binds a named pipe instead of a Unix socket:
 
 - `npm run setup`, `npm run orq:init`, and `npm run orq:bootstrap` for local bootstrap
 - `npm run dev` and `npm start` for the runtime daemon
+- `npx tsx src/index.ts run list` and `npx tsx src/index.ts run inspect <run-id>` for operator-friendly run diagnostics
 - a SQLite-backed runtime with health, capacity, run listing, event streaming, cancel, interrupt, and human-input APIs
 - built-in planning backends for Linear and local files
 - built-in context backends for Notion and local files
@@ -62,8 +70,8 @@ On Windows, the runtime binds a named pipe instead of a Unix socket:
 
 ## What To Expect
 
-- The current working model is human orchestrated, not fully autonomous.
-- New work should be explicitly assigned by ticket and phase.
+- The product target is autonomous orchestration driven from planning state, not a human dispatch loop.
+- The strongest supported bootstrap path in the repo today is still the zero-credential `local` profile for local setup and testing.
 - Task-oriented docs live in `docs/`, while deeper architecture and contract material stays there as reference.
 - The default state, logs, and runtime database paths come from `config.toml` and resolve to `./.harness/*` with the shipped local config.
 

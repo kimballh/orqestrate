@@ -18,7 +18,7 @@ For deeper rationale and contract details, see:
 
 ## Runtime Entry Points
 
-Start the runtime daemon in development mode:
+Start the local runtime daemon:
 
 ```bash
 npm run dev
@@ -81,6 +81,29 @@ curl --unix-socket "$ORQ_SOCKET" http://runtime.local/v1/capacity
 If the daemon process is up but the socket is missing, restart the daemon and check the configured state directory first.
 
 ## Inspecting Runs
+
+Preferred operator workflow:
+
+```bash
+npx tsx src/index.ts run list
+npx tsx src/index.ts run inspect <run-id>
+```
+
+Focused diagnostics views:
+
+```bash
+npx tsx src/index.ts run inspect <run-id> --view timeline
+npx tsx src/index.ts run inspect <run-id> --view prompt
+npx tsx src/index.ts run inspect <run-id> --view failure
+```
+
+Machine-readable output:
+
+```bash
+npx tsx src/index.ts run inspect <run-id> --format json
+```
+
+The CLI uses the public runtime API under the hood, so the `curl` examples below remain the low-level fallback when you need raw responses or API debugging.
 
 List runs:
 
@@ -215,7 +238,7 @@ Signals:
 What to do:
 
 1. inspect the event stream
-2. decide whether to resubmit the work or ask the human orchestrator to re-run the phase
+2. decide whether to resubmit the work or ask an operator to re-run the phase
 3. record the operator decision in the artifact or Linear trail if it changes ticket handling
 
 ### Database open or migration failure

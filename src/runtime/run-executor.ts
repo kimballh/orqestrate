@@ -34,6 +34,7 @@ type RunExecutorDependencies = {
   heartbeatFlushIntervalMs?: number;
   quietHeartbeatIntervalMs?: number;
   cancelGracePeriodMs?: number;
+  runtimeApiEndpoint?: string | null;
 };
 
 type LiveRunContext = {
@@ -83,6 +84,7 @@ export class RunExecutor {
   private readonly heartbeatFlushIntervalMs: number;
   private readonly quietHeartbeatIntervalMs: number;
   private readonly cancelGracePeriodMs: number;
+  private readonly runtimeApiEndpoint: string | null;
 
   constructor(
     private readonly repository: RuntimeRepository,
@@ -99,6 +101,7 @@ export class RunExecutor {
     this.heartbeatFlushIntervalMs = dependencies.heartbeatFlushIntervalMs ?? 5_000;
     this.quietHeartbeatIntervalMs = dependencies.quietHeartbeatIntervalMs ?? 30_000;
     this.cancelGracePeriodMs = dependencies.cancelGracePeriodMs ?? 2_000;
+    this.runtimeApiEndpoint = dependencies.runtimeApiEndpoint ?? null;
   }
 
   executeClaimedRun(run: ExecutableRunRecord): Promise<PersistedRunRecord> {
@@ -290,6 +293,7 @@ export class RunExecutor {
       run: context.run,
       cwd,
       logFilePath: context.logFilePath,
+      runtimeApiEndpoint: this.runtimeApiEndpoint,
     };
     const launchSpec = context.adapter.buildLaunchSpec(launchInput);
 
