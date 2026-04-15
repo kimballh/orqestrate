@@ -2,134 +2,82 @@
 
 Orqestrate is a provider-driven orchestration harness for software delivery work.
 
-The initial MVP target is autonomous Orqestrate with Linear as planning:
+The initial MVP target is autonomous Orqestrate with:
 
-- Linear is the planning surface
-- Notion is the durable artifact surface
-- Codex or Claude act as scoped execution agents
-- a local runtime daemon owns run execution, persistence, and operator controls
+- Linear as the planning surface
+- Notion as the durable artifact surface
+- Codex or Claude as scoped execution agents
+- a local runtime daemon that owns run execution, persistence, and operator controls
 
-The strongest supported path right now is the zero-credential `local` profile. SaaS-backed profiles are scaffolded, but they still require real provider credentials and workspace configuration.
+## Install
 
-## Quickstart
-
-Clone the repo, then bootstrap the local profile:
+Install Orqestrate globally:
 
 ```bash
-npm run setup
+npm install -g orqestrate
 ```
 
-That will:
-
-- install dependencies
-- create `./config.toml` from `config.example.toml`
-- select the `local` profile
-- materialize the local planning and context examples under `./.harness/local`
-
-Start the runtime daemon:
+If you are working from a local checkout before publication, install it globally from the repo path instead:
 
 ```bash
-npm run dev
+npm install -g /path/to/orqestrate
 ```
 
-## Cross-Project Package Smoke Test
-
-To validate Orqestrate as an installed package from another workspace:
+Verify the CLI:
 
 ```bash
-npm run build
-npm pack
-
-SHORT_TMP_DIR="$(mktemp -d /tmp/orq-package-smoke.XXXXXX)"
-cp orqestrate-0.1.0.tgz "$SHORT_TMP_DIR/"
-cd "$SHORT_TMP_DIR"
-npm init -y
-npm install ./orqestrate-0.1.0.tgz
-
-./node_modules/.bin/orq init
-./node_modules/.bin/orq bootstrap
-./node_modules/.bin/orq runtime start
+orq --help
 ```
-
-Use a short workspace path such as `/tmp/orq-package-smoke.*` for this smoke test on macOS so the runtime Unix socket path stays within platform limits.
-
-For a linked-package workflow, `npm link` is also supported. The generated `config.toml` should point at the linked package location under the consumer workspace's `node_modules/orqestrate/...`, not back at the source checkout path.
-
-That flow is the supported cross-project validation path for this ticket:
-
-- `orq init` writes `./config.toml` from the packaged example config
-- `orq bootstrap` seeds local planning and context state under `./.harness/local`
-- `orq runtime start` starts the runtime daemon without depending on repo-local source paths
-
-Inspect recent runs through the CLI-first diagnostics surface:
-
-```bash
-npx tsx src/index.ts run list
-npx tsx src/index.ts run inspect <run-id>
-```
-
-On macOS or Linux, confirm the daemon is healthy:
-
-```bash
-ORQ_SOCKET="$PWD/.harness/state/sockets/runtime.sock"
-curl --unix-socket "$ORQ_SOCKET" http://runtime.local/v1/health
-curl --unix-socket "$ORQ_SOCKET" http://runtime.local/v1/capacity
-```
-
-On Windows, the runtime binds a named pipe instead of a Unix socket:
-
-- `\\.\pipe\orqestrate-runtime-<active-profile>`
 
 ## Start Here
 
-- Contributor workflow: [docs/contributor_workflow.md](./docs/contributor_workflow.md)
-- Operator runbook: [docs/operator_runbook.md](./docs/operator_runbook.md)
-- Docs index and architecture references: [docs/README.md](./docs/README.md)
-- Quality bar for implementation and review: [docs/quality_policy.md](./docs/quality_policy.md)
+- Install guide: [docs/guides/install.md](./docs/guides/install.md)
+- Project setup guide: [docs/guides/setup-your-project.md](./docs/guides/setup-your-project.md)
+- Day-to-day usage guide: [docs/guides/use-orqestrate.md](./docs/guides/use-orqestrate.md)
+- Full docs index: [docs/README.md](./docs/README.md)
 
-## What Exists Today
+## Quickstart
 
-- `npm run setup`, `npm run orq:init`, and `npm run orq:bootstrap` for local bootstrap
-- `orq init`, `orq bootstrap`, and `orq runtime start` for installed-package testing
-- `npm run dev` and `npm start` for the repo-local runtime daemon
-- `npx tsx src/index.ts run list` and `npx tsx src/index.ts run inspect <run-id>` for operator-friendly run diagnostics
-- a SQLite-backed runtime with health, capacity, run listing, event streaming, cancel, interrupt, and human-input APIs
-- built-in planning backends for Linear and local files
-- built-in context backends for Notion and local files
-- prompt-pack scaffolding for `design`, `plan`, `implement`, `review`, and `merge`
-
-## What To Expect
-
-- The product target is autonomous orchestration driven from planning state, not a human dispatch loop.
-- The strongest supported bootstrap path in the repo today is still the zero-credential `local` profile for local setup and testing.
-- Task-oriented docs live in `docs/`, while deeper architecture and contract material stays there as reference.
-- The default state, logs, and runtime database paths come from `config.toml` and resolve to `./.harness/*` with the shipped local config.
-
-## Daily Commands
+From the root of the project where you want to use Orqestrate:
 
 ```bash
-npm run typecheck
-npm run build
-npm run test
-npm run check
-npm run orq:init -- --help
-npm run orq:bootstrap -- --help
+orq init
+orq bootstrap
+orq runtime start
 ```
 
-## Local Layout
+That flow:
 
-- `config.example.toml`: canonical example config
-- `config.toml`: local working config created by `npm run setup` or `npm run orq:init`
-- `examples/local/`: seed planning records and local context templates
-- `.harness/state/runtime.sqlite`: runtime state database for the default local profile
-- `.harness/logs/runtime/`: runtime log directory for the default local profile
+- creates `./config.toml` from the packaged example config
+- validates and prepares the selected profile
+- starts the runtime daemon for that project
+
+## What Orqestrate Owns
+
+Orqestrate is designed so:
+
+- Linear owns planning and dispatch state
+- Notion owns durable artifacts and run history
+- the orchestrator claims and advances one active phase at a time
+- the runtime daemon executes and supervises agent runs locally
+
+## Current Packaging Notes
+
+The installed CLI currently exposes:
+
+- `orq init`
+- `orq bootstrap`
+- `orq runtime start`
+- `orq run ...`
+- `orq prompt ...`
+- `orq github ...`
+
+The runtime daemon is already packaged behind the global CLI.
+
+The orchestrator service is implemented in this repository, and the user guides call out the current packaging boundary while its top-level installed CLI entrypoint is finalized.
 
 ## Contributing
 
-Use the contributor guide before taking ticket work:
+If you want to work on Orqestrate itself rather than use it as a tool:
 
-- [docs/contributor_workflow.md](./docs/contributor_workflow.md)
-
-If you are operating or debugging the daemon, start with:
-
-- [docs/operator_runbook.md](./docs/operator_runbook.md)
+- Contributor docs: [docs/contributors/README.md](./docs/contributors/README.md)

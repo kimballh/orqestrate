@@ -2,16 +2,27 @@
 
 This directory is the main documentation index for Orqestrate.
 
-If you are new to the repo, start with the task-oriented guides before diving into the full architecture set.
+Use the sections below based on whether you are:
 
-## Start Here
+- using Orqestrate in your own project
+- contributing to the Orqestrate codebase
+- digging into architecture and implementation details
 
-- Repo overview and quickstart: [../README.md](../README.md)
-- Contributor onboarding and local repo workflow: [contributor_workflow.md](./contributor_workflow.md)
-- Runtime and orchestrator troubleshooting: [operator_runbook.md](./operator_runbook.md)
-- Verification and done criteria: [quality_policy.md](./quality_policy.md)
+## User Guides
 
-## Current System Shape
+- [guides/README.md](./guides/README.md) - entrypoint for users of Orqestrate
+- [guides/install.md](./guides/install.md) - global install options and CLI verification
+- [guides/setup-your-project.md](./guides/setup-your-project.md) - initialize config, choose providers, and bootstrap a project
+- [guides/use-orqestrate.md](./guides/use-orqestrate.md) - day-to-day operating model and useful commands
+
+## Contributor Docs
+
+- [contributors/README.md](./contributors/README.md) - entrypoint for contributors to this repository
+- [contributor_workflow.md](./contributor_workflow.md) - local repo workflow and implementation update rules
+- [operator_runbook.md](./operator_runbook.md) - run, inspect, and troubleshoot the runtime daemon and live runs
+- [quality_policy.md](./quality_policy.md) - verification, testing, and CI expectations
+
+## Product Shape
 
 The current MVP target is:
 
@@ -26,53 +37,12 @@ The architecture is intentionally providerized so the same harness can later sup
 - other context systems like Google Drive
 - local-only deployments using file-backed providers for both
 
-## Scope
-
-This design is intentionally sequential.
-
-For now, each ticket moves through one active phase at a time:
-
-`design -> plan -> implement -> review -> merge`
-
-The orchestrator does not parallelize those phases, and it does not split a single ticket into concurrent sub-agents by default.
-
-## Design goals
-
-- Keep ticket state understandable to humans in Linear.
-- Keep machine-owned orchestration state explicit and pollable.
-- Avoid using labels/tags as the primary lifecycle state machine.
-- Keep artifacts durable in Notion.
-- Make claiming and retries safe enough for a poll-based orchestrator.
-- Leave room for human intervention at every phase.
-- Keep provider-native details behind backend adapters so planning/context systems can be swapped without rewriting the core.
-- Support optional local-only profiles using file-backed planning and context providers.
-
-## Source of truth
-
-The core rule is: one authority per state dimension.
-
-| Concern | Authority |
-| --- | --- |
-| Human-facing workflow status | Linear status |
-| Machine phase + lease + claim owner | Linear custom fields |
-| Generated design/plan/review artifacts | Notion issue artifact page |
-| Execution/run history | Notion runs database |
-| Live worker process state | Orchestrator memory / runtime only |
-
-This mirrors one of the most important lessons from OMX: do not overload one field with multiple meanings.
-
-## Task-Oriented Guides
-
-- [contributor_workflow.md](./contributor_workflow.md) - bootstrap the repo, contribute safely, and understand what belongs in Linear, Notion, `docs/`, and git
-- [operator_runbook.md](./operator_runbook.md) - run, inspect, and troubleshoot the runtime daemon and live runs using the current API surface
-
 ## Architecture Reference
 
 - [architecture.md](./architecture.md) - end-to-end implementation review diagram covering config, providers, orchestrator, runtime, persistence, and deployment profiles
 - [domain_model.md](./domain_model.md) - canonical shared records, enums, authority boundaries, and serialization rules for cross-layer contracts
 - [agent_contract.md](./agent_contract.md) - explicit responsibility split between the code agent, orchestrator, and runtime daemon
 - [example_prompts.md](./example_prompts.md) - first-pass prompt templates for design, plan, implement, review, merge, and GitHub PR review loops
-- [quality_policy.md](./quality_policy.md) - current verification, testing, and CI expectations for local runs and future enforcement
 - [prompt_customization.md](./prompt_customization.md) - layered prompt overrides, prompt packs, capability fragments, and prompt testing model
 - [deployment_topology.md](./deployment_topology.md) - public webhook ingress vs private orchestrator/runtime deployment boundary and service topology
 - [provider_architecture.md](./provider_architecture.md) - abstract planning/context backend model, provider registry, and local-files built-ins
@@ -87,41 +57,3 @@ This mirrors one of the most important lessons from OMX: do not overload one fie
 - [orchestrator.md](./orchestrator.md) - sequential orchestration loop, claim model, failure handling
 - [webhook_poll_hybrid.md](./webhook_poll_hybrid.md) - ideal ingress model using Linear webhooks for wakeup and polling for reconciliation
 - [open_questions.md](./open_questions.md) - unresolved decisions for the next design pass
-
-## Initial recommendation
-
-Use:
-
-- abstract `PlanningBackend` and `ContextBackend` families
-- `config.toml` with named providers and profiles
-- `planning.linear` as the initial MVP planning backend
-- `context.notion` as the initial MVP context backend
-- built-in `local_files` providers as optional secondary backends
-- Linear statuses for the coarse lifecycle
-- Linear custom fields for machine phase, lease, run id, and review outcome
-- Linear labels only for routing hints like `uiux`, `frontend`, `backend`, `infra`, `docs`
-- one Notion artifact page per Linear issue
-- one Notion runs database row per orchestration attempt
-- webhook-driven wakeup plus periodic reconciliation polling
-
-Avoid:
-
-- one giant cross-tool integration base class
-- provider-specific logic in the orchestrator core
-- statuses like `in progress (native)` or `done (native)`
-- labels like `needs plan` or `ready for implementation`
-- using Notion as the high-frequency locking or heartbeat store
-
-Those choices make the system harder to poll, harder to reconcile, and harder for humans to reason about.
-
-## Current scaffold
-
-- `npm run orq:init` creates `./config.toml` from the canonical `config.example.toml`
-- `npm run orq:bootstrap` validates the selected profile and seeds the local example roots when the active profile is `local`
-- `npm run setup` installs dependencies, creates a local starter `config.toml`, and bootstraps the zero-credential local profile
-- `npm run dev` starts the local runtime daemon against `./config.toml`
-- `npm run dev:orchestrator -- --repo-root <path>` starts the orchestrator service plus the Linear webhook ingress and wakeup queue worker against `./config.toml`
-- `npm start` runs the built runtime daemon with the same default config path
-- `npm run start:orchestrator -- --repo-root <path>` runs the built orchestrator service with the same default config path
-- `examples/local/` contains the canonical planning seed pack and local context templates that drive the zero-credential bootstrap path
-- the first runtime scaffold now lives under `src/runtime/` with SQLite-backed persistence for runs, events, heartbeats, and workspace allocations
