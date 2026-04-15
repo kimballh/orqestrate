@@ -36,6 +36,8 @@ export interface LinearSdkWorkflowStateLike {
 export interface LinearSdkIssueLabelLike {
   id: string;
   name: string;
+  teamId?: string | undefined;
+  archivedAt?: Date | string | null;
 }
 
 export interface LinearSdkIssueRelationLike {
@@ -104,6 +106,32 @@ export interface LinearSdkClientLike {
     orderBy?: string;
     filter?: unknown;
   }): Awaitable<LinearConnectionLike<LinearSdkIssueLike>>;
+  updateIssue?(
+    id: string,
+    input: {
+      stateId?: string;
+      labelIds?: string[];
+      description?: string | null;
+    },
+  ): Awaitable<{ success?: boolean | null }>;
+  createComment?(input: {
+    issueId?: string;
+    body?: string;
+  }): Awaitable<{ success?: boolean | null }>;
+  issueLabels?(variables?: {
+    first?: number;
+    after?: string;
+    includeArchived?: boolean;
+    filter?: unknown;
+  }): Awaitable<LinearConnectionLike<LinearSdkIssueLabelLike>>;
+  createIssueLabel?(input: {
+    name: string;
+    teamId?: string | null;
+    color?: string;
+  }): Awaitable<{
+    success?: boolean | null;
+    issueLabel?: Awaitable<unknown> | undefined;
+  }>;
 }
 
 export type LinearViewerRecord = {
@@ -141,6 +169,13 @@ export type LinearIssueRelationRecord = {
   relatedIssue: LinearIssueReferenceRecord;
 };
 
+export type LinearIssueLabelRecord = {
+  id: string;
+  name: string;
+  teamId: string | null;
+  archived: boolean;
+};
+
 export type LinearHydratedIssueRecord = {
   id: string;
   identifier: string;
@@ -151,7 +186,7 @@ export type LinearHydratedIssueRecord = {
   createdAt: string | null;
   updatedAt: string;
   state: LinearWorkflowStateRecord;
-  labels: string[];
+  labels: LinearIssueLabelRecord[];
   parent: LinearIssueReferenceRecord | null;
   relations: LinearIssueRelationRecord[];
   inverseRelations: LinearIssueRelationRecord[];
@@ -280,6 +315,142 @@ export class LinearPlanningClient {
     }
   }
 
+  async updateIssue(
+    id: string,
+    input: {
+      stateId?: string;
+      labelIds?: string[];
+      description?: string | null;
+    },
+  ): Promise<void> {
+    const updateIssue = this.sdkClient.updateIssue;
+
+    if (updateIssue === undefined) {
+      throw new Error("Linear SDK client does not support issue writes.");
+    }
+
+    try {
+      const payload = await updateIssue(id, input);
+
+      if (payload.success === false) {
+        throw new Error(`Linear rejected update for issue '${id}'.`);
+      }
+    } catch (error) {
+      throw LinearProviderFailure.from(
+        error,
+        `Failed to update Linear issue '${id}'.`,
+      );
+    }
+  }
+
+  async createComment(input: { issueId: string; body: string }): Promise<void> {
+    const createComment = this.sdkClient.createComment;
+
+    if (createComment === undefined) {
+      throw new Error("Linear SDK client does not support comment writes.");
+    }
+
+    try {
+      const payload = await createComment(input);
+
+      if (payload.success === false) {
+        throw new Error(
+          `Linear rejected comment creation for issue '${input.issueId}'.`,
+        );
+      }
+    } catch (error) {
+      throw LinearProviderFailure.from(
+        error,
+        `Failed to create a Linear comment for issue '${input.issueId}'.`,
+      );
+    }
+  }
+
+  async listIssueLabels(input: {
+    teamId?: string | null;
+  } = {}): Promise<LinearIssueLabelRecord[]> {
+    const issueLabels = this.sdkClient.issueLabels;
+
+    if (issueLabels === undefined) {
+      throw new Error("Linear SDK client does not support issue-label reads.");
+    }
+
+    const records: LinearIssueLabelRecord[] = [];
+    let after: string | undefined;
+
+    try {
+      do {
+        const response = await issueLabels({
+          first: LINEAR_PAGE_SIZE,
+          after,
+          includeArchived: false,
+          filter:
+            input.teamId === undefined
+              ? undefined
+              : {
+                  team: {
+                    id:
+                      input.teamId === null
+                        ? { null: true }
+                        : { eq: input.teamId },
+                  },
+                },
+        });
+
+        records.push(...response.nodes.map(toIssueLabelRecord));
+        after = response.pageInfo?.hasNextPage
+          ? response.pageInfo.endCursor ?? undefined
+          : undefined;
+      } while (after !== undefined);
+
+      return records;
+    } catch (error) {
+      throw LinearProviderFailure.from(
+        error,
+        "Failed to load Linear issue labels.",
+      );
+    }
+  }
+
+  async createIssueLabel(input: {
+    name: string;
+    teamId?: string | null;
+    color?: string;
+  }): Promise<LinearIssueLabelRecord> {
+    const createIssueLabel = this.sdkClient.createIssueLabel;
+
+    if (createIssueLabel === undefined) {
+      throw new Error("Linear SDK client does not support issue-label writes.");
+    }
+
+    try {
+      const payload = await createIssueLabel({
+        name: input.name,
+        teamId: input.teamId ?? undefined,
+        color: input.color,
+      });
+
+      if (payload.success === false) {
+        throw new Error(`Linear rejected label creation for '${input.name}'.`);
+      }
+
+      const issueLabel = await resolveLinkedResource<LinearSdkIssueLabelLike>(
+        payload.issueLabel,
+      );
+
+      if (issueLabel === undefined) {
+        throw new Error(`Linear did not return the created label '${input.name}'.`);
+      }
+
+      return toIssueLabelRecord(issueLabel);
+    } catch (error) {
+      throw LinearProviderFailure.from(
+        error,
+        `Failed to create Linear label '${input.name}'.`,
+      );
+    }
+  }
+
   private async hydrateIssue(
     issue: LinearSdkIssueNodeLike,
   ): Promise<LinearHydratedIssueRecord> {
@@ -325,7 +496,7 @@ export class LinearPlanningClient {
       createdAt: toIsoString(issue.createdAt),
       updatedAt: requireIsoString(issue.updatedAt, `Linear issue '${issue.id}'`),
       state: resolvedState,
-      labels: labels.map((label) => label.name),
+      labels: labels.map(toIssueLabelRecord),
       parent: await this.toIssueReference(parent, null),
       relations: await Promise.all(
         relations.map((relation) =>
@@ -518,6 +689,18 @@ function toWorkflowStateRecord(
     type: state.type,
     teamId: state.teamId ?? null,
     archived: state.archivedAt != null,
+  };
+}
+
+function toIssueLabelRecord(label: LinearSdkIssueLabelLike): LinearIssueLabelRecord {
+  return {
+    id: label.id,
+    name: label.name,
+    teamId: label.teamId ?? null,
+    archived:
+      label.archivedAt instanceof Date
+        ? true
+        : typeof label.archivedAt === "string" && label.archivedAt.trim() !== "",
   };
 }
 
