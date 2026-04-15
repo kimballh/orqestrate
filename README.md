@@ -32,6 +32,13 @@ Start the runtime daemon:
 npm run dev
 ```
 
+Inspect recent runs through the CLI-first diagnostics surface:
+
+```bash
+npx tsx src/index.ts run list
+npx tsx src/index.ts run inspect <run-id>
+```
+
 On macOS or Linux, confirm the daemon is healthy:
 
 ```bash
@@ -55,6 +62,7 @@ On Windows, the runtime binds a named pipe instead of a Unix socket:
 
 - `npm run setup`, `npm run orq:init`, and `npm run orq:bootstrap` for local bootstrap
 - `npm run dev` and `npm start` for the runtime daemon
+- `npx tsx src/index.ts run list` and `npx tsx src/index.ts run inspect <run-id>` for operator-friendly run diagnostics
 - a SQLite-backed runtime with health, capacity, run listing, event streaming, cancel, interrupt, and human-input APIs
 - built-in planning backends for Linear and local files
 - built-in context backends for Notion and local files

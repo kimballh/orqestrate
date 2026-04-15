@@ -82,6 +82,29 @@ If the daemon process is up but the socket is missing, restart the daemon and ch
 
 ## Inspecting Runs
 
+Preferred operator workflow:
+
+```bash
+npx tsx src/index.ts run list
+npx tsx src/index.ts run inspect <run-id>
+```
+
+Focused diagnostics views:
+
+```bash
+npx tsx src/index.ts run inspect <run-id> --view timeline
+npx tsx src/index.ts run inspect <run-id> --view prompt
+npx tsx src/index.ts run inspect <run-id> --view failure
+```
+
+Machine-readable output:
+
+```bash
+npx tsx src/index.ts run inspect <run-id> --format json
+```
+
+The CLI uses the public runtime API under the hood, so the `curl` examples below remain the low-level fallback when you need raw responses or API debugging.
+
 List runs:
 
 ```bash
