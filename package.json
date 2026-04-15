@@ -4,6 +4,9 @@
   "private": true,
   "description": "A provider-driven orchestration harness for planning, context, and agent execution.",
   "type": "module",
+  "bin": {
+    "orq": "dist/index.js"
+  },
   "engines": {
     "node": ">=20.18.0"
   },

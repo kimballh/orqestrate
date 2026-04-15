@@ -62,6 +62,8 @@ export type PromptAssemblyRequest = {
   phase: WorkPhase;
   capabilities?: string[];
   experiment?: string | null;
+  organizationOverlays?: string[];
+  projectOverlays?: string[];
   runAdditions?: PromptAssemblyAddition[];
   context: PromptAssemblyContext;
 };
@@ -123,6 +125,8 @@ export async function assemblePrompt(
     selection = resolvePromptSelection(config, {
       promptPackName: request.promptPackName,
       experiment: request.experiment,
+      organizationOverlays: request.organizationOverlays,
+      projectOverlays: request.projectOverlays,
     });
   } catch (error) {
     throw new PromptAssemblyError(
