@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 
 import { AGENT_PROVIDERS, type AgentProvider } from "../domain-model.js";
 import type { LoadedConfig } from "../config/types.js";
+import { createBuiltinRuntimeAdapterRegistry } from "./builtins.js";
 import { RuntimeError } from "./errors.js";
 import { openRuntimeDatabase, type RuntimeDatabase } from "./persistence/database.js";
 import { RuntimeRepository } from "./persistence/runtime-repository.js";
@@ -66,7 +67,7 @@ export class RuntimeDaemon {
     dependencies: RuntimeDaemonDependencies = {},
   ) {
     this.adapterRegistry =
-      dependencies.adapterRegistry ?? new RuntimeAdapterRegistry();
+      dependencies.adapterRegistry ?? createBuiltinRuntimeAdapterRegistry();
     this.sessionSupervisor =
       dependencies.sessionSupervisor ?? new NodePtySessionSupervisor();
     this.#executor = dependencies.runExecutor ?? null;

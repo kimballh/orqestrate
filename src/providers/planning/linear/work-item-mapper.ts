@@ -15,7 +15,12 @@ export function mapLinearIssueToWorkItem(
   issue: LinearHydratedIssueRecord,
   adapter: LinearPlanningConfigAdapter,
 ): WorkItemRecord {
-  const machineState = readLinearMachineState(issue);
+  const machineState = readLinearMachineState({
+    id: issue.id,
+    identifier: issue.identifier,
+    labels: issue.labels.map((label) => label.name),
+    description: issue.description,
+  });
   const status = resolveCanonicalStatus(issue.state, adapter);
   const phase = resolvePhase(status, machineState.phase);
   const relations = mapRelations(issue);
@@ -28,7 +33,7 @@ export function mapLinearIssueToWorkItem(
     status,
     phase,
     priority: issue.priority,
-    labels: [...issue.labels],
+    labels: issue.labels.map((label) => label.name),
     url: issue.url,
     parentId: issue.parent?.identifier ?? issue.parent?.id ?? null,
     dependencyIds: relations.dependencyIds,
