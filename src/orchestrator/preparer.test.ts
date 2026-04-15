@@ -83,6 +83,19 @@ test("returns a prepared run after claiming, loading context, and assembling the
   assert.equal(result.prepared.submission.limits.maxWallTimeSec, config.policy.defaultPhaseTimeoutSec);
   assert.match(result.prepared.submission.prompt.userPrompt, /Keep the run narrow\./);
   assert.match(result.prepared.submission.prompt.userPrompt, /Loaded issue context\./);
+  assert.equal(
+    result.prepared.submission.promptProvenance?.selection.promptPackName,
+    "default",
+  );
+  assert.deepEqual(
+    result.prepared.submission.promptProvenance?.rendered.attachmentKinds,
+    ["planning_url", "artifact_url"],
+  );
+  assert.ok(
+    result.prepared.submission.promptProvenance?.sources.some(
+      (source) => source.ref === "run-context",
+    ),
+  );
 });
 
 test("returns a non-prepared result when the work item is not currently claimable", async () => {

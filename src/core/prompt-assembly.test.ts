@@ -109,9 +109,48 @@ test("assembles a deterministic prompt with layered overrides and symbolic sourc
     "operator-note",
     "additional-context",
   ]);
+  assert.deepEqual(result.provenance.selection, {
+    promptPackName: "default",
+    capabilityNames: ["cap_first", "cap_second"],
+    organizationOverlayNames: ["default_org"],
+    projectOverlayNames: ["default_project"],
+    experimentName: "exp_review",
+  });
+  assert.deepEqual(
+    result.provenance.sources.map((source) => ({
+      kind: source.kind,
+      ref: source.ref,
+      digest: source.digest,
+    })),
+    result.resolvedLayers.map((layer) => ({
+      kind: layer.kind,
+      ref: layer.ref,
+      digest: layer.digest,
+    })),
+  );
+  assert.equal(
+    result.provenance.rendered.systemPromptLength,
+    result.prompt.systemPrompt?.length ?? 0,
+  );
+  assert.equal(
+    result.provenance.rendered.userPromptLength,
+    result.prompt.userPrompt.length,
+  );
+  assert.deepEqual(result.provenance.rendered.attachmentKinds, [
+    "planning_url",
+    "artifact_url",
+    "text",
+  ]);
+  assert.equal(result.provenance.rendered.attachmentCount, 3);
 
   for (const source of result.prompt.sources) {
     assert.doesNotMatch(source.ref, new RegExp(fixture.workspaceDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  for (const source of result.provenance.sources) {
+    assert.doesNotMatch(
+      source.ref,
+      new RegExp(fixture.workspaceDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
   }
 
   const assembledPrompt = result.prompt.userPrompt;
@@ -130,6 +169,18 @@ test("assembles a deterministic prompt with layered overrides and symbolic sourc
   assert.match(assembledPrompt, /## Additional Context/);
   assert.match(assembledPrompt, /Verification required: yes/);
   assert.match(assembledPrompt, /Authorized capabilities: cap_first, cap_second/);
+  assert.equal(
+    JSON.stringify(result.provenance).includes(fixture.workspaceDir),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(result.provenance).includes("Remember to mention missing coverage explicitly if needed."),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(result.provenance).includes("Base system prompt."),
+    false,
+  );
 });
 
 test("allows phases without a configured phase fragment", async () => {

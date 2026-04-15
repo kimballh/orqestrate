@@ -416,6 +416,7 @@ function parseCreateRunBody(body: Record<string, unknown>) {
     workItem: requireWorkItem(body.workItem),
     workspace: requireWorkspace(body.workspace),
     prompt: requirePrompt(body.prompt),
+    promptProvenance: optionalPromptProvenance(body.promptProvenance),
     limits: requireLimits(body.limits),
     requestedBy: optionalString(body.requestedBy, "requestedBy"),
     artifact: optionalArtifact(body.artifact),
@@ -505,6 +506,67 @@ function requirePrompt(value: unknown) {
     digests: {
       system: optionalString(digests.system, "prompt.digests.system"),
       user: requireString(digests.user, "prompt.digests.user"),
+    },
+  };
+}
+
+function optionalPromptProvenance(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  assertPlainObject(value, "promptProvenance");
+  assertPlainObject(value.selection, "promptProvenance.selection");
+  assertPlainObject(value.rendered, "promptProvenance.rendered");
+
+  return {
+    selection: {
+      promptPackName: requireString(
+        value.selection.promptPackName,
+        "promptProvenance.selection.promptPackName",
+      ),
+      capabilityNames: requireStringArray(
+        value.selection.capabilityNames,
+        "promptProvenance.selection.capabilityNames",
+      ),
+      organizationOverlayNames: requireStringArray(
+        value.selection.organizationOverlayNames,
+        "promptProvenance.selection.organizationOverlayNames",
+      ),
+      projectOverlayNames: requireStringArray(
+        value.selection.projectOverlayNames,
+        "promptProvenance.selection.projectOverlayNames",
+      ),
+      experimentName: optionalString(
+        value.selection.experimentName,
+        "promptProvenance.selection.experimentName",
+      ),
+    },
+    sources: requirePromptProvenanceSources(
+      value.sources,
+      "promptProvenance.sources",
+    ),
+    rendered: {
+      systemPromptLength: requireNumber(
+        value.rendered.systemPromptLength,
+        "promptProvenance.rendered.systemPromptLength",
+      ),
+      userPromptLength: requireNumber(
+        value.rendered.userPromptLength,
+        "promptProvenance.rendered.userPromptLength",
+      ),
+      attachmentKinds: requirePromptAttachmentKinds(
+        value.rendered.attachmentKinds,
+        "promptProvenance.rendered.attachmentKinds",
+      ),
+      attachmentCount: requireNumber(
+        value.rendered.attachmentCount,
+        "promptProvenance.rendered.attachmentCount",
+      ),
     },
   };
 }
@@ -672,6 +734,28 @@ function requirePromptSources(value: unknown, fieldName: string) {
       ref: requireString(item.ref, `${fieldName}[${index}].ref`),
     };
   });
+}
+
+function requirePromptProvenanceSources(value: unknown, fieldName: string) {
+  return requireUnknownArray(value, fieldName).map((item, index) => {
+    assertPlainObject(item, `${fieldName}[${index}]`);
+
+    return {
+      kind: requireOneOf(
+        item.kind,
+        PROMPT_SOURCE_KINDS,
+        `${fieldName}[${index}].kind`,
+      ),
+      ref: requireString(item.ref, `${fieldName}[${index}].ref`),
+      digest: requireString(item.digest, `${fieldName}[${index}].digest`),
+    };
+  });
+}
+
+function requirePromptAttachmentKinds(value: unknown, fieldName: string) {
+  return requireUnknownArray(value, fieldName).map((item, index) =>
+    requireOneOf(item, PROMPT_ATTACHMENT_KINDS, `${fieldName}[${index}]`),
+  );
 }
 
 function requireOneOf<const T extends readonly string[]>(

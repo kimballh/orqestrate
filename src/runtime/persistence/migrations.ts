@@ -22,6 +22,10 @@ const RUN_OUTCOME_DETAILS_SQL = readFileSync(
   new URL("./sql/0003_run_outcome_details.sql", import.meta.url),
   "utf8",
 );
+const RUN_PROMPT_PROVENANCE_SQL = readFileSync(
+  new URL("./sql/0004_run_prompt_provenance.sql", import.meta.url),
+  "utf8",
+);
 
 const RUNTIME_MIGRATIONS: RuntimeMigration[] = [
   {
@@ -38,6 +42,11 @@ const RUNTIME_MIGRATIONS: RuntimeMigration[] = [
     version: 3,
     name: "run_outcome_details",
     sql: RUN_OUTCOME_DETAILS_SQL,
+  },
+  {
+    version: 4,
+    name: "run_prompt_provenance",
+    sql: RUN_PROMPT_PROVENANCE_SQL,
   },
 ];
 
