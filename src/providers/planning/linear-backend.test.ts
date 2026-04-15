@@ -401,6 +401,52 @@ test("claims Linear issues while preserving human labels and description text", 
   ]);
 });
 
+test("reuses attached global provider-owned labels without trying to recreate them", async () => {
+  const harness = createMutableIssueSdkHarness(
+    [
+      createFakeIssue({
+        id: "issue-global-labels",
+        identifier: "ORQ-82",
+        title: "Global provider labels",
+        state: workflowState("implement"),
+        labels: [
+          { id: "label-global-phase", name: "orq:phase:implement", teamId: undefined },
+          { id: "label-global-state", name: "orq:state:idle", teamId: undefined },
+          { id: "label-global-review", name: "orq:review:none", teamId: undefined },
+        ],
+      }),
+    ],
+    {
+      createIssueLabelError: new ForbiddenLinearError({
+        response: {
+          status: 403,
+          error: "Forbidden",
+        },
+      } as never),
+      extraLabels: [
+        {
+          id: "label-global-claimed",
+          name: "orq:state:claimed",
+          teamId: null,
+          archivedAt: null,
+        },
+      ],
+    },
+  );
+  const backend = createBackend({}, harness.sdkClient);
+
+  const claimed = await backend.claimWorkItem({
+    id: "issue-global-labels",
+    phase: "implement",
+    owner: "orchestrator-1",
+    runId: "run-82",
+    leaseUntil: "2099-04-14T01:00:00.000Z",
+  });
+
+  assert.equal(claimed.orchestration.state, "claimed");
+  assert.deepEqual(harness.createdLabelNames, []);
+});
+
 test("rejects invalid claims for phase mismatches, blockers, and active leases", async () => {
   const backend = createBackend(
     {},
@@ -682,6 +728,31 @@ test("creates explicit Linear comments through the planning backend", async () =
   ]);
 });
 
+test("preserves comment bodies verbatim when forwarding to Linear", async () => {
+  const harness = createMutableIssueSdkHarness([
+    createFakeIssue({
+      id: "issue-80b",
+      identifier: "ORQ-80B",
+      title: "Comment formatting target",
+      state: workflowState("plan"),
+    }),
+  ]);
+  const backend = createBackend({}, harness.sdkClient);
+  const body = "  line one\n\n  indented line two  ";
+
+  await backend.appendComment({
+    id: "issue-80b",
+    body,
+  });
+
+  assert.deepEqual(harness.comments, [
+    {
+      issueId: "issue-80b",
+      body,
+    },
+  ]);
+});
+
 test("surfaces provider label-creation permission failures clearly", async () => {
   const harness = createMutableIssueSdkHarness(
     [
@@ -797,6 +868,7 @@ function createMutableIssueSdkHarness(
   issues: FakeIssueDefinition[],
   options: {
     createIssueLabelError?: Error;
+    extraLabels?: FakeLabelDefinition[];
   } = {},
 ): {
   sdkClient: LinearSdkClientLike;
@@ -816,10 +888,17 @@ function createMutableIssueSdkHarness(
       labelsById.set(label.id, {
         id: label.id,
         name: label.name,
-        teamId: label.teamId ?? "team-orq",
+        teamId:
+          Object.prototype.hasOwnProperty.call(label, "teamId")
+            ? label.teamId ?? null
+            : "team-orq",
         archivedAt: null,
       });
     }
+  }
+
+  for (const label of options.extraLabels ?? []) {
+    labelsById.set(label.id, structuredClone(label));
   }
 
   const workflowStatesById = new Map(
@@ -1069,7 +1148,14 @@ function buildFakeIssue(
       ? Promise.resolve(buildFakeIssue(issuesById.get(issue.parentId)!, issuesById))
       : undefined,
     labels: async (variables?: LinearConnectionVariables) =>
-      paginateArray<LinearSdkIssueLabelLike>(issue.labels, variables),
+      paginateArray<LinearSdkIssueLabelLike>(
+        issue.labels.map((label) => ({
+          id: label.id,
+          name: label.name,
+          teamId: label.teamId ?? undefined,
+        })),
+        variables,
+      ),
     relations: async (variables?: LinearConnectionVariables) =>
       paginateArray<LinearSdkIssueRelationLike>(
         issue.relations.map((relation, index) =>
@@ -1223,7 +1309,11 @@ type FakeIssueDefinition = {
   teamId: string;
   projectId: string | null;
   parentId?: string;
-  labels: LinearSdkIssueLabelLike[];
+  labels: Array<{
+    id: string;
+    name: string;
+    teamId?: string | null;
+  }>;
   relations: Array<{
     id?: string;
     type: string;

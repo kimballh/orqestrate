@@ -184,7 +184,7 @@ function buildPatch(input: {
       phase: input.phase,
       state: input.state,
       reviewOutcome: input.reviewOutcome,
-    }).map((labelName) => lookupLabelId(input.labelCatalog, labelName)),
+    }).map((labelName) => lookupLabelId(input.issue, input.labelCatalog, labelName)),
   ];
 
   return {
@@ -198,10 +198,20 @@ function buildPatch(input: {
 }
 
 function lookupLabelId(
+  issue: LinearHydratedIssueRecord,
   labelCatalog: LinearProviderLabelCatalog,
   labelName: string,
 ): string {
-  const record = labelCatalog.get(normalizeLinearLabelName(labelName));
+  const normalizedName = normalizeLinearLabelName(labelName);
+  const attachedLabel = issue.labels.find(
+    (label) => normalizeLinearLabelName(label.name) === normalizedName,
+  );
+
+  if (attachedLabel !== undefined) {
+    return attachedLabel.id;
+  }
+
+  const record = labelCatalog.get(normalizedName);
 
   if (record === undefined) {
     throw new Error(`Missing provider-owned Linear label '${labelName}'.`);
