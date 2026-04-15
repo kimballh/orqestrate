@@ -124,6 +124,55 @@ test("orchestrator service leaves the actionable sweep disabled for non-linear p
   assert.equal(service.wakeupRepository.list().length, 0);
 });
 
+test("service stop waits for an in-flight actionable sweep before closing the wakeup database", async (t) => {
+  const fixture = createFixture(t);
+  const loadedConfig = createLoadedConfigFixture("planning.linear");
+  const secondSweepStarted = createDeferred<void>();
+  const releaseSecondSweep = createDeferred<WorkItemRecord[]>();
+  let listCalls = 0;
+  const planning = new FakePlanningBackend("planning.linear", [], {
+    listActionableWorkItems: async (input) => {
+      planning.listInputs.push(input);
+      listCalls += 1;
+
+      if (listCalls === 1) {
+        return [];
+      }
+
+      secondSweepStarted.resolve();
+      return releaseSecondSweep.promise;
+    },
+  });
+  const context = new FakeContextBackend();
+  const database = openWakeupDatabase(fixture.databasePath);
+  t.after(() => database.close());
+
+  const service = await startOrchestratorService(
+    loadedConfig,
+    {
+      repoRoot: fixture.repoRoot,
+      actionableSweepIntervalMs: 5,
+      wakeupIntervalMs: 60_000,
+      now: () => new Date("2026-04-15T20:00:00.000Z"),
+    },
+    {
+      planning,
+      context,
+      wakeupDatabase: database,
+      executeClaimedRunFn: async () => {
+        throw new Error("No sweep-created wakeup should execute in this test.");
+      },
+    },
+  );
+
+  await secondSweepStarted.promise;
+  const stopPromise = service.stop();
+  releaseSecondSweep.resolve([]);
+  await stopPromise;
+
+  assert.ok(listCalls >= 2);
+});
+
 function createFixture(t: { after(callback: () => void): void }) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "orq-service-"));
   t.after(() => {
@@ -142,6 +191,11 @@ class FakePlanningBackend extends PlanningBackend<PlanningProviderConfig> {
   constructor(
     kind: PlanningProviderConfig["kind"],
     private readonly actionable: WorkItemRecord[],
+    private readonly overrides: {
+      listActionableWorkItems?: (
+        input: ListActionableWorkItemsInput,
+      ) => Promise<WorkItemRecord[]>;
+    } = {},
   ) {
     super(
       kind === "planning.linear"
@@ -167,6 +221,10 @@ class FakePlanningBackend extends PlanningBackend<PlanningProviderConfig> {
   async listActionableWorkItems(
     input: ListActionableWorkItemsInput,
   ): Promise<WorkItemRecord[]> {
+    if (this.overrides.listActionableWorkItems !== undefined) {
+      return this.overrides.listActionableWorkItems(input);
+    }
+
     this.listInputs.push(input);
     return this.actionable.slice(0, input.limit);
   }
@@ -379,4 +437,15 @@ function createWorkItem(id: string): WorkItemRecord {
       attemptCount: 0,
     },
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
 }

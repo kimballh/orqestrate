@@ -105,6 +105,48 @@ test("actionable sweep coalesces with existing webhook wakeups for the same issu
   assert.equal(queued[0]?.dedupeKey, "linear:Issue:issue-1");
 });
 
+test("actionable sweep start skips overlapping ticks while a run is still in flight", async (t) => {
+  const fixture = createFixture(t);
+  const database = openWakeupDatabase(fixture.databasePath);
+  t.after(() => database.close());
+  const repository = new WakeupRepository(database.connection);
+  const firstListing = createDeferred<WorkItemRecord[]>();
+  let intervalTick: (() => void) | undefined;
+  let clearedTimer: unknown = null;
+  const planning = new FakePlanningBackend("planning.linear", [], {
+    listActionableWorkItems: async (input) => {
+      planning.listInputs.push(input);
+      return firstListing.promise;
+    },
+  });
+  const sweep = new ActionableSweepLoop({
+    planning,
+    repository,
+    limit: 5,
+    now: () => new Date("2026-04-15T20:02:00.000Z"),
+    setInterval: ((callback: () => void) => {
+      intervalTick = callback;
+      return "timer-id" as unknown as ReturnType<typeof globalThis.setInterval>;
+    }) as typeof globalThis.setInterval,
+    clearInterval: ((timer: unknown) => {
+      clearedTimer = timer;
+    }) as typeof globalThis.clearInterval,
+  });
+
+  sweep.start();
+  intervalTick?.();
+  intervalTick?.();
+  intervalTick?.();
+
+  assert.deepEqual(planning.listInputs, [{ limit: 5 }]);
+
+  firstListing.resolve([createWorkItem("issue-1")]);
+  await sweep.stop();
+
+  assert.equal(clearedTimer, "timer-id");
+  assert.equal(repository.list("queued").length, 1);
+});
+
 function createFixture(t: { after(callback: () => void): void }) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "orq-actionable-sweep-"));
   t.after(() => {
@@ -122,6 +164,11 @@ class FakePlanningBackend extends PlanningBackend<PlanningProviderConfig> {
   constructor(
     kind: PlanningProviderConfig["kind"],
     private readonly actionable: WorkItemRecord[],
+    private readonly overrides: {
+      listActionableWorkItems?: (
+        input: ListActionableWorkItemsInput,
+      ) => Promise<WorkItemRecord[]>;
+    } = {},
   ) {
     super(
       kind === "planning.linear"
@@ -147,6 +194,10 @@ class FakePlanningBackend extends PlanningBackend<PlanningProviderConfig> {
   async listActionableWorkItems(
     input: ListActionableWorkItemsInput,
   ): Promise<WorkItemRecord[]> {
+    if (this.overrides.listActionableWorkItems !== undefined) {
+      return this.overrides.listActionableWorkItems(input);
+    }
+
     this.listInputs.push(input);
     return this.actionable.slice(0, input.limit);
   }
@@ -213,4 +264,15 @@ function createWorkItem(id: string): WorkItemRecord {
       attemptCount: 0,
     },
   };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
 }

@@ -160,7 +160,7 @@ export async function startOrchestratorService(
     }
   } catch (error) {
     wakeupLoop.stop();
-    actionableSweepLoop?.stop();
+    await actionableSweepLoop?.stop();
     reconciliationLoop.stop();
     wakeupDatabase.close();
     throw error;
@@ -181,7 +181,7 @@ export async function startOrchestratorService(
     webhookServer,
     async stop(): Promise<void> {
       wakeupLoop.stop();
-      actionableSweepLoop?.stop();
+      await actionableSweepLoop?.stop();
       reconciliationLoop.stop();
       await webhookServer?.stop();
       wakeupDatabase.close();

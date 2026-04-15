@@ -27,6 +27,7 @@ export class ActionableSweepLoop {
   private readonly setIntervalFn: typeof globalThis.setInterval;
   private readonly clearIntervalFn: typeof globalThis.clearInterval;
   private timer: ReturnType<typeof globalThis.setInterval> | null = null;
+  private inFlightRun: Promise<ActionableSweepResult> | null = null;
 
   constructor(private readonly dependencies: ActionableSweepLoopDependencies) {
     this.intervalMs = dependencies.intervalMs ?? 60_000;
@@ -51,16 +52,33 @@ export class ActionableSweepLoop {
     }, this.intervalMs);
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.timer === null) {
+      await this.inFlightRun;
       return;
     }
 
     this.clearIntervalFn(this.timer);
     this.timer = null;
+    await this.inFlightRun;
   }
 
   async runOnce(): Promise<ActionableSweepResult> {
+    if (this.inFlightRun !== null) {
+      return this.inFlightRun;
+    }
+
+    const runPromise = this.performRunOnce().finally(() => {
+      if (this.inFlightRun === runPromise) {
+        this.inFlightRun = null;
+      }
+    });
+    this.inFlightRun = runPromise;
+
+    return runPromise;
+  }
+
+  private async performRunOnce(): Promise<ActionableSweepResult> {
     if (!Number.isInteger(this.limit) || this.limit < 0) {
       throw new Error("Actionable sweep limit must be a non-negative integer.");
     }
