@@ -13,7 +13,7 @@ import {
   type LocalExampleMaterializationResult,
 } from "./local-example.js";
 import {
-  resolvePackageAssetPaths,
+  resolveWorkspacePackageAssetPaths,
   type PackageAssetPaths,
 } from "./package-assets.js";
 
@@ -54,7 +54,11 @@ export async function initializeWorkspace(
   options: InitializeWorkspaceOptions = {},
 ): Promise<InitializeWorkspaceResult> {
   const workingDirectory = resolveWorkingDirectory(options.cwd);
-  const assetPaths = resolvePackageAssetPaths();
+  const assetPaths = resolveWorkspacePackageAssetPaths(
+    workingDirectory,
+    import.meta.url,
+    process.argv[1],
+  );
   const exampleConfigPath = assetPaths.configExamplePath;
   const configPath = resolveConfigPath(workingDirectory, options.configPath);
   const exampleConfig = await loadConfig({
@@ -101,7 +105,11 @@ export async function bootstrapWorkspace(
   options: BootstrapWorkspaceOptions = {},
 ): Promise<BootstrapWorkspaceResult> {
   const workingDirectory = resolveWorkingDirectory(options.cwd);
-  const assetPaths = resolvePackageAssetPaths();
+  const assetPaths = resolveWorkspacePackageAssetPaths(
+    workingDirectory,
+    import.meta.url,
+    process.argv[1],
+  );
   const loadedConfig = await loadConfig({
     cwd: workingDirectory,
     configPath: options.configPath,

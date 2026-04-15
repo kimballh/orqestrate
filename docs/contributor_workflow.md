@@ -68,6 +68,8 @@ That installed path should work without copying `config.example.toml`, `docs/pro
 
 Use a short `/tmp` workspace for this smoke path on macOS so the runtime socket path does not exceed the Unix domain socket limit.
 
+If you prefer `npm link`, the generated config should reference the linked package path under the consumer workspace's `node_modules/orqestrate/...` tree rather than the source checkout path.
+
 ## Manual Bootstrap
 
 If you want to inspect or control each step directly:

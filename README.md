@@ -53,6 +53,8 @@ npm install ./orqestrate-0.1.0.tgz
 
 Use a short workspace path such as `/tmp/orq-package-smoke.*` for this smoke test on macOS so the runtime Unix socket path stays within platform limits.
 
+For a linked-package workflow, `npm link` is also supported. The generated `config.toml` should point at the linked package location under the consumer workspace's `node_modules/orqestrate/...`, not back at the source checkout path.
+
 That flow is the supported cross-project validation path for this ticket:
 
 - `orq init` writes `./config.toml` from the packaged example config
