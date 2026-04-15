@@ -12,7 +12,7 @@ Only one active phase is allowed per issue.
 
 The orchestrator loop is:
 
-1. Receive a webhook wakeup or periodic poll tick.
+1. Receive a webhook wakeup, autonomous actionable sweep tick, or reconciliation poll tick.
 2. Determine the target phase.
 3. Attempt to claim the issue with a lease.
 4. Ensure the Notion artifact page and run record exist.
@@ -226,6 +226,7 @@ for each actionable issue:
 In the ideal hybrid design, that loop is triggered in two ways:
 
 - webhook-triggered targeted processing for recently changed issues
+- an autonomous actionable sweep that enqueues currently claimable issues through the same wakeup queue
 - slower reconciliation polling for drift, missed events, and expired leases
 
 ## 8. Claimability rules

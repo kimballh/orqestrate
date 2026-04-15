@@ -1,5 +1,6 @@
 import type { IncomingHttpHeaders } from "node:http";
 
+import { createLinearIssueWakeup } from "../../../orchestrator/linear-issue-wakeup.js";
 import type { EnqueueWakeupInput } from "../../../orchestrator/wakeup-types.js";
 
 type LinearWebhookActor = {
@@ -66,18 +67,15 @@ export function normalizeLinearWebhookEvent(input: {
     );
   }
 
-  return {
-    eventId: "",
-    provider: "linear",
+  return createLinearIssueWakeup({
     deliveryId,
     resourceType,
     resourceId,
     issueId,
     action,
-    dedupeKey: `linear:Issue:${issueId}`,
     receivedAt: input.receivedAt,
     payloadJson: input.payloadJson,
-  };
+  });
 }
 
 function extractIssueId(
