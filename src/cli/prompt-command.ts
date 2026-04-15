@@ -68,33 +68,39 @@ export async function runPromptCommand(
   const command = args[0];
 
   if (command === "render") {
-    if (args.slice(1).some(isHelpFlag)) {
+    const options = parseRenderOptions(args.slice(1));
+
+    if (options === "help") {
       write(dependencies.stdout, renderRenderHelp());
       return 0;
     }
 
-    const options = parseRenderOptions(args.slice(1));
     return runRenderCommand(options, dependencies);
   }
 
   if (command === "diff") {
-    if (args.slice(1).some(isHelpFlag)) {
+    const options = parseDiffOptions(args.slice(1));
+
+    if (options === "help") {
       write(dependencies.stdout, renderDiffHelp());
       return 0;
     }
 
-    const options = parseDiffOptions(args.slice(1));
     return runDiffCommand(options, dependencies);
   }
 
   throw new PromptCommandError(`Unknown prompt command '${command}'.`);
 }
 
-function parseRenderOptions(args: string[]): PromptRenderOptions {
+function parseRenderOptions(args: string[]): PromptRenderOptions | "help" {
   const parsed = createBaseOptionAccumulator();
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
+
+    if (isHelpFlag(argument)) {
+      return "help";
+    }
 
     switch (argument) {
       case "--config":
@@ -158,7 +164,7 @@ function parseRenderOptions(args: string[]): PromptRenderOptions {
   return finalizeBaseOptions(parsed);
 }
 
-function parseDiffOptions(args: string[]): PromptDiffOptions {
+function parseDiffOptions(args: string[]): PromptDiffOptions | "help" {
   const parsed = createBaseOptionAccumulator();
   const variantSelection: PromptDiffOptions["variantSelection"] = {};
   let variantProfile: string | undefined;
@@ -166,6 +172,10 @@ function parseDiffOptions(args: string[]): PromptDiffOptions {
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
+
+    if (isHelpFlag(argument)) {
+      return "help";
+    }
 
     switch (argument) {
       case "--config":

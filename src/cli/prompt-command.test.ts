@@ -188,6 +188,47 @@ test("prompt subcommand help exits successfully", async () => {
   assert.match(diffHelp.stdout, /^Diff options:$/m);
 });
 
+test("prompt render does not treat an option value named help as a help request", async () => {
+  const fixture = createPromptCliFixture();
+  const helpNamedContextPath = path.join(fixture.workspaceDir, "help");
+  writeFileSync(
+    helpNamedContextPath,
+    JSON.stringify(
+      {
+        workItem: {
+          identifier: "ORQ-45",
+        },
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
+  const result = await invokeCli(
+    [
+      "prompt",
+      "render",
+      "--config",
+      fixture.configPath,
+      "--role",
+      "review",
+      "--phase",
+      "review",
+      "--context-file",
+      "help",
+      "--format",
+      "json",
+    ],
+    fixture.workspaceDir,
+  );
+
+  assert.equal(result.exitCode, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.contextSource, "context_file");
+  assert.equal(parsed.context.workItem.identifier, "ORQ-45");
+});
+
 test("prompt render fails clearly for invalid context files", async () => {
   const fixture = createPromptCliFixture();
   const invalidContextPath = path.join(fixture.workspaceDir, "invalid-context.json");
