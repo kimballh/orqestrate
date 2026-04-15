@@ -7,7 +7,7 @@ If you are new to the repo, start with the task-oriented guides before diving in
 ## Start Here
 
 - Repo overview and quickstart: [../README.md](../README.md)
-- Contributor onboarding and the current human-orchestrated workflow: [contributor_workflow.md](./contributor_workflow.md)
+- Contributor onboarding and local repo workflow: [contributor_workflow.md](./contributor_workflow.md)
 - Runtime and orchestrator troubleshooting: [operator_runbook.md](./operator_runbook.md)
 - Verification and done criteria: [quality_policy.md](./quality_policy.md)
 
@@ -17,8 +17,8 @@ The current MVP target is:
 
 - Linear as the planning system and dispatch control plane
 - Notion as the artifact store and run-history surface
+- an autonomous orchestrator service that claims actionable tickets and dispatches one phase at a time
 - a runtime daemon that executes runs locally
-- a future autonomous orchestrator service that will eventually claim actionable tickets and dispatch one phase at a time
 
 The architecture is intentionally providerized so the same harness can later support:
 
@@ -63,7 +63,7 @@ This mirrors one of the most important lessons from OMX: do not overload one fie
 
 ## Task-Oriented Guides
 
-- [contributor_workflow.md](./contributor_workflow.md) - bootstrap the repo, work tickets in the current human-orchestrated model, and understand what belongs in Linear, Notion, `docs/`, and git
+- [contributor_workflow.md](./contributor_workflow.md) - bootstrap the repo, contribute safely, and understand what belongs in Linear, Notion, `docs/`, and git
 - [operator_runbook.md](./operator_runbook.md) - run, inspect, and troubleshoot the runtime daemon and live runs using the current API surface
 
 ## Architecture Reference

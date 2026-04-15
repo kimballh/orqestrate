@@ -18,7 +18,7 @@ For deeper rationale and contract details, see:
 
 ## Runtime Entry Points
 
-Start the runtime daemon in development mode:
+Start the local runtime daemon:
 
 ```bash
 npm run dev
@@ -215,7 +215,7 @@ Signals:
 What to do:
 
 1. inspect the event stream
-2. decide whether to resubmit the work or ask the human orchestrator to re-run the phase
+2. decide whether to resubmit the work or ask an operator to re-run the phase
 3. record the operator decision in the artifact or Linear trail if it changes ticket handling
 
 ### Database open or migration failure
