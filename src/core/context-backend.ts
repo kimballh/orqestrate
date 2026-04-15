@@ -82,6 +82,8 @@ export abstract class ContextBackend<
     input: CreateRunLedgerEntryInput,
   ): Promise<RunLedgerRecord>;
 
+  abstract getRunLedgerEntry(runId: string): Promise<RunLedgerRecord | null>;
+
   abstract finalizeRunLedgerEntry(
     input: FinalizeRunLedgerEntryInput,
   ): Promise<RunLedgerRecord>;
