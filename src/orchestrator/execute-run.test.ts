@@ -229,6 +229,169 @@ test("executePreparedRun hands waiting-human runs back as blocked work", async (
   );
 });
 
+test("executePreparedRun renews the claim lease before the runtime reaches a live state", async () => {
+  const loadedConfig = await loadLocalConfig();
+  const workItem = createWorkItem();
+  const artifact = createArtifact();
+  const planning = new FakePlanningBackend(workItem);
+  const context = new FakeContextBackend(artifact);
+  const prepared = createPreparedRun(workItem, artifact);
+  const runtime = new FakeRuntimeClient({
+    createRun: createRuntimeRun({
+      runId: prepared.runId,
+      workItemId: workItem.id,
+      workItemIdentifier: workItem.identifier ?? null,
+      phase: "implement",
+      provider: "codex",
+      status: "queued",
+      repoRoot: REPO_ROOT,
+      artifactUrl: artifact.url ?? null,
+      lastEventSeq: 1,
+    }),
+    runs: [
+      createRuntimeRun({
+        runId: prepared.runId,
+        workItemId: workItem.id,
+        workItemIdentifier: workItem.identifier ?? null,
+        phase: "implement",
+        provider: "codex",
+        status: "queued",
+        repoRoot: REPO_ROOT,
+        artifactUrl: artifact.url ?? null,
+        lastEventSeq: 1,
+      }),
+      createRuntimeRun({
+        runId: prepared.runId,
+        workItemId: workItem.id,
+        workItemIdentifier: workItem.identifier ?? null,
+        phase: "implement",
+        provider: "codex",
+        status: "bootstrapping",
+        repoRoot: REPO_ROOT,
+        artifactUrl: artifact.url ?? null,
+        lastEventSeq: 2,
+      }),
+      createRuntimeRun({
+        runId: prepared.runId,
+        workItemId: workItem.id,
+        workItemIdentifier: workItem.identifier ?? null,
+        phase: "implement",
+        provider: "codex",
+        status: "completed",
+        repoRoot: REPO_ROOT,
+        artifactUrl: artifact.url ?? null,
+        lastEventSeq: 3,
+        outcome: {
+          code: "completed",
+          summary: "Completed after a long queue wait.",
+        },
+      }),
+    ],
+    events: [[], []],
+  });
+  const now = createNowSequence([
+    "2026-04-15T00:00:50.000Z",
+    "2026-04-15T00:01:05.000Z",
+    "2026-04-15T00:01:10.000Z",
+  ]);
+
+  await executePreparedRun(
+    {
+      planning,
+      context,
+      loadedConfig,
+      runtime,
+      now,
+      eventPollWaitMs: 0,
+      leaseSafetyWindowMs: 15_000,
+    },
+    prepared,
+  );
+
+  assert.equal(planning.renewLeaseCalls.length, 1);
+  assert.equal(planning.markRunningCalls.length, 1);
+  assert.equal(
+    planning.renewLeaseCalls[0]?.leaseUntil,
+    "2026-04-15T00:01:50.000Z",
+  );
+});
+
+test("executePreparedRun does not rewrite partial write-back failures as retryable runtime failures", async () => {
+  const loadedConfig = await loadLocalConfig();
+  const workItem = createWorkItem();
+  const artifact = createArtifact();
+  const planning = new FakePlanningBackend(workItem, {
+    failAppendComment: new Error("planning comment write failed"),
+  });
+  const context = new FakeContextBackend(artifact);
+  const prepared = createPreparedRun(workItem, artifact);
+  const runtime = new FakeRuntimeClient({
+    createRun: createRuntimeRun({
+      runId: prepared.runId,
+      workItemId: workItem.id,
+      workItemIdentifier: workItem.identifier ?? null,
+      phase: "implement",
+      provider: "codex",
+      status: "queued",
+      repoRoot: REPO_ROOT,
+      artifactUrl: artifact.url ?? null,
+      lastEventSeq: 1,
+    }),
+    runs: [
+      createRuntimeRun({
+        runId: prepared.runId,
+        workItemId: workItem.id,
+        workItemIdentifier: workItem.identifier ?? null,
+        phase: "implement",
+        provider: "codex",
+        status: "bootstrapping",
+        repoRoot: REPO_ROOT,
+        artifactUrl: artifact.url ?? null,
+        lastEventSeq: 1,
+      }),
+      createRuntimeRun({
+        runId: prepared.runId,
+        workItemId: workItem.id,
+        workItemIdentifier: workItem.identifier ?? null,
+        phase: "implement",
+        provider: "codex",
+        status: "completed",
+        repoRoot: REPO_ROOT,
+        artifactUrl: artifact.url ?? null,
+        lastEventSeq: 2,
+        outcome: {
+          code: "completed",
+          summary: "Implementation landed before comment write failed.",
+          artifactMarkdown: "## Implementation Summary\n\n- landed",
+        },
+      }),
+    ],
+    events: [[]],
+  });
+
+  await assert.rejects(
+    () =>
+      executePreparedRun(
+        {
+          planning,
+          context,
+          loadedConfig,
+          runtime,
+          now: () => new Date("2026-04-15T00:00:10.000Z"),
+          eventPollWaitMs: 0,
+          leaseSafetyWindowMs: 15_000,
+        },
+        prepared,
+      ),
+    /planning comment write failed/,
+  );
+
+  assert.equal(context.finalizeRunLedgerCalls.length, 1);
+  assert.equal(context.finalizeRunLedgerCalls[0]?.status, "completed");
+  assert.equal(planning.transitionCalls.length, 1);
+  assert.equal(planning.transitionCalls[0]?.nextStatus, "review");
+});
+
 async function loadLocalConfig(): Promise<LoadedConfig> {
   return loadConfig({
     configPath: path.join(REPO_ROOT, "docs/config.example.toml"),
@@ -281,8 +444,14 @@ class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConf
   readonly transitionCalls: TransitionWorkItemInput[] = [];
   readonly comments: AppendCommentInput[] = [];
   readonly operationLog: string[] = [];
+  private readonly failAppendComment: Error | null;
 
-  constructor(workItem: WorkItemRecord) {
+  constructor(
+    workItem: WorkItemRecord,
+    options: {
+      failAppendComment?: Error;
+    } = {},
+  ) {
     super({
       name: "planning_test",
       kind: "planning.local_files",
@@ -290,6 +459,7 @@ class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConf
       root: REPO_ROOT,
     });
     this.workItem = structuredClone(workItem);
+    this.failAppendComment = options.failAppendComment ?? null;
   }
 
   async validateConfig(): Promise<void> {}
@@ -386,6 +556,10 @@ class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConf
   async appendComment(input: AppendCommentInput): Promise<void> {
     this.operationLog.push("append_comment");
     this.comments.push(structuredClone(input));
+
+    if (this.failAppendComment !== null) {
+      throw this.failAppendComment;
+    }
   }
 
   async buildDeepLink(): Promise<string | null> {

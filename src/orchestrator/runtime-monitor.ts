@@ -19,6 +19,11 @@ const TERMINAL_RUNTIME_STATUSES = new Set<RunStatus>([
   "canceled",
   "stale",
 ]);
+const PRE_LIVE_RUNTIME_STATUSES = new Set<RunStatus>([
+  "queued",
+  "admitted",
+  "launching",
+]);
 
 export type WatchRunUntilOutcomeDependencies = {
   runtime: RuntimeClient;
@@ -44,15 +49,27 @@ export async function watchRunUntilOutcome(
 
   while (true) {
     const run = await dependencies.runtime.getRun(prepared.runId);
+    const nextLeaseUntil = maybeComputeNextLease({
+      now: now(),
+      leaseUntil,
+      leaseDurationMs: prepared.leaseDurationMs,
+      leaseSafetyWindowMs,
+    });
+
+    if (
+      PRE_LIVE_RUNTIME_STATUSES.has(run.status) &&
+      nextLeaseUntil !== leaseUntil
+    ) {
+      await dependencies.planning.renewLease({
+        id: prepared.claimedWorkItem.id,
+        owner: prepared.owner,
+        runId: prepared.runId,
+        leaseUntil: nextLeaseUntil,
+      });
+      leaseUntil = nextLeaseUntil;
+    }
 
     if (LIVE_RUNTIME_STATUSES.has(run.status)) {
-      const nextLeaseUntil = maybeComputeNextLease({
-        now: now(),
-        leaseUntil,
-        leaseDurationMs: prepared.leaseDurationMs,
-        leaseSafetyWindowMs,
-      });
-
       if (markedRunning === false) {
         await dependencies.planning.markWorkItemRunning({
           id: prepared.claimedWorkItem.id,

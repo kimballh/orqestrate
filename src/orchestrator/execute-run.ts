@@ -47,10 +47,11 @@ export async function executePreparedRun(
 ): Promise<ExecutePreparedRunResult> {
   const runtime =
     dependencies.runtime ?? createRuntimeClient(dependencies.loadedConfig);
+  let watched: WatchedRunOutcome;
 
   try {
     const createResponse = await runtime.createRun(prepared.submission);
-    const watched = await watchRunUntilOutcome(
+    watched = await watchRunUntilOutcome(
       {
         runtime,
         planning: dependencies.planning,
@@ -61,20 +62,6 @@ export async function executePreparedRun(
       prepared,
       createResponse.run.lastEventSeq,
     );
-    const writeback = await applyRunOutcome(
-      {
-        planning: dependencies.planning,
-        context: dependencies.context,
-      },
-      prepared,
-      watched,
-    );
-
-    return {
-      prepared,
-      watched,
-      writeback,
-    };
   } catch (error) {
     const providerError = toProviderError(
       error,
@@ -105,6 +92,21 @@ export async function executePreparedRun(
     });
     throw error;
   }
+
+  const writeback = await applyRunOutcome(
+    {
+      planning: dependencies.planning,
+      context: dependencies.context,
+    },
+    prepared,
+    watched,
+  );
+
+  return {
+    prepared,
+    watched,
+    writeback,
+  };
 }
 
 export async function executeClaimedRun(
