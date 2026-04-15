@@ -4,6 +4,7 @@ import type {
   AgentProvider,
   PromptEnvelope,
   PromptProvenanceRecord,
+  PromptReplayContextRecord,
   ProviderError,
   ReviewOutcome,
   RunStatus,
@@ -50,6 +51,7 @@ type RunRow = {
   prompt_contract: string;
   prompt_envelope_json: string | null;
   prompt_provenance_json: string | null;
+  prompt_replay_context_json: string | null;
   system_prompt_hash: string | null;
   user_prompt_hash: string;
   artifact_url: string | null;
@@ -202,6 +204,7 @@ export class RuntimeRepository {
                 prompt_contract,
                 prompt_envelope_json,
                 prompt_provenance_json,
+                prompt_replay_context_json,
                 system_prompt_hash,
                 user_prompt_hash,
                 artifact_url,
@@ -229,7 +232,7 @@ export class RuntimeRepository {
                 last_heartbeat_at,
                 version
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
           )
           .run(
@@ -253,6 +256,7 @@ export class RuntimeRepository {
             createRunInput.prompt.contractId,
             encodeJson(createRunInput.prompt),
             encodeJson(createRunInput.promptProvenance ?? null),
+            encodeJson(createRunInput.promptReplayContext ?? null),
             createRunInput.prompt.digests.system ?? null,
             createRunInput.prompt.digests.user,
             createRunInput.artifact?.url ?? null,
@@ -1374,6 +1378,9 @@ export class RuntimeRepository {
 
   private mapExecutableRunRow(row: RunRow): ExecutableRunRecord {
     const prompt = parseJson<PromptEnvelope>(row.prompt_envelope_json);
+    const promptReplayContext = parseJson<PromptReplayContextRecord>(
+      row.prompt_replay_context_json,
+    );
 
     if (
       prompt === null ||
@@ -1391,6 +1398,7 @@ export class RuntimeRepository {
     return {
       ...this.mapRunRow(row),
       prompt,
+      promptReplayContext,
     };
   }
 

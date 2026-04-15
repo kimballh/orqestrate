@@ -25,6 +25,7 @@ export * from "./runtime/index.js";
 export * from "./cli/prompt-command.js";
 export * from "./cli/prompt-diff.js";
 export * from "./cli/prompt-preview.js";
+export * from "./cli/prompt-replay.js";
 export * from "./cli/setup-command.js";
 
 export type CliDependencies = Parameters<typeof runPromptCommand>[1] &

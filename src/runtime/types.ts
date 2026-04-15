@@ -1,6 +1,7 @@
 import type {
   AgentProvider,
   PromptEnvelope,
+  PromptReplayContextRecord,
   ProviderError,
   ReviewOutcome,
   RunRecord,
@@ -63,6 +64,7 @@ export type CreateRunInput = RunSubmissionPayload & {
 
 export type ExecutableRunRecord = PersistedRunRecord & {
   prompt: PromptEnvelope;
+  promptReplayContext?: PromptReplayContextRecord | null;
 };
 
 export type RunTerminalStatus = Extract<

@@ -30,6 +30,10 @@ const RUN_CAPABILITY_GRANTS_SQL = readFileSync(
   new URL("./sql/0005_run_capability_grants.sql", import.meta.url),
   "utf8",
 );
+const RUN_PROMPT_REPLAY_CONTEXT_SQL = readFileSync(
+  new URL("./sql/0006_run_prompt_replay_context.sql", import.meta.url),
+  "utf8",
+);
 
 const RUNTIME_MIGRATIONS: RuntimeMigration[] = [
   {
@@ -56,6 +60,11 @@ const RUNTIME_MIGRATIONS: RuntimeMigration[] = [
     version: 5,
     name: "run_capability_grants",
     sql: RUN_CAPABILITY_GRANTS_SQL,
+  },
+  {
+    version: 6,
+    name: "run_prompt_replay_context",
+    sql: RUN_PROMPT_REPLAY_CONTEXT_SQL,
   },
 ];
 

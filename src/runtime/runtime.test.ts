@@ -224,6 +224,20 @@ test("enqueueRun persists prompt provenance on canonical run reads", (t) => {
   });
 });
 
+test("enqueueRun persists replay context for internal executable reads only", (t) => {
+  const repository = createRepository(t);
+  const run = repository.enqueueRun(createRunInput());
+  const executableRun = repository.getExecutableRun(run.runId);
+  const canonicalRun = repository.getRun(run.runId);
+
+  assert.equal(executableRun?.promptReplayContext?.runId, run.runId);
+  assert.equal(
+    executableRun?.promptReplayContext?.workspace.assignedBranch,
+    "hillkimball/orq-32-scaffold-runtime-daemon-package-sqlite-schema-and-run-repository",
+  );
+  assert.equal("promptReplayContext" in (canonicalRun ?? {}), false);
+});
+
 test("legacy runs without prompt provenance deserialize with a null provenance field", (t) => {
   const { database, repository } = createRepositoryFixture(t);
   const run = repository.enqueueRun(createRunInput());
@@ -482,6 +496,43 @@ function createRunInput(
         attachmentKinds: [],
         attachmentCount: 0,
       },
+    },
+    promptReplayContext: {
+      runId: overrides.runId ?? "run-001",
+      workItem: {
+        id: overrides.workItem?.id ?? "issue-1",
+        identifier: overrides.workItem?.identifier ?? "ORQ-32",
+        title:
+          "Scaffold runtime daemon package, SQLite schema, and run repository",
+        description: "Persist queued runs locally.",
+        labels: ["runtime"],
+        url: "https://linear.app/orqestrate/issue/ORQ-32",
+      },
+      artifact: null,
+      workspace: {
+        repoRoot: overrides.workspace?.repoRoot ?? "/repo",
+        workingDir:
+          overrides.workspace?.workingDirHint ?? "/repo/.worktrees/run-001",
+        mode: overrides.workspace?.mode ?? "ephemeral_worktree",
+        assignedBranch:
+          overrides.workspace?.assignedBranch ??
+          "hillkimball/orq-32-scaffold-runtime-daemon-package-sqlite-schema-and-run-repository",
+        baseBranch: overrides.workspace?.baseRef ?? "main",
+        pullRequestUrl:
+          overrides.workspace?.pullRequestUrl ??
+          "https://github.com/kimballh/orqestrate/pull/32",
+        pullRequestMode: overrides.workspace?.pullRequestMode ?? "draft",
+        writeScope: overrides.workspace?.writeScope ?? "repo",
+      },
+      expectations: {
+        expectedOutputs: ["persist runtime state"],
+        verificationRequired: true,
+        requiredRepoChecks: ["npm run check"],
+        testExpectations: "Add runtime coverage for storage changes.",
+      },
+      operatorNote: "Keep the runtime schema minimal.",
+      additionalContext: "Replay fixture context.",
+      attachments: [],
     },
     limits: {
       maxWallTimeSec: 5400,

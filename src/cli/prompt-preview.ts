@@ -5,6 +5,7 @@ import { resolvePromptSelection } from "../config/prompt-selection.js";
 import type { LoadedConfig } from "../config/types.js";
 import {
   PROMPT_ATTACHMENT_KINDS,
+  type PromptReplayContextRecord,
   WORKSPACE_MODES,
   type PromptAttachment,
   type WorkPhase,
@@ -43,6 +44,7 @@ export type PromptPreviewRequest = {
   phase: WorkPhase;
   selection?: PromptPreviewSelectionOverrides;
   contextFilePath?: string;
+  context?: PromptReplayContextRecord;
   cwd?: string;
   configSourcePath?: string;
 };
@@ -62,7 +64,11 @@ export type PromptPreviewResult = {
   phase: WorkPhase;
   context: PromptAssemblyContext;
   contextFilePath?: string;
-  contextSource: "synthetic" | "context_file";
+  contextSource:
+    | "synthetic"
+    | "context_file"
+    | "replay_snapshot"
+    | "legacy_reconstruction";
   selection: PromptPreviewSelectionSummary;
   prompt: PromptAssemblyResult["prompt"];
   resolvedLayers: PromptAssemblyResult["resolvedLayers"];
@@ -85,6 +91,11 @@ export async function renderPromptPreview(
       ? invocationCwd
       : path.dirname(path.resolve(request.configSourcePath));
   const selectionOverrides = request.selection ?? {};
+  if (request.context !== undefined && request.contextFilePath !== undefined) {
+    throw new PromptPreviewError(
+      "Prompt preview cannot use both an inline replay context and a context file.",
+    );
+  }
   const contextFilePath =
     request.contextFilePath === undefined
       ? undefined
@@ -92,6 +103,7 @@ export async function renderPromptPreview(
   const context = await loadPromptPreviewContext({
     contextBaseDir,
     contextFilePath,
+    directContext: request.context,
   });
   const selection = resolvePromptSelection(config, {
     promptPackName: selectionOverrides.promptPackName,
@@ -117,7 +129,12 @@ export async function renderPromptPreview(
     phase: request.phase,
     context,
     contextFilePath,
-    contextSource: contextFilePath === undefined ? "synthetic" : "context_file",
+    contextSource:
+      request.context !== undefined
+        ? "replay_snapshot"
+        : contextFilePath === undefined
+          ? "synthetic"
+          : "context_file",
     selection: {
       profileName: config.activeProfileName,
       promptPackName: selection.promptPackName,
@@ -136,7 +153,12 @@ export async function renderPromptPreview(
 async function loadPromptPreviewContext(input: {
   contextBaseDir: string;
   contextFilePath?: string;
+  directContext?: PromptReplayContextRecord;
 }): Promise<PromptAssemblyContext> {
+  if (input.directContext !== undefined) {
+    return structuredClone(input.directContext);
+  }
+
   const defaultContext = await createSyntheticPreviewContext(input.contextBaseDir);
 
   if (input.contextFilePath === undefined) {

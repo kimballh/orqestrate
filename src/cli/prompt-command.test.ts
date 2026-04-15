@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { loadConfig } from "../config/loader.js";
 import { isDirectExecution, runCli } from "../index.js";
+import { renderPromptPreview } from "./prompt-preview.js";
+import { openRuntimeDatabase } from "../runtime/persistence/database.js";
+import { RuntimeRepository } from "../runtime/persistence/runtime-repository.js";
 
 test("prompt render uses profile defaults and synthetic preview context", async () => {
   const fixture = createPromptCliFixture();
@@ -171,6 +175,68 @@ test("prompt diff reports source and prompt changes for variant overrides", asyn
   assert.match(result.stdout, /--- left\/userPrompt/);
 });
 
+test("prompt replay compares a stored run against a variant experiment", async () => {
+  const fixture = createPromptCliFixture();
+  const seeded = await seedReplayRun(fixture, {
+    runId: "run-replay-001",
+  });
+  const result = await invokeCli(
+    [
+      "prompt",
+      "replay",
+      "--config",
+      fixture.configPath,
+      "--run-id",
+      seeded.runId,
+      "--variant-experiment",
+      "reviewer_alt",
+    ],
+    fixture.workspaceDir,
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /^Historical Run$/m);
+  assert.match(result.stdout, /Replay context: stored snapshot \(lossless\)/);
+  assert.match(
+    result.stdout,
+    /REMOVED \[experiment\] prompt-pack:default\/experiments\/reviewer-v2\.md/,
+  );
+  assert.match(
+    result.stdout,
+    /ADDED \[experiment\] prompt-pack:default\/experiments\/reviewer-alt\.md/,
+  );
+  assert.match(result.stdout, /^User Prompt Diff$/m);
+});
+
+test("prompt replay emits JSON and reports legacy reconstruction for older runs", async () => {
+  const fixture = createPromptCliFixture();
+  const seeded = await seedReplayRun(fixture, {
+    runId: "run-replay-legacy",
+    legacy: true,
+  });
+  const result = await invokeCli(
+    [
+      "prompt",
+      "replay",
+      "--config",
+      fixture.configPath,
+      "--run-id",
+      seeded.runId,
+      "--format",
+      "json",
+    ],
+    fixture.workspaceDir,
+  );
+
+  assert.equal(result.exitCode, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.replayContextSource, "legacy_reconstruction");
+  assert.equal(parsed.replayFidelity, "partial");
+  assert.equal(parsed.current.contextSource, "legacy_reconstruction");
+  assert.equal(parsed.replayContext.workItem.identifier, "ORQ-47");
+  assert.equal(parsed.replayContext.workItem.title, "Review prompt drift");
+});
+
 test("prompt subcommand help exits successfully", async () => {
   const fixture = createPromptCliFixture();
   const renderHelp = await invokeCli(
@@ -181,11 +247,17 @@ test("prompt subcommand help exits successfully", async () => {
     ["prompt", "diff", "--help"],
     fixture.workspaceDir,
   );
+  const replayHelp = await invokeCli(
+    ["prompt", "replay", "--help"],
+    fixture.workspaceDir,
+  );
 
   assert.equal(renderHelp.exitCode, 0);
   assert.match(renderHelp.stdout, /^Render options:$/m);
   assert.equal(diffHelp.exitCode, 0);
   assert.match(diffHelp.stdout, /^Diff options:$/m);
+  assert.equal(replayHelp.exitCode, 0);
+  assert.match(replayHelp.stdout, /^Replay options:$/m);
 });
 
 test("prompt render does not treat an option value named help as a help request", async () => {
@@ -416,6 +488,126 @@ default_experiment = "reviewer_v2"
   return {
     workspaceDir,
     configPath,
+  };
+}
+
+async function seedReplayRun(
+  fixture: { workspaceDir: string; configPath: string },
+  options: {
+    runId: string;
+    legacy?: boolean;
+  },
+): Promise<{ runId: string }> {
+  const config = await loadConfig({
+    configPath: fixture.configPath,
+    cwd: fixture.workspaceDir,
+  });
+  const replayContext = {
+    runId: options.runId,
+    workItem: {
+      id: "issue-47",
+      identifier: "ORQ-47",
+      title: "Review prompt drift",
+      description: "Compare prompt experiments against a captured historical run.",
+      labels: ["prompts", "diagnostics"],
+      url: "https://linear.app/orqestrate/issue/ORQ-47",
+    },
+    artifact: {
+      artifactId: "artifact-47",
+      url: "https://www.notion.so/orq-47",
+      summary: "Replay artifact summary",
+    },
+    workspace: {
+      repoRoot: fixture.workspaceDir,
+      workingDir: fixture.workspaceDir,
+      mode: "shared_readonly" as const,
+      assignedBranch: "hillkimball/orq-47",
+      baseBranch: "main",
+      pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/47",
+      pullRequestMode: "draft",
+      writeScope: "repo",
+    },
+    expectations: {
+      expectedOutputs: ["document prompt drift"],
+      verificationRequired: true,
+      requiredRepoChecks: ["npm run check"],
+      testExpectations: "Add replay coverage.",
+    },
+    operatorNote: "Keep the replay focused on prompt diagnostics.",
+    additionalContext: "Historical replay fixture for prompt CLI tests.",
+    attachments: [
+      {
+        kind: "text" as const,
+        value: "Captured from a prior ORQ-47 rehearsal.",
+        label: "Fixture note",
+      },
+    ],
+  };
+  const preview = await renderPromptPreview(config, {
+    role: "review",
+    phase: "review",
+    context: replayContext,
+    cwd: fixture.workspaceDir,
+    configSourcePath: config.sourcePath,
+  });
+  const database = openRuntimeDatabase(
+    path.join(fixture.workspaceDir, ".harness", "state", "runtime.sqlite"),
+  );
+
+  try {
+    const repository = new RuntimeRepository(database.connection);
+    repository.enqueueRun({
+      runId: options.runId,
+      phase: "review",
+      workItem: replayContext.workItem,
+      artifact: replayContext.artifact,
+      provider: "codex",
+      workspace: {
+        repoRoot: replayContext.workspace.repoRoot,
+        mode: replayContext.workspace.mode,
+        workingDirHint: replayContext.workspace.workingDir,
+        baseRef: replayContext.workspace.baseBranch,
+        assignedBranch: replayContext.workspace.assignedBranch,
+        pullRequestUrl: replayContext.workspace.pullRequestUrl,
+        pullRequestMode: replayContext.workspace.pullRequestMode,
+        writeScope: replayContext.workspace.writeScope,
+      },
+      prompt: preview.prompt,
+      grantedCapabilities: preview.selection.capabilities,
+      promptProvenance: {
+        selection: {
+          promptPackName: preview.selection.promptPackName,
+          capabilityNames: preview.selection.capabilities,
+          organizationOverlayNames: preview.selection.organizationOverlays,
+          projectOverlayNames: preview.selection.projectOverlays,
+          experimentName: preview.selection.experiment,
+        },
+        sources: preview.resolvedLayers.map((layer) => ({
+          kind: layer.kind,
+          ref: layer.ref,
+          digest: layer.digest,
+        })),
+        rendered: {
+          systemPromptLength: preview.prompt.systemPrompt?.length ?? 0,
+          userPromptLength: preview.prompt.userPrompt.length,
+          attachmentKinds: preview.prompt.attachments.map((attachment) => attachment.kind),
+          attachmentCount: preview.prompt.attachments.length,
+        },
+      },
+      promptReplayContext: options.legacy === true ? null : replayContext,
+      limits: {
+        maxWallTimeSec: 5400,
+        idleTimeoutSec: 300,
+        bootstrapTimeoutSec: 120,
+      },
+      requestedBy: "Kimball Hill",
+    });
+  } finally {
+    database.close();
+  }
+
+  return {
+    runId: options.runId,
   };
 }
 

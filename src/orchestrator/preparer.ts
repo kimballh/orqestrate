@@ -144,51 +144,59 @@ export async function prepareClaimedRun(
       step: "assemble_prompt",
     },
     runLedger.runId,
-    async () =>
-      assemblePrompt(dependencies.config, {
+    async () => {
+      const promptContext = {
+        runId,
+        workItem: {
+          id: claimedWorkItem.id,
+          identifier: claimedWorkItem.identifier ?? null,
+          title: claimedWorkItem.title,
+          description: claimedWorkItem.description ?? null,
+          labels: claimedWorkItem.labels,
+          url: claimedWorkItem.url ?? null,
+        },
+        artifact:
+          resolvedArtifact === null
+            ? null
+            : {
+                artifactId: resolvedArtifact.artifactId,
+                url: resolvedArtifact.url ?? null,
+                summary: resolvedArtifact.summary ?? null,
+              },
+        workspace: {
+          repoRoot: input.repoRoot,
+          workingDir: workspace.workingDirHint,
+          mode: workspace.mode,
+          assignedBranch: workspace.assignedBranch ?? null,
+          baseBranch: workspace.baseRef ?? null,
+          pullRequestUrl: workspace.pullRequestUrl ?? null,
+          pullRequestMode: workspace.pullRequestMode ?? null,
+          writeScope: workspace.writeScope ?? null,
+        },
+        expectations: input.prompt?.expectations ?? {},
+        operatorNote: input.prompt?.operatorNote ?? null,
+        additionalContext: joinAdditionalContext(
+          context.contextText,
+          input.prompt?.additionalContext,
+        ),
+        attachments: input.prompt?.attachments,
+      };
+
+      const assembly = await assemblePrompt(dependencies.config, {
         promptPackName: input.prompt?.promptPackName,
         role: resolution.phase,
         phase: resolution.phase,
         capabilities: input.prompt?.capabilities,
         experiment: input.prompt?.experiment,
         runAdditions: input.prompt?.runAdditions,
-        context: {
-          runId,
-          workItem: {
-            id: claimedWorkItem.id,
-            identifier: claimedWorkItem.identifier ?? null,
-            title: claimedWorkItem.title,
-            description: claimedWorkItem.description ?? null,
-            labels: claimedWorkItem.labels,
-            url: claimedWorkItem.url ?? null,
-          },
-          artifact:
-            resolvedArtifact === null
-              ? null
-              : {
-                  artifactId: resolvedArtifact.artifactId,
-                  url: resolvedArtifact.url ?? null,
-                  summary: resolvedArtifact.summary ?? null,
-                },
-          workspace: {
-            repoRoot: input.repoRoot,
-            workingDir: workspace.workingDirHint,
-            mode: workspace.mode,
-            assignedBranch: workspace.assignedBranch ?? null,
-            baseBranch: workspace.baseRef ?? null,
-            pullRequestUrl: workspace.pullRequestUrl ?? null,
-            pullRequestMode: workspace.pullRequestMode ?? null,
-            writeScope: workspace.writeScope ?? null,
-          },
-          expectations: input.prompt?.expectations ?? {},
-          operatorNote: input.prompt?.operatorNote ?? null,
-          additionalContext: joinAdditionalContext(
-            context.contextText,
-            input.prompt?.additionalContext,
-          ),
-          attachments: input.prompt?.attachments,
-        },
-      }),
+        context: promptContext,
+      });
+
+      return {
+        ...assembly,
+        replayContext: promptContext,
+      };
+    },
   );
 
   const submission = await runPostClaimStep(
@@ -225,6 +233,7 @@ export async function prepareClaimedRun(
       prompt: prompt.prompt,
       grantedCapabilities: prompt.grantedCapabilities,
       promptProvenance: prompt.provenance,
+      promptReplayContext: prompt.replayContext,
       limits: {
         maxWallTimeSec: dependencies.config.policy.defaultPhaseTimeoutSec,
         idleTimeoutSec: DEFAULT_IDLE_TIMEOUT_SEC,

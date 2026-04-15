@@ -3,6 +3,11 @@ import { WORK_PHASES, type WorkPhase } from "../domain-model.js";
 
 import { diffPromptPreviews } from "./prompt-diff.js";
 import { renderPromptPreview, type PromptPreviewResult } from "./prompt-preview.js";
+import {
+  replayPrompt,
+  type PromptReplayResult,
+  type PromptReplayOptions as ResolvedPromptReplayOptions,
+} from "./prompt-replay.js";
 
 const WORK_PHASE_SET = new Set<string>(WORK_PHASES);
 
@@ -49,6 +54,24 @@ type PromptDiffOptions = BaseRenderOptions & {
   };
 };
 
+type ReplaySelectionOverrides = {
+  promptPackName?: string;
+  capabilities?: string[];
+  experiment?: string | null;
+  organizationOverlays?: string[];
+  projectOverlays?: string[];
+};
+
+type PromptReplayOptions = {
+  configPath?: string;
+  profile?: string;
+  runId: string;
+  format: PromptCommandFormat;
+  selection: ReplaySelectionOverrides;
+  variantProfile?: string;
+  variantSelection: ReplaySelectionOverrides;
+};
+
 export class PromptCommandError extends Error {
   constructor(message: string) {
     super(message);
@@ -87,6 +110,17 @@ export async function runPromptCommand(
     }
 
     return runDiffCommand(options, dependencies);
+  }
+
+  if (command === "replay") {
+    const options = parseReplayOptions(args.slice(1));
+
+    if (options === "help") {
+      write(dependencies.stdout, renderReplayHelp());
+      return 0;
+    }
+
+    return runReplayCommand(options, dependencies);
   }
 
   throw new PromptCommandError(`Unknown prompt command '${command}'.`);
@@ -283,6 +317,123 @@ function parseDiffOptions(args: string[]): PromptDiffOptions | "help" {
   };
 }
 
+function parseReplayOptions(args: string[]): PromptReplayOptions | "help" {
+  let configPath: string | undefined;
+  let profile: string | undefined;
+  let runId: string | undefined;
+  let format: PromptCommandFormat = "text";
+  const selection: ReplaySelectionOverrides = {};
+  const variantSelection: ReplaySelectionOverrides = {};
+  let variantProfile: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+
+    if (isHelpFlag(argument)) {
+      return "help";
+    }
+
+    switch (argument) {
+      case "--config":
+        configPath = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--profile":
+        profile = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--run-id":
+        runId = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--prompt-pack":
+        selection.promptPackName = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--capability":
+        (selection.capabilities ??= []).push(readOptionValue(args, index, argument));
+        index += 1;
+        break;
+      case "--experiment":
+        ensureExclusiveExperimentFlag(selection.experiment, argument);
+        selection.experiment = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--no-experiment":
+        ensureExclusiveExperimentFlag(selection.experiment, argument);
+        selection.experiment = null;
+        break;
+      case "--organization-overlay":
+        (selection.organizationOverlays ??= []).push(
+          readOptionValue(args, index, argument),
+        );
+        index += 1;
+        break;
+      case "--project-overlay":
+        (selection.projectOverlays ??= []).push(
+          readOptionValue(args, index, argument),
+        );
+        index += 1;
+        break;
+      case "--format":
+        format = parseFormat(readOptionValue(args, index, argument), argument);
+        index += 1;
+        break;
+      case "--variant-profile":
+        variantProfile = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--variant-prompt-pack":
+        variantSelection.promptPackName = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--variant-capability":
+        (variantSelection.capabilities ??= []).push(
+          readOptionValue(args, index, argument),
+        );
+        index += 1;
+        break;
+      case "--variant-experiment":
+        ensureExclusiveExperimentFlag(variantSelection.experiment, argument);
+        variantSelection.experiment = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--variant-no-experiment":
+        ensureExclusiveExperimentFlag(variantSelection.experiment, argument);
+        variantSelection.experiment = null;
+        break;
+      case "--variant-organization-overlay":
+        (variantSelection.organizationOverlays ??= []).push(
+          readOptionValue(args, index, argument),
+        );
+        index += 1;
+        break;
+      case "--variant-project-overlay":
+        (variantSelection.projectOverlays ??= []).push(
+          readOptionValue(args, index, argument),
+        );
+        index += 1;
+        break;
+      default:
+        throw new PromptCommandError(`Unknown prompt replay option '${argument}'.`);
+    }
+  }
+
+  if (runId === undefined) {
+    throw new PromptCommandError("--run-id is required.");
+  }
+
+  return {
+    configPath,
+    profile,
+    runId,
+    format,
+    selection: finalizeReplaySelection(selection),
+    variantProfile,
+    variantSelection: finalizeReplaySelection(variantSelection),
+  };
+}
+
 async function runRenderCommand(
   options: PromptRenderOptions,
   dependencies: PromptCommandDependencies,
@@ -375,6 +526,33 @@ async function runDiffCommand(
   return 0;
 }
 
+async function runReplayCommand(
+  options: PromptReplayOptions,
+  dependencies: PromptCommandDependencies,
+): Promise<number> {
+  const loadConfigFn = dependencies.loadConfig ?? loadConfig;
+  const cwd = dependencies.cwd?.() ?? process.cwd();
+  const config = await loadConfigFn({
+    cwd,
+    configPath: options.configPath,
+    activeProfile: options.variantProfile ?? options.profile,
+  });
+  const replay = await replayPrompt(config, {
+    runId: options.runId,
+    selection: options.selection,
+    variantSelection: options.variantSelection,
+    cwd,
+  } satisfies ResolvedPromptReplayOptions);
+
+  if (options.format === "json") {
+    write(dependencies.stdout, JSON.stringify(replay, null, 2));
+    return 0;
+  }
+
+  write(dependencies.stdout, formatReplayOutput(replay));
+  return 0;
+}
+
 function createBaseOptionAccumulator(): {
   configPath?: string;
   profile?: string;
@@ -389,6 +567,27 @@ function createBaseOptionAccumulator(): {
     selection: {
       capabilities: [],
     },
+  };
+}
+
+function finalizeReplaySelection(
+  selection: ReplaySelectionOverrides,
+): ReplaySelectionOverrides {
+  return {
+    promptPackName: selection.promptPackName,
+    capabilities:
+      selection.capabilities === undefined
+        ? undefined
+        : dedupeStrings(selection.capabilities),
+    experiment: selection.experiment,
+    organizationOverlays:
+      selection.organizationOverlays === undefined
+        ? undefined
+        : dedupeStrings(selection.organizationOverlays),
+    projectOverlays:
+      selection.projectOverlays === undefined
+        ? undefined
+        : dedupeStrings(selection.projectOverlays),
   };
 }
 
@@ -550,16 +749,86 @@ function formatPreviewSummary(
     `Organization overlays: ${formatList(result.selection.organizationOverlays)}`,
     `Project overlays: ${formatList(result.selection.projectOverlays)}`,
     `Experiment: ${result.selection.experiment ?? "(none)"}`,
-    `Context source: ${
-      result.contextSource === "synthetic"
-        ? "synthetic preview defaults"
-        : result.contextFilePath ?? "context file"
-    }`,
+    `Context source: ${formatContextSource(result)}`,
   ];
 }
 
 function formatList(values: readonly string[]): string {
   return values.length === 0 ? "(none)" : values.join(", ");
+}
+
+function formatContextSource(result: PromptPreviewResult): string {
+  switch (result.contextSource) {
+    case "synthetic":
+      return "synthetic preview defaults";
+    case "context_file":
+      return result.contextFilePath ?? "context file";
+    case "replay_snapshot":
+      return "stored replay snapshot";
+    case "legacy_reconstruction":
+      return "legacy reconstruction";
+  }
+}
+
+function formatReplayOutput(result: PromptReplayResult): string {
+  const changedSources = result.diff.sourceChanges.filter(
+    (entry) => entry.change !== "unchanged",
+  );
+  const lines = [
+    "Historical Run",
+    `Run ID: ${result.historicalRun.runId}`,
+    `Phase: ${result.historicalRun.phase}`,
+    `Provider: ${result.historicalRun.provider}`,
+    `Created at: ${result.historicalRun.createdAt}`,
+    `Work item ID: ${result.historicalRun.workItemId}`,
+    `Work item identifier: ${result.historicalRun.workItemIdentifier ?? "(none)"}`,
+    `Prompt contract: ${result.historicalRun.promptContractId}`,
+    `Replay context: ${result.replayContextSource === "replay_snapshot" ? "stored snapshot" : "legacy reconstruction"} (${result.replayFidelity})`,
+    "",
+    ...formatReplaySelectionSummary("Historical Selection", result.historical),
+    "",
+    ...formatReplaySelectionSummary("Current Selection", result.current),
+    "",
+    "Source Changes",
+  ];
+
+  if (changedSources.length === 0) {
+    lines.push("No source changes.");
+  } else {
+    lines.push(
+      ...changedSources.map(
+        (entry) =>
+          `- ${entry.change.toUpperCase()} [${entry.kind}] ${entry.ref} left=${entry.leftDigest ?? "(none)"} right=${entry.rightDigest ?? "(none)"}`,
+      ),
+    );
+  }
+
+  lines.push(
+    "",
+    "System Prompt Diff",
+    result.diff.systemPromptDiff.text,
+    "",
+    "User Prompt Diff",
+    result.diff.userPromptDiff.text,
+  );
+
+  return lines.join("\n");
+}
+
+function formatReplaySelectionSummary(
+  title: string,
+  result: PromptPreviewResult,
+): string[] {
+  return [
+    title,
+    `Profile: ${result.selection.profileName}`,
+    `Prompt pack: ${result.selection.promptPackName}`,
+    `Capabilities: ${formatList(result.selection.capabilities)}`,
+    `Organization overlays: ${formatList(result.selection.organizationOverlays)}`,
+    `Project overlays: ${formatList(result.selection.projectOverlays)}`,
+    `Experiment: ${result.selection.experiment ?? "(none)"}`,
+    `Context source: ${formatContextSource(result)}`,
+  ];
 }
 
 function dedupeStrings(values: readonly string[]): string[] {
@@ -577,10 +846,13 @@ export function renderPromptHelp(): string {
     "Commands:",
     "  render   Render a resolved prompt for a role/phase/profile selection.",
     "  diff     Compare two resolved prompt variants.",
+    "  replay   Re-render a stored historical run and compare prompt drift.",
     "",
     renderRenderHelp(),
     "",
     renderDiffHelp(),
+    "",
+    renderReplayHelp(),
   ].join("\n");
 }
 
@@ -614,5 +886,28 @@ function renderDiffHelp(): string {
     "  --variant-organization-overlay <name>  Repeat to replace organization overlays.",
     "  --variant-project-overlay <name>       Repeat to replace project overlays.",
     "  --variant-context-file <path>",
+  ].join("\n");
+}
+
+function renderReplayHelp(): string {
+  return [
+    "Replay options:",
+    "  --config <path>",
+    "  --profile <name>",
+    "  --run-id <id>",
+    "  --prompt-pack <name>",
+    "  --capability <name>            Repeat to replace inherited capabilities.",
+    "  --experiment <name>",
+    "  --no-experiment",
+    "  --organization-overlay <name>  Repeat to replace inherited organization overlays.",
+    "  --project-overlay <name>       Repeat to replace inherited project overlays.",
+    "  --variant-profile <name>",
+    "  --variant-prompt-pack <name>",
+    "  --variant-capability <name>            Repeat to replace capabilities after base overrides.",
+    "  --variant-experiment <name>",
+    "  --variant-no-experiment",
+    "  --variant-organization-overlay <name>  Repeat to replace organization overlays after base overrides.",
+    "  --variant-project-overlay <name>       Repeat to replace project overlays after base overrides.",
+    "  --format <text|json>",
   ].join("\n");
 }
