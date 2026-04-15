@@ -1,4 +1,8 @@
 import type { PromptAttachment, PromptEnvelope } from "../../domain-model.js";
+import {
+  ORQ_RUN_ID_ENV,
+  ORQ_RUNTIME_API_ENDPOINT_ENV,
+} from "../../github/runtime-context.js";
 import type {
   HumanInput,
   OutputEvent,
@@ -21,6 +25,17 @@ export class CodexProviderAdapter implements ProviderAdapter {
   private readonly outputParser = new CodexOutputParser();
 
   buildLaunchSpec(input: RunLaunchInput) {
+    const env: Record<string, string> = {
+      [ORQ_RUN_ID_ENV]: input.run.runId,
+    };
+
+    if (
+      input.runtimeApiEndpoint !== undefined &&
+      input.runtimeApiEndpoint !== null
+    ) {
+      env[ORQ_RUNTIME_API_ENDPOINT_ENV] = input.runtimeApiEndpoint;
+    }
+
     return {
       command: "codex",
       args: [
@@ -30,7 +45,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
         "--ask-for-approval",
         "never",
       ],
-      env: {},
+      env,
       cwd: input.cwd,
     };
   }

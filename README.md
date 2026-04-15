@@ -2,7 +2,7 @@
 
 Orqestrate is a provider-driven orchestration harness for software delivery work.
 
-Today the repository is focused on a human-orchestrated MVP:
+The initial MVP target is autonomous Orqestrate with Linear as planning:
 
 - Linear is the planning surface
 - Notion is the durable artifact surface
@@ -70,8 +70,8 @@ On Windows, the runtime binds a named pipe instead of a Unix socket:
 
 ## What To Expect
 
-- The current working model is human orchestrated, not fully autonomous.
-- New work should be explicitly assigned by ticket and phase.
+- The product target is autonomous orchestration driven from planning state, not a human dispatch loop.
+- The strongest supported bootstrap path in the repo today is still the zero-credential `local` profile for local setup and testing.
 - Task-oriented docs live in `docs/`, while deeper architecture and contract material stays there as reference.
 - The default state, logs, and runtime database paths come from `config.toml` and resolve to `./.harness/*` with the shipped local config.
 

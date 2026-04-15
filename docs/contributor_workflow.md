@@ -5,30 +5,13 @@ This guide is the task-first entrypoint for working in Orqestrate without live p
 Use it when you need to:
 
 - bootstrap a local workspace
-- work a Linear ticket in the current human-orchestrated model
+- contribute safely in this repository
 - understand which updates belong in Linear, Notion, `docs/`, and git
 
 For the durable operating contract that agents follow inside this repo, also read:
 
 - [`AGENTS.md`](../AGENTS.md)
 - [`docs/quality_policy.md`](./quality_policy.md)
-
-## Current Working Model
-
-Orqestrate is still running in a human-orchestrated mode.
-
-Today that means:
-
-- the user is the orchestrator
-- Linear is the planning source of truth
-- Notion is the durable artifact surface
-- local files and `docs/` are first-class implementation context
-- Codex is the scoped execution agent inside the active workspace
-
-Do not pick new work items on your own. Work starts when a human gives you:
-
-- a Linear ticket such as `ORQ-52`
-- an explicit phase such as `design`, `plan`, `implement`, or `review`
 
 ## Prerequisites
 
@@ -97,6 +80,10 @@ Those locations come from `config.toml`. Treat that file as authoritative if you
 
 ## Ticket Flow By Phase
 
+The product is designed around one active phase per ticket:
+
+`design -> plan -> implement -> review -> merge`
+
 ### Design
 
 When the assigned phase is `design`:
@@ -153,7 +140,7 @@ Review is read-only by default unless the user explicitly asks for rework.
 
 ## What Goes Where
 
-- Linear: ticket status, dependency truth already chosen by the human orchestrator, and concise progress or outcome comments
+- Linear: ticket status, dependency truth, and concise progress or outcome comments
 - Notion: design notes, plans, review notes, implementation evidence, and other long-form durable artifacts
 - `docs/`: durable repo-local knowledge that future runs should have even if external tools are unavailable
 - source files: implementation truth

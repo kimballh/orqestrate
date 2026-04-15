@@ -2,6 +2,7 @@
 
 If GitHub review-thread reply access is authorized:
 
+- use `orq github review-thread-reply` so replies stay scoped to the linked PR and active run contract
 - reply to each addressed comment with a concrete summary of what changed
 - if feedback is incorrect or only partially correct, respond directly with technical evidence
 - keep replies specific: what changed, where, and why
