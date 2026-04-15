@@ -355,7 +355,7 @@ export class LinearPlanningBackend extends UnimplementedPlanningBackend<Planning
     const context = await this.loadIssueContext(input.id);
     await context.adapter.client.createComment({
       issueId: context.issue.id,
-      body: input.body.trim(),
+      body: input.body,
     });
   }
 
@@ -461,11 +461,15 @@ export class LinearPlanningBackend extends UnimplementedPlanningBackend<Planning
 
   private async reloadProviderLabelCatalog(): Promise<Map<string, LinearIssueLabelRecord>> {
     const adapter = await this.getConfigAdapter();
-    const labels = await adapter.client.listIssueLabels({ teamId: adapter.team.id });
+    const labels = await adapter.client.listIssueLabels();
     const catalog = new Map<string, LinearIssueLabelRecord>();
 
     for (const label of labels) {
-      if (!label.archived && isLinearProviderOwnedLabel(label.name)) {
+      if (
+        !label.archived &&
+        isLinearProviderOwnedLabel(label.name) &&
+        (label.teamId === null || label.teamId === adapter.team.id)
+      ) {
         catalog.set(normalizeLinearLabelName(label.name), label);
       }
     }
