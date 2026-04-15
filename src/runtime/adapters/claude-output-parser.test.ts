@@ -23,9 +23,17 @@ Implemented the ticket.
 DETAILS:
 Updated the adapter and tests.
 
+REVIEW_OUTCOME:
+changes_requested
+
 VERIFICATION:
 - \`npm run check\`
 - passed
+
+ARTIFACT:
+## Review
+
+- tighten the runtime contract
 `);
 
   assert.ok(block);
@@ -37,6 +45,8 @@ VERIFICATION:
     passed: true,
     notes: "- `npm run check`\n- passed",
   });
+  assert.equal(block.reviewOutcome, "changes_requested");
+  assert.equal(block.artifactMarkdown, "## Review\n\n- tighten the runtime contract");
 });
 
 test("ClaudeOutputParser dedupes repeated waiting-human blocks until resumed", () => {

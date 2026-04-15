@@ -4,6 +4,7 @@ import type {
   AgentProvider,
   PromptEnvelope,
   ProviderError,
+  ReviewOutcome,
   RunStatus,
   VerificationSummary,
 } from "../../domain-model.js";
@@ -55,7 +56,11 @@ type RunRow = {
   outcome_code: string | null;
   exit_code: number | null;
   summary: string | null;
+  details: string | null;
   verification_json: string | null;
+  requested_human_input: string | null;
+  review_outcome: Exclude<ReviewOutcome, "none"> | null;
+  artifact_markdown: string | null;
   last_error: string | null;
   created_at: string;
   admitted_at: string | null;
@@ -197,7 +202,11 @@ export class RuntimeRepository {
                 outcome_code,
                 exit_code,
                 summary,
+                details,
                 verification_json,
+                requested_human_input,
+                review_outcome,
+                artifact_markdown,
                 last_error,
                 created_at,
                 admitted_at,
@@ -207,7 +216,7 @@ export class RuntimeRepository {
                 last_heartbeat_at,
                 version
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
           )
           .run(
@@ -234,6 +243,10 @@ export class RuntimeRepository {
             createRunInput.limits.idleTimeoutSec,
             createRunInput.limits.bootstrapTimeoutSec,
             0,
+            null,
+            null,
+            null,
+            null,
             null,
             null,
             null,
@@ -1150,7 +1163,11 @@ export class RuntimeRepository {
             outcome_code = ?,
             exit_code = ?,
             summary = ?,
+            details = ?,
             verification_json = ?,
+            requested_human_input = ?,
+            review_outcome = ?,
+            artifact_markdown = ?,
             last_error = ?,
             admitted_at = ?,
             started_at = ?,
@@ -1169,7 +1186,11 @@ export class RuntimeRepository {
         run.outcome?.code ?? null,
         run.outcome?.exitCode ?? null,
         run.outcome?.summary ?? null,
+        run.outcome?.details ?? null,
         encodeNullableJson(run.outcome?.verification ?? null),
+        run.outcome?.requestedHumanInput ?? null,
+        run.outcome?.reviewOutcome ?? null,
+        run.outcome?.artifactMarkdown ?? null,
         encodeNullableJson(run.outcome?.error ?? null),
         run.admittedAt ?? null,
         run.startedAt ?? null,
@@ -1259,7 +1280,11 @@ export class RuntimeRepository {
       row.outcome_code !== null ||
       row.exit_code !== null ||
       row.summary !== null ||
+      row.details !== null ||
       verification !== null ||
+      row.requested_human_input !== null ||
+      row.review_outcome !== null ||
+      row.artifact_markdown !== null ||
       error !== null;
 
     return {
@@ -1296,7 +1321,11 @@ export class RuntimeRepository {
             code: row.outcome_code,
             exitCode: row.exit_code,
             summary: row.summary,
+            details: row.details,
             verification,
+            requestedHumanInput: row.requested_human_input,
+            reviewOutcome: row.review_outcome,
+            artifactMarkdown: row.artifact_markdown,
             error,
           }
         : null,
@@ -1446,7 +1475,12 @@ function mergeOutcome(
     code: next?.code ?? current?.code ?? null,
     exitCode: next?.exitCode ?? current?.exitCode ?? null,
     summary: next?.summary ?? current?.summary ?? null,
+    details: next?.details ?? current?.details ?? null,
     verification: next?.verification ?? current?.verification ?? null,
+    requestedHumanInput:
+      next?.requestedHumanInput ?? current?.requestedHumanInput ?? null,
+    reviewOutcome: next?.reviewOutcome ?? current?.reviewOutcome ?? null,
+    artifactMarkdown: next?.artifactMarkdown ?? current?.artifactMarkdown ?? null,
     error: next?.error ?? current?.error ?? null,
   };
 }

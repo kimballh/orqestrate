@@ -481,6 +481,10 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     return {
       ...nextRun,
       summary: input.summary === undefined ? nextRun.summary ?? null : input.summary,
+      verification:
+        input.verification === undefined
+          ? nextRun.verification ?? null
+          : input.verification,
       error: input.error === undefined ? nextRun.error ?? null : input.error,
       endedAt: now,
       updatedAt: updatedPage.lastEditedTime ?? now,

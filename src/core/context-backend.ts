@@ -4,6 +4,7 @@ import type {
   ProviderError,
   RunLedgerRecord,
   RunStatus,
+  VerificationSummary,
   WorkItemRecord,
   WorkPhase,
 } from "../domain-model.js";
@@ -51,6 +52,7 @@ export type FinalizeRunLedgerEntryInput = {
   runId: string;
   status: RunStatus;
   summary?: string | null;
+  verification?: VerificationSummary | null;
   error?: ProviderError | null;
 };
 

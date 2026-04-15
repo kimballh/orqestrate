@@ -1,4 +1,4 @@
-import type { VerificationSummary } from "../../domain-model.js";
+import type { ReviewOutcome, VerificationSummary } from "../../domain-model.js";
 
 export type ClaudeStructuredStatus =
   | "completed"
@@ -11,6 +11,8 @@ export type ClaudeStructuredBlock = {
   details?: string | null;
   verification?: VerificationSummary | null;
   requestedHumanInput?: string | null;
+  reviewOutcome?: Exclude<ReviewOutcome, "none"> | null;
+  artifactMarkdown?: string | null;
   raw: string;
   dedupeKey: string;
 };
@@ -20,6 +22,7 @@ const STRUCTURED_HEADERS = new Set([
   "SUMMARY",
   "DETAILS",
   "VERIFICATION",
+  "REVIEW_OUTCOME",
   "REQUESTED_HUMAN_INPUT",
   "ARTIFACT",
 ]);
@@ -99,6 +102,8 @@ export function parseLatestClaudeStructuredBlock(
   const details = asOptionalText(sections.DETAILS);
   const verification = parseVerificationSummary(sections.VERIFICATION);
   const requestedHumanInput = asOptionalText(sections.REQUESTED_HUMAN_INPUT);
+  const reviewOutcome = parseReviewOutcome(sections.REVIEW_OUTCOME);
+  const artifactMarkdown = asOptionalText(sections.ARTIFACT);
 
   return {
     status,
@@ -106,12 +111,16 @@ export function parseLatestClaudeStructuredBlock(
     details,
     verification,
     requestedHumanInput,
+    reviewOutcome,
+    artifactMarkdown,
     raw,
     dedupeKey: JSON.stringify({
       status,
       summary,
       details,
       requestedHumanInput,
+      reviewOutcome,
+      artifactMarkdown,
     }),
   };
 }
@@ -186,4 +195,15 @@ function parseVerificationSummary(
     passed: failed === false,
     notes,
   };
+}
+
+function parseReviewOutcome(
+  value: string | undefined,
+): Exclude<ReviewOutcome, "none"> | null {
+  const normalized = asOptionalText(value);
+  if (normalized === "approved" || normalized === "changes_requested") {
+    return normalized;
+  }
+
+  return null;
 }
