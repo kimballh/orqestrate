@@ -27,6 +27,15 @@ export function evaluateClaimability(
     };
   }
 
+  if (requiresLeaseToReclaim(workItem) && !hasRecordedLease(workItem.orchestration.leaseUntil)) {
+    return {
+      claimable: false,
+      phase: resolution.phase,
+      reason: "lease_missing",
+      message: `Work item '${workItem.id}' is '${workItem.orchestration.state}' without a recorded lease and cannot be reclaimed safely.`,
+    };
+  }
+
   if (workItem.blockedByIds.length > 0) {
     return {
       claimable: false,
@@ -75,4 +84,15 @@ function parseLeaseTimestamp(leaseUntil: string | null | undefined): number | nu
 
   const timestamp = Date.parse(leaseUntil);
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function hasRecordedLease(leaseUntil: string | null | undefined): boolean {
+  return parseLeaseTimestamp(leaseUntil) !== null;
+}
+
+function requiresLeaseToReclaim(workItem: WorkItemRecord): boolean {
+  return (
+    workItem.orchestration.state === "claimed" ||
+    workItem.orchestration.state === "running"
+  );
 }

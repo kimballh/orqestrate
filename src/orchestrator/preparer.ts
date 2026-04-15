@@ -92,6 +92,7 @@ export async function prepareClaimedRun(
       runId,
       step: "ensure_artifact",
     },
+    null,
     () => dependencies.context.ensureArtifact({ workItem: claimedWorkItem }),
   );
 
@@ -104,6 +105,7 @@ export async function prepareClaimedRun(
       runId,
       step: "load_context",
     },
+    null,
     () =>
       dependencies.context.loadContextBundle({
         workItem: claimedWorkItem,
@@ -113,6 +115,24 @@ export async function prepareClaimedRun(
   );
 
   const resolvedArtifact = context.artifact ?? artifact;
+  const runLedger = await runPostClaimStep(
+    dependencies,
+    classifyPostClaimFailure,
+    {
+      claimedWorkItem,
+      phase: resolution.phase,
+      runId,
+      step: "create_run_ledger",
+    },
+    null,
+    () =>
+      dependencies.context.createRunLedgerEntry({
+        runId,
+        workItem: claimedWorkItem,
+        phase: resolution.phase,
+        status: "queued",
+      }),
+  );
   const prompt = await runPostClaimStep(
     dependencies,
     classifyPostClaimFailure,
@@ -122,6 +142,7 @@ export async function prepareClaimedRun(
       runId,
       step: "assemble_prompt",
     },
+    runLedger.runId,
     async () =>
       assemblePrompt(dependencies.config, {
         promptPackName: input.prompt?.promptPackName,
@@ -174,6 +195,7 @@ export async function prepareClaimedRun(
       runId,
       step: "build_submission",
     },
+    runLedger.runId,
     async (): Promise<RunSubmissionPayload> => ({
       runId,
       phase: resolution.phase,
@@ -215,6 +237,7 @@ export async function prepareClaimedRun(
       claimedWorkItem,
       artifact: resolvedArtifact,
       context,
+      runLedger,
       submission,
     },
     resolution,
@@ -226,6 +249,7 @@ async function runPostClaimStep<T>(
   dependencies: PrepareClaimedRunDependencies,
   classifyPostClaimFailure: ClassifyPostClaimFailure,
   context: PostClaimFailureContext,
+  runLedgerId: string | null,
   action: () => Promise<T>,
 ): Promise<T> {
   try {
@@ -246,8 +270,28 @@ async function runPostClaimStep<T>(
             error: disposition.error,
           }),
     );
+
+    if (runLedgerId !== null) {
+      await dependencies.context.finalizeRunLedgerEntry({
+        runId: runLedgerId,
+        status: disposition.kind === "blocked" ? "waiting_human" : "failed",
+        summary: buildPreflightFailureSummary(context.step, disposition),
+        error: disposition.kind === "blocked" ? disposition.error ?? null : disposition.error,
+      });
+    }
     throw error;
   }
+}
+
+function buildPreflightFailureSummary(
+  step: PostClaimFailureContext["step"],
+  disposition: ReturnType<ClassifyPostClaimFailure>,
+): string {
+  if (disposition.kind === "blocked") {
+    return `Pre-dispatch ${step} blocked: ${disposition.blockedReason}`;
+  }
+
+  return `Pre-dispatch ${step} failed: ${disposition.error.message}`;
 }
 
 function resolveWorkspace(

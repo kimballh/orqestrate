@@ -2,6 +2,7 @@ import type {
   AgentProvider,
   PromptAttachment,
   ProviderError,
+  RunLedgerRecord,
   RunSubmissionPayload,
   WorkItemRecord,
   WorkPhase,
@@ -36,6 +37,7 @@ export type PhaseResolutionReason =
 export type ClaimBlockReason =
   | "phase_not_actionable"
   | "lease_active"
+  | "lease_missing"
   | "has_open_blockers"
   | "waiting_human";
 
@@ -77,6 +79,7 @@ export type PreparedOrchestrationRun = {
   claimedWorkItem: WorkItemRecord;
   artifact: ContextBundle["artifact"];
   context: ContextBundle;
+  runLedger: RunLedgerRecord;
   submission: RunSubmissionPayload;
 };
 
@@ -139,7 +142,12 @@ export type PostClaimFailureContext = {
   claimedWorkItem: WorkItemRecord;
   phase: ExecutableWorkPhase;
   runId: string;
-  step: "ensure_artifact" | "load_context" | "assemble_prompt" | "build_submission";
+  step:
+    | "ensure_artifact"
+    | "load_context"
+    | "create_run_ledger"
+    | "assemble_prompt"
+    | "build_submission";
 };
 
 export type ClassifyPostClaimFailure = (

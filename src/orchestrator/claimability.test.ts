@@ -42,6 +42,28 @@ test("blocks items that still have an active lease", () => {
   assert.equal(decision.reason, "lease_active");
 });
 
+test("fails closed when an in-flight item has no recorded lease", () => {
+  const decision = evaluateClaimability(
+    createWorkItem({
+      orchestration: {
+        state: "running",
+        owner: "orchestrator:a",
+        runId: "run-1",
+        leaseUntil: null,
+        reviewOutcome: "none",
+        blockedReason: null,
+        lastError: null,
+        attemptCount: 1,
+      },
+    }),
+    actionableResolution("implement"),
+    new Date("2026-04-15T00:00:00.000Z"),
+  );
+
+  assert.equal(decision.claimable, false);
+  assert.equal(decision.reason, "lease_missing");
+});
+
 test("treats expired leases as reclaimable", () => {
   const decision = evaluateClaimability(
     createWorkItem({

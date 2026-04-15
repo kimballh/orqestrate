@@ -70,8 +70,12 @@ test("returns a prepared run after claiming, loading context, and assembling the
   assert.equal(planning.claimCalls[0]?.phase, "implement");
   assert.equal(context.ensureCalls.length, 1);
   assert.equal(context.loadCalls.length, 1);
+  assert.equal(context.createRunLedgerCalls.length, 1);
+  assert.equal(context.finalizeRunLedgerCalls.length, 0);
   assert.equal(result.prepared.runId, "run-37");
   assert.equal(result.prepared.owner, "orchestrator:test");
+  assert.equal(result.prepared.runLedger.runId, "run-37");
+  assert.equal(result.prepared.runLedger.status, "queued");
   assert.equal(
     result.prepared.submission.workspace.workingDirHint,
     path.join(REPO_ROOT, ".worktrees", "run-37"),
@@ -147,6 +151,8 @@ test("transitions the ticket to failed when post-claim context loading errors", 
   assert.equal(planning.transitionCalls[0]?.state, "failed");
   assert.equal(planning.transitionCalls[0]?.nextStatus, "implement");
   assert.equal(planning.transitionCalls[0]?.lastError?.providerFamily, "context");
+  assert.equal(context.createRunLedgerCalls.length, 0);
+  assert.equal(context.finalizeRunLedgerCalls.length, 0);
 });
 
 test("transitions the ticket to blocked when post-claim work surfaces a human blocker", async () => {
@@ -176,6 +182,41 @@ test("transitions the ticket to blocked when post-claim work surfaces a human bl
   assert.equal(planning.transitionCalls[0]?.nextStatus, "blocked");
   assert.equal(planning.transitionCalls[0]?.state, "waiting_human");
   assert.equal(planning.transitionCalls[0]?.blockedReason, "Need design signoff");
+  assert.equal(context.createRunLedgerCalls.length, 0);
+  assert.equal(context.finalizeRunLedgerCalls.length, 0);
+});
+
+test("finalizes the queued run ledger if prompt assembly fails after the ledger is created", async () => {
+  const config = await loadLocalConfig();
+  const planning = new FakePlanningBackend(createWorkItem());
+  const context = new FakeContextBackend(createArtifact());
+
+  await assert.rejects(
+    () =>
+      prepareClaimedRun(
+        { planning, context, config },
+        {
+          workItemId: "ORQ-37",
+          provider: "codex",
+          repoRoot: REPO_ROOT,
+          owner: "orchestrator:test",
+          createRunId: () => "run-40",
+          now: new Date("2026-04-15T00:00:00.000Z"),
+          prompt: {
+            capabilities: ["missing_capability"],
+          },
+        },
+      ),
+    /Unknown prompt capabilities requested: missing_capability\./,
+  );
+
+  assert.equal(planning.transitionCalls.length, 1);
+  assert.equal(planning.transitionCalls[0]?.state, "failed");
+  assert.equal(context.createRunLedgerCalls.length, 1);
+  assert.equal(context.finalizeRunLedgerCalls.length, 1);
+  assert.equal(context.finalizeRunLedgerCalls[0]?.runId, "run-40");
+  assert.equal(context.finalizeRunLedgerCalls[0]?.status, "failed");
+  assert.match(context.finalizeRunLedgerCalls[0]?.summary ?? "", /assemble_prompt failed/);
 });
 
 async function loadLocalConfig(): Promise<LoadedConfig> {
@@ -275,6 +316,8 @@ class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConf
 class FakeContextBackend extends ContextBackend<ContextLocalFilesProviderConfig> {
   readonly ensureCalls: EnsureArtifactInput[] = [];
   readonly loadCalls: LoadContextBundleInput[] = [];
+  readonly createRunLedgerCalls: CreateRunLedgerEntryInput[] = [];
+  readonly finalizeRunLedgerCalls: FinalizeRunLedgerEntryInput[] = [];
 
   constructor(
     private readonly artifact: ArtifactRecord,
@@ -335,15 +378,43 @@ class FakeContextBackend extends ContextBackend<ContextLocalFilesProviderConfig>
   }
 
   async createRunLedgerEntry(
-    _input: CreateRunLedgerEntryInput,
+    input: CreateRunLedgerEntryInput,
   ): Promise<RunLedgerRecord> {
-    throw new Error("not used in test");
+    this.createRunLedgerCalls.push(structuredClone(input));
+    return {
+      runId: input.runId,
+      workItemId: input.workItem.id,
+      artifactId: this.artifact.artifactId,
+      phase: input.phase,
+      status: input.status,
+      summary: null,
+      verification: null,
+      error: null,
+      startedAt: "2026-04-15T00:00:00.000Z",
+      endedAt: null,
+      url: `/tmp/${input.runId}.json`,
+      updatedAt: "2026-04-15T00:00:00.000Z",
+    };
   }
 
   async finalizeRunLedgerEntry(
-    _input: FinalizeRunLedgerEntryInput,
+    input: FinalizeRunLedgerEntryInput,
   ): Promise<RunLedgerRecord> {
-    throw new Error("not used in test");
+    this.finalizeRunLedgerCalls.push(structuredClone(input));
+    return {
+      runId: input.runId,
+      workItemId: this.artifact.workItemId,
+      artifactId: this.artifact.artifactId,
+      phase: "implement",
+      status: input.status,
+      summary: input.summary ?? null,
+      verification: null,
+      error: input.error ?? null,
+      startedAt: "2026-04-15T00:00:00.000Z",
+      endedAt: "2026-04-15T00:01:00.000Z",
+      url: `/tmp/${input.runId}.json`,
+      updatedAt: "2026-04-15T00:01:00.000Z",
+    };
   }
 
   async appendEvidence(_input: AppendEvidenceInput): Promise<void> {

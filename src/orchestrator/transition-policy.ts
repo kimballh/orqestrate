@@ -105,7 +105,11 @@ export function toProviderError(
 function inferProviderFailureFamily(
   step: PostClaimFailureContext["step"],
 ): ProviderFamily {
-  if (step === "ensure_artifact" || step === "load_context") {
+  if (
+    step === "ensure_artifact" ||
+    step === "load_context" ||
+    step === "create_run_ledger"
+  ) {
     return "context";
   }
 
@@ -116,6 +120,7 @@ function inferProviderFailureKind(step: PostClaimFailureContext["step"]): string
   switch (step) {
     case "ensure_artifact":
     case "load_context":
+    case "create_run_ledger":
       return "context_backend";
     case "assemble_prompt":
       return "prompt_assembly";
