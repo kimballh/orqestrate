@@ -22,7 +22,7 @@ export class RuntimeApiServer {
     this.#listenOptions = listenOptions;
     this.#router = new RuntimeApiRouter(daemon, () => this.isListening);
     this.#serverInfo = {
-      endpoint: formatEndpoint(listenOptions),
+      endpoint: formatRuntimeApiEndpoint(listenOptions),
       listening: false,
     };
   }
@@ -115,7 +115,7 @@ export class RuntimeApiServer {
     }
 
     this.#serverInfo = {
-      endpoint: formatEndpoint(this.#listenOptions),
+      endpoint: formatRuntimeApiEndpoint(this.#listenOptions),
       listening: false,
     };
   }
@@ -157,7 +157,9 @@ async function ensureSocketPathAvailable(socketPath: string): Promise<void> {
   }
 }
 
-function formatEndpoint(listenOptions: RuntimeApiListenOptions): string {
+export function formatRuntimeApiEndpoint(
+  listenOptions: RuntimeApiListenOptions,
+): string {
   switch (listenOptions.kind) {
     case "socket":
       return `unix://${listenOptions.socketPath}`;
@@ -173,13 +175,13 @@ function resolveListeningEndpoint(
   listenOptions: RuntimeApiListenOptions,
 ): string {
   if (listenOptions.kind !== "tcp") {
-    return formatEndpoint(listenOptions);
+    return formatRuntimeApiEndpoint(listenOptions);
   }
 
   const address = server.address();
 
   if (address === null || typeof address === "string") {
-    return formatEndpoint(listenOptions);
+    return formatRuntimeApiEndpoint(listenOptions);
   }
 
   return `http://${address.address}:${address.port}`;

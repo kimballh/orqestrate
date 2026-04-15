@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { PromptEnvelope } from "../../domain-model.js";
+import {
+  ORQ_RUN_ID_ENV,
+  ORQ_RUNTIME_API_ENDPOINT_ENV,
+} from "../../github/runtime-context.js";
 import type {
   RuntimeSessionController,
 } from "../provider-adapter.js";
@@ -17,6 +21,7 @@ test("ClaudeProviderAdapter builds a predictable launch spec", () => {
   const launchSpec = adapter.buildLaunchSpec({
     cwd: "/repo",
     logFilePath: "/repo/.runtime/run-001/session.log",
+    runtimeApiEndpoint: "unix:///tmp/orq/runtime.sock",
     run: {
       runId: "run-001",
       provider: "claude",
@@ -44,6 +49,8 @@ test("ClaudeProviderAdapter builds a predictable launch spec", () => {
   ]);
   assert.deepEqual(launchSpec.env, {
     CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+    [ORQ_RUN_ID_ENV]: "run-001",
+    [ORQ_RUNTIME_API_ENDPOINT_ENV]: "unix:///tmp/orq/runtime.sock",
   });
   assert.equal(launchSpec.cwd, "/repo");
 });

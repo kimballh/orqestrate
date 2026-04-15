@@ -26,6 +26,7 @@ export type RunLaunchInput = {
   run: ExecutableRunRecord;
   cwd: string;
   logFilePath: string;
+  runtimeApiEndpoint?: string | null;
 };
 
 export type OutputEvent = SessionOutputChunk & {

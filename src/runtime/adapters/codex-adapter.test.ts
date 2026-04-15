@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { PromptEnvelope } from "../../domain-model.js";
+import {
+  ORQ_RUN_ID_ENV,
+  ORQ_RUNTIME_API_ENDPOINT_ENV,
+} from "../../github/runtime-context.js";
 import type { HumanInput } from "../provider-adapter.js";
 import type { SessionExit, SessionSnapshot } from "../session-supervisor.js";
 import { CodexProviderAdapter, renderCodexHumanInput, renderCodexInitialInput } from "./codex-adapter.js";
@@ -18,6 +22,7 @@ test("CodexProviderAdapter builds the default interactive launch spec", () => {
   const launchSpec = adapter.buildLaunchSpec({
     cwd: "/repo",
     logFilePath: "/repo/.runtime/session.log",
+    runtimeApiEndpoint: "unix:///tmp/orq/runtime.sock",
     run: {} as never,
   });
 
@@ -30,6 +35,26 @@ test("CodexProviderAdapter builds the default interactive launch spec", () => {
     "never",
   ]);
   assert.equal(launchSpec.cwd, "/repo");
+  assert.equal(launchSpec.env[ORQ_RUN_ID_ENV], undefined);
+  assert.equal(
+    launchSpec.env[ORQ_RUNTIME_API_ENDPOINT_ENV],
+    "unix:///tmp/orq/runtime.sock",
+  );
+});
+
+test("CodexProviderAdapter injects the run id for managed sessions", () => {
+  const adapter = new CodexProviderAdapter();
+
+  const launchSpec = adapter.buildLaunchSpec({
+    cwd: "/repo",
+    logFilePath: "/repo/.runtime/session.log",
+    runtimeApiEndpoint: "unix:///tmp/orq/runtime.sock",
+    run: {
+      runId: "run-123",
+    } as never,
+  });
+
+  assert.equal(launchSpec.env[ORQ_RUN_ID_ENV], "run-123");
 });
 
 test("renderCodexInitialInput preserves system, task, attachments, and sources", () => {

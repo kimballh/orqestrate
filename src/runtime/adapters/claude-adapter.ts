@@ -1,5 +1,9 @@
 import type { PromptEnvelope } from "../../domain-model.js";
 import {
+  ORQ_RUN_ID_ENV,
+  ORQ_RUNTIME_API_ENDPOINT_ENV,
+} from "../../github/runtime-context.js";
+import {
   buildRuntimeProviderError,
   type HumanInput,
   type OutputEvent,
@@ -46,12 +50,22 @@ export class ClaudeProviderAdapter implements ProviderAdapter {
       args.push("--append-system-prompt", systemPrompt);
     }
 
+    const env: Record<string, string> = {
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+      [ORQ_RUN_ID_ENV]: input.run.runId,
+    };
+
+    if (
+      input.runtimeApiEndpoint !== undefined &&
+      input.runtimeApiEndpoint !== null
+    ) {
+      env[ORQ_RUNTIME_API_ENDPOINT_ENV] = input.runtimeApiEndpoint;
+    }
+
     return {
       command: "claude",
       args,
-      env: {
-        CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
-      },
+      env,
       cwd: input.cwd,
     };
   }
