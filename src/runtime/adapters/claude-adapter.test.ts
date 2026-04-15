@@ -180,6 +180,40 @@ VERIFICATION:
   assert.equal(canceledOutcome.code, "canceled");
 });
 
+test("ClaudeProviderAdapter drops stale waiting-human state after resume before a clean exit", async () => {
+  const adapter = new ClaudeProviderAdapter();
+  adapter.classifyOutput({
+    runId: "run-001",
+    sessionId: "session-1",
+    occurredAt: "2026-04-14T18:00:00.000Z",
+    chunk: `STATUS: waiting_human
+SUMMARY:
+Need a decision.
+
+REQUESTED_HUMAN_INPUT:
+Should I continue?
+`,
+  });
+
+  await adapter.submitHumanInput(createController(), {
+    kind: "answer",
+    message: "Yes, continue.",
+  });
+
+  const outcome = await adapter.collectOutcome(
+    createController(""),
+    {
+      sessionId: "session-1",
+      occurredAt: "2026-04-14T18:00:01.000Z",
+      exitCode: 0,
+      signal: null,
+    },
+  );
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(outcome.code, "completed");
+});
+
 test("ClaudeProviderAdapter reports auth prompts as runtime issues", () => {
   const adapter = new ClaudeProviderAdapter();
   const signals = adapter.classifyOutput({

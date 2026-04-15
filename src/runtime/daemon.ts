@@ -4,7 +4,6 @@ import { AGENT_PROVIDERS, type AgentProvider } from "../domain-model.js";
 import type { LoadedConfig } from "../config/types.js";
 import { createBuiltinRuntimeAdapterRegistry } from "./builtins.js";
 import { RuntimeError } from "./errors.js";
-import { createBuiltinRuntimeAdapterRegistry } from "./builtins.js";
 import { openRuntimeDatabase, type RuntimeDatabase } from "./persistence/database.js";
 import { RuntimeRepository } from "./persistence/runtime-repository.js";
 import { resolveRuntimeConfig, type RuntimeConfig } from "./config.js";
