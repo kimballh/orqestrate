@@ -35,7 +35,7 @@ import {
   type TransitionWorkItemInput,
 } from "../core/planning-backend.js";
 import type { CreateRunResponse, RuntimeApiRun } from "../runtime/api/types.js";
-import type { RunEventRecord } from "../runtime/types.js";
+import type { RunEventRecord, RuntimeReadinessSnapshot } from "../runtime/types.js";
 
 import { executeClaimedRun, executePreparedRun } from "./execute-run.js";
 import type { RuntimeClient } from "./runtime-client.js";
@@ -431,8 +431,28 @@ class FakeRuntimeClient implements RuntimeClient {
     return structuredClone(nextRun);
   }
 
+  async listRuns() {
+    return {
+      runs: [],
+      nextCursor: null,
+    };
+  }
+
   async listRunEvents(): Promise<RunEventRecord[]> {
     return structuredClone(this.queuedEvents.shift() ?? []);
+  }
+
+  async getHealth(): Promise<RuntimeReadinessSnapshot> {
+    return {
+      ok: true,
+      profile: "test",
+      checks: {
+        database: { ok: true },
+        dispatcher: { ok: true },
+        transport: { ok: true },
+        adapters: { ok: true, providers: ["codex"] },
+      },
+    };
   }
 }
 
