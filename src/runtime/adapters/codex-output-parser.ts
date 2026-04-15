@@ -87,6 +87,8 @@ export class CodexOutputParser {
           },
         });
       }
+    } else {
+      this.lastWaitingHumanKey = null;
     }
 
     return signals;
@@ -94,6 +96,15 @@ export class CodexOutputParser {
 
   getLatestStructuredBlock(): ParsedCodexStructuredBlock | null {
     return this.latestStructuredBlock;
+  }
+
+  resetWaitingHumanState(): void {
+    if (this.latestStructuredBlock?.status === "waiting_human") {
+      this.latestStructuredBlock = null;
+      this.recentOutput = "";
+    }
+
+    this.lastWaitingHumanKey = null;
   }
 }
 
@@ -212,6 +223,26 @@ export function resolveCodexOutcome(input: {
     };
   }
 
+  if (isSignalOnlyCanceledExit(input.exit)) {
+    return {
+      status: "canceled",
+      code: "canceled",
+      exitCode: input.exit?.exitCode ?? null,
+      summary:
+        summarizeRecentOutput(input.recentOutput) ??
+        "Codex exited after an interrupt request.",
+      error: buildRuntimeProviderError({
+        providerKind: "codex",
+        code: "transport",
+        message: "Codex exited after an interrupt request.",
+        retryable: false,
+        details: {
+          signal: input.exit?.signal ?? null,
+        },
+      }),
+    };
+  }
+
   if ((input.exit?.exitCode ?? 0) === 0) {
     return {
       status: "completed",
@@ -313,6 +344,37 @@ function looksLikeCommand(line: string): boolean {
   return /^(npm|pnpm|yarn|bun|node|npx|tsx|tsc|git|bash|sh|python|pytest|uv|cargo|go|make|\.\/)/.test(
     line,
   );
+}
+
+function isSignalOnlyCanceledExit(exit: SessionExit | null): boolean {
+  if (exit?.signal === undefined || exit.signal === null) {
+    return false;
+  }
+
+  if (exit.exitCode !== null) {
+    return exit.exitCode === 130 && normalizeSignal(exit.signal) === "SIGINT";
+  }
+
+  return CANCELED_SIGNALS.has(normalizeSignal(exit.signal));
+}
+
+const CANCELED_SIGNALS = new Set([
+  "SIGINT",
+  "SIGTERM",
+  "SIGKILL",
+]);
+
+function normalizeSignal(signal: string): string {
+  switch (signal.toUpperCase()) {
+    case "2":
+      return "SIGINT";
+    case "9":
+      return "SIGKILL";
+    case "15":
+      return "SIGTERM";
+    default:
+      return signal.toUpperCase();
+  }
 }
 
 function summarizeRecentOutput(recentOutput: string): string | null {

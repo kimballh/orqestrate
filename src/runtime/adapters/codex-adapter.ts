@@ -54,6 +54,7 @@ export class CodexProviderAdapter implements ProviderAdapter {
     session: RuntimeSessionController,
     input: HumanInput,
   ): Promise<void> {
+    this.outputParser.resetWaitingHumanState();
     await session.write(`${renderCodexHumanInput(input)}\n`);
   }
 
