@@ -8,20 +8,26 @@ import type {
   ErrorResponse,
   EventsResponse,
   GetRunResponse,
+  HealthResponse,
+  ListRunsQuery,
+  ListRunsResponse,
   ListRunEventsQuery,
   RuntimeApiListenOptions,
   RuntimeApiRun,
 } from "../runtime/api/types.js";
 import type { RunSubmissionPayload } from "../domain-model.js";
 import type { RunEventRecord } from "../runtime/types.js";
+import type { RuntimeReadinessSnapshot } from "../runtime/types.js";
 
 export type RuntimeClient = {
   createRun(payload: RunSubmissionPayload): Promise<CreateRunResponse>;
   getRun(runId: string): Promise<RuntimeApiRun>;
+  listRuns(query?: ListRunsQuery): Promise<ListRunsResponse>;
   listRunEvents(
     runId: string,
     query?: ListRunEventsQuery,
   ): Promise<RunEventRecord[]>;
+  getHealth(): Promise<RuntimeReadinessSnapshot>;
 };
 
 export class RuntimeApiClientError extends Error {
@@ -71,6 +77,37 @@ export class HttpRuntimeApiClient implements RuntimeClient {
     return response.run;
   }
 
+  async listRuns(query: ListRunsQuery = {}): Promise<ListRunsResponse> {
+    const params = new URLSearchParams();
+
+    if (query.status !== undefined) {
+      params.set("status", query.status);
+    }
+    if (query.provider !== undefined) {
+      params.set("provider", query.provider);
+    }
+    if (query.workItemId !== undefined) {
+      params.set("workItemId", query.workItemId);
+    }
+    if (query.phase !== undefined) {
+      params.set("phase", query.phase);
+    }
+    if (query.repoRoot !== undefined) {
+      params.set("repoRoot", query.repoRoot);
+    }
+    if (query.limit !== undefined) {
+      params.set("limit", String(query.limit));
+    }
+    if (query.cursor !== undefined) {
+      params.set("cursor", query.cursor);
+    }
+
+    return this.requestJson<ListRunsResponse>({
+      method: "GET",
+      pathname: `/v1/runs${params.size === 0 ? "" : `?${params.toString()}`}`,
+    });
+  }
+
   async listRunEvents(
     runId: string,
     query: ListRunEventsQuery = {},
@@ -91,6 +128,13 @@ export class HttpRuntimeApiClient implements RuntimeClient {
       pathname: `/v1/runs/${encodeURIComponent(runId)}/events${params.size === 0 ? "" : `?${params.toString()}`}`,
     });
     return response.events;
+  }
+
+  async getHealth(): Promise<RuntimeReadinessSnapshot> {
+    return this.requestJson<HealthResponse>({
+      method: "GET",
+      pathname: "/v1/health",
+    });
   }
 
   private async requestJson<T>(input: {

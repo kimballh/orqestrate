@@ -5,6 +5,7 @@ import type {
   RunEventRecord,
   RuntimeReadinessSnapshot,
 } from "../runtime/types.js";
+import type { RuntimeClient } from "./runtime-client.js";
 
 export type ObservedRuntimeRun = RuntimeApiRun;
 
@@ -102,5 +103,56 @@ export class RuntimeDaemonObserver implements RuntimeObserver {
     return this.daemon.getReadinessSnapshot({
       transportReady: this.transportReady,
     });
+  }
+}
+
+export class RuntimeApiObserver implements RuntimeObserver {
+  constructor(private readonly runtime: RuntimeClient) {}
+
+  async getRun(runId: string): Promise<ObservedRuntimeRun | null> {
+    try {
+      return await this.runtime.getRun(runId);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "run_not_found"
+      ) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async listRuns(input: ListObservedRunsInput): Promise<ListObservedRunsResult> {
+    const result = await this.runtime.listRuns({
+      status: input.status,
+      provider: input.provider,
+      workItemId: input.workItemId,
+      phase: input.phase,
+      repoRoot: input.repoRoot,
+      limit: input.limit,
+      cursor: input.cursor,
+    });
+
+    return {
+      runs: result.runs,
+      nextCursor: result.nextCursor ?? null,
+    };
+  }
+
+  async listRunEvents(
+    runId: string,
+    input: ListObservedRunEventsInput = {},
+  ): Promise<RunEventRecord[]> {
+    return this.runtime.listRunEvents(runId, {
+      after: input.after,
+      limit: input.limit,
+    });
+  }
+
+  async getHealth(): Promise<RuntimeReadinessSnapshot> {
+    return this.runtime.getHealth();
   }
 }
