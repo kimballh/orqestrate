@@ -253,6 +253,10 @@ async function createApiFixture(
         maxRunsPerProvider: 2,
         allowMixedProviders: true,
         defaultPhaseTimeoutSec: 5400,
+        merge: {
+          allowedMethods: ["squash" as const],
+          requireHumanApproval: false,
+        },
       },
     },
   };

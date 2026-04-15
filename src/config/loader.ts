@@ -17,6 +17,8 @@ import {
   type ContextProviderConfig,
   type LoadConfigOptions,
   type LoadedConfig,
+  MERGE_METHODS,
+  type MergeMethod,
   type ParseConfigOptions,
   type PathsConfig,
   type PlanningLinearProviderConfig,
@@ -85,6 +87,10 @@ const POLICY_DEFAULTS: PolicyConfig = {
   maxRunsPerProvider: 2,
   allowMixedProviders: true,
   defaultPhaseTimeoutSec: 5400,
+  merge: {
+    allowedMethods: ["squash"],
+    requireHumanApproval: false,
+  },
 };
 
 export async function loadConfig(
@@ -275,6 +281,7 @@ function parsePolicySection(value: unknown): PolicyConfig {
       "max_runs_per_provider",
       "allow_mixed_providers",
       "default_phase_timeout_sec",
+      "merge",
     ],
     "policy",
   );
@@ -308,6 +315,40 @@ function parsePolicySection(value: unknown): PolicyConfig {
             section.default_phase_timeout_sec,
             "policy.default_phase_timeout_sec",
             { min: 1 },
+          ),
+    merge: parseMergePolicySection(section.merge),
+  };
+}
+
+function parseMergePolicySection(value: unknown): PolicyConfig["merge"] {
+  if (value === undefined) {
+    return {
+      allowedMethods: [...POLICY_DEFAULTS.merge.allowedMethods],
+      requireHumanApproval: POLICY_DEFAULTS.merge.requireHumanApproval,
+    };
+  }
+
+  const section = expectRecord(value, "policy.merge");
+  assertAllowedKeys(
+    section,
+    ["allowed_methods", "require_human_approval"],
+    "policy.merge",
+  );
+
+  return {
+    allowedMethods:
+      section.allowed_methods === undefined
+        ? [...POLICY_DEFAULTS.merge.allowedMethods]
+        : parseMergeMethodArray(
+            section.allowed_methods,
+            "policy.merge.allowed_methods",
+          ),
+    requireHumanApproval:
+      section.require_human_approval === undefined
+        ? POLICY_DEFAULTS.merge.requireHumanApproval
+        : expectBoolean(
+            section.require_human_approval,
+            "policy.merge.require_human_approval",
           ),
   };
 }
@@ -1260,12 +1301,16 @@ function validateGitHubCapabilityScopePolicy(
       validateAllowedWorkPhases(
         name,
         definition,
-        definition.effect === "read" ? ["implement", "review"] : ["implement"],
+        definition.effect === "read"
+          ? ["implement", "review", "merge"]
+          : ["implement"],
       );
       validateAllowedWorkRoles(
         name,
         definition,
-        definition.effect === "read" ? ["implement", "review"] : ["implement"],
+        definition.effect === "read"
+          ? ["implement", "review", "merge"]
+          : ["implement"],
       );
 
       if (
@@ -1353,6 +1398,29 @@ function validateGitHubCapabilityScopePolicy(
           },
         );
       }
+      return;
+    case "merge":
+      validateAllowedWorkPhases(name, definition, ["merge"]);
+      validateAllowedWorkRoles(name, definition, ["merge"]);
+      if (definition.targetScope !== "linked_pull_request") {
+        throw new ConfigError(
+          `GitHub merge capability '${name}' must target the linked pull request.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.target_scope`,
+          },
+        );
+      }
+      if (definition.effect !== "state_transition") {
+        throw new ConfigError(
+          `GitHub merge capability '${name}' must use the 'state_transition' effect.`,
+          {
+            code: "invalid_value",
+            path: `prompt_capabilities.${name}.effect`,
+          },
+        );
+      }
+      return;
   }
 }
 
@@ -1666,6 +1734,44 @@ function parsePromptCapabilitySurface(
   }
 
   return surface as PromptCapabilitySurface;
+}
+
+function parseMergeMethodArray(
+  value: unknown,
+  fieldPath: string,
+): MergeMethod[] {
+  const methods = expectStringArray(value, fieldPath).map((method, index) =>
+    parseMergeMethod(method, `${fieldPath}[${index}]`),
+  );
+
+  if (methods.length === 0) {
+    throw new ConfigError(
+      `Expected '${fieldPath}' to contain at least one merge method.`,
+      {
+        code: "invalid_value",
+        path: fieldPath,
+      },
+    );
+  }
+
+  return [...new Set(methods)];
+}
+
+function parseMergeMethod(
+  value: unknown,
+  fieldPath: string,
+): MergeMethod {
+  const method = expectNonEmptyString(value, fieldPath);
+
+  if (!MERGE_METHODS.includes(method as MergeMethod)) {
+    throw new ConfigError(`Unsupported merge method '${method}'.`, {
+      code: "invalid_value",
+      path: fieldPath,
+      hint: `Supported merge methods: ${MERGE_METHODS.join(", ")}`,
+    });
+  }
+
+  return method as MergeMethod;
 }
 
 function parsePromptCapabilityEffect(

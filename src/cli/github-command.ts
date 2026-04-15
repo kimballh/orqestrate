@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import process from "node:process";
 import { promisify } from "node:util";
 
+import { loadConfig } from "../config/loader.js";
+import type { LoadedConfig, MergeMethod } from "../config/types.js";
 import type { RuntimeApiRun } from "../runtime/api/types.js";
 import {
   GitHubCliClient,
@@ -9,7 +11,10 @@ import {
   GitHubClientError,
 } from "../github/client.js";
 import type { GitHubCliClient as GitHubCliClientType } from "../github/client.js";
-import { appendPullRequestReviewLoopMarker } from "../github/review-loop.js";
+import {
+  appendPullRequestReviewLoopMarker,
+  classifyPullRequestReviewLoop,
+} from "../github/review-loop.js";
 import {
   assertPullRequestMatchesLinkedScope,
   requireAssignedBranch,
@@ -23,6 +28,10 @@ import {
   loadGitHubRuntimeRun,
 } from "../github/runtime-context.js";
 import { normalizeBranchName, parseGitRemoteUrl } from "../github/scope.js";
+import {
+  DEFAULT_MERGE_POLICY,
+  evaluateMergePolicy,
+} from "../orchestrator/merge-policy.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,6 +43,7 @@ type GitHubCommandDependencies = {
   stdout?: WriteFn;
   stderr?: WriteFn;
   loadRun?: (env: NodeJS.ProcessEnv) => Promise<RuntimeApiRun>;
+  loadConfig?: typeof loadConfig;
   createClient?: (cwd: string, env: NodeJS.ProcessEnv) => GitHubCliClientType;
   getOriginRemoteUrl?: (cwd: string) => Promise<string>;
 };
@@ -59,6 +69,12 @@ type ReviewWriteOptions = {
   comments: GitHubReviewCommentInput[];
 };
 
+type PrMergeOptions = {
+  dryRun: boolean;
+  humanApproved: boolean;
+  method?: MergeMethod;
+};
+
 type GitHubCommandErrorShape = {
   code: string;
   message: string;
@@ -79,6 +95,9 @@ export async function runGithubCommand(
   const loadRun =
     dependencies.loadRun ??
     ((runtimeEnv) => loadGitHubRuntimeRun(runtimeEnv));
+  const loadGithubConfig =
+    dependencies.loadConfig ??
+    ((options: Parameters<typeof loadConfig>[0]) => loadConfig(options));
   const createClient =
     dependencies.createClient ??
     ((commandCwd, runtimeEnv) =>
@@ -131,6 +150,14 @@ export async function runGithubCommand(
           parseReviewWriteOptions(args.slice(1)),
           dependencies.stdout,
         );
+      case "pr-merge":
+        return await handlePrMerge(
+          run,
+          client,
+          parsePrMergeOptions(args.slice(1)),
+          await loadGithubConfig({ cwd, env }),
+          dependencies.stdout,
+        );
       default:
         throw createCommandError(
           "unknown_command",
@@ -157,6 +184,7 @@ export function renderGitHubHelp(): string {
     "GitHub commands:",
     `  ${renderPrReadHelp()}`,
     `  ${renderPrUpsertHelp()}`,
+    `  ${renderPrMergeHelp()}`,
     `  ${renderReviewThreadReplyHelp()}`,
     `  ${renderReviewThreadResolveHelp()}`,
     `  ${renderReviewWriteHelp()}`,
@@ -256,6 +284,88 @@ async function handlePrUpsert(
   }
 
   write(dependencies.stdout, JSON.stringify(result, null, 2));
+  return 0;
+}
+
+async function handlePrMerge(
+  run: RuntimeApiRun,
+  client: GitHubCliClientType,
+  options: PrMergeOptions,
+  loadedConfig: Pick<LoadedConfig, "policy">,
+  stdout: WriteFn | undefined,
+): Promise<number> {
+  requireGrantedCapability(run, "github.merge_pr");
+  requireRepoWriteScope(run);
+  const linkedPullRequest = requireLinkedPullRequest(run);
+  const [pullRequestState, readiness] = await Promise.all([
+    client.readPullRequest(linkedPullRequest),
+    client.readPullRequestMergeReadiness(linkedPullRequest),
+  ]);
+  const decision = evaluateMergePolicy({
+    policy: loadedConfig.policy.merge ?? DEFAULT_MERGE_POLICY,
+    reviewLoop: classifyPullRequestReviewLoop(pullRequestState),
+    readiness,
+    humanApproved: options.humanApproved,
+  });
+
+  if (options.method !== undefined && decision.mergeMethod !== options.method) {
+    throw createCommandError(
+      "merge_method_not_allowed",
+      `Requested merge method '${options.method}' is not allowed by policy.`,
+      {
+        requestedMethod: options.method,
+        allowedMethod: decision.mergeMethod,
+      },
+    );
+  }
+
+  if (options.dryRun) {
+    write(
+      stdout,
+      JSON.stringify(
+        {
+          pullRequestUrl: linkedPullRequest.url,
+          decision,
+          readiness,
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+
+  if (decision.disposition !== "ready_to_execute" || decision.mergeMethod === null) {
+    throw createCommandError(
+      decision.disposition === "ready_waiting_human"
+        ? "approval_required"
+        : "merge_policy_blocked",
+      decision.reasons.join(" "),
+      {
+        pullRequestUrl: linkedPullRequest.url,
+        decision,
+      },
+    );
+  }
+
+  const merge = await client.mergePullRequest({
+    pullRequest: linkedPullRequest,
+    method: decision.mergeMethod,
+    matchHeadCommit: readiness.pullRequest.headRefOid,
+  });
+
+  write(
+    stdout,
+    JSON.stringify(
+      {
+        pullRequestUrl: linkedPullRequest.url,
+        decision,
+        merge,
+      },
+      null,
+      2,
+    ),
+  );
   return 0;
 }
 
@@ -441,6 +551,36 @@ function parsePrUpsertOptions(args: string[]): PrUpsertOptions {
   return options as PrUpsertOptions;
 }
 
+function parsePrMergeOptions(args: string[]): PrMergeOptions {
+  const options: PrMergeOptions = {
+    dryRun: false,
+    humanApproved: false,
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    switch (argument) {
+      case "--dry-run":
+        options.dryRun = true;
+        break;
+      case "--human-approved":
+        options.humanApproved = true;
+        break;
+      case "--method":
+        options.method = parseMergeMethod(readOptionValue(args, index, argument));
+        index += 1;
+        break;
+      default:
+        throw createCommandError(
+          "invalid_argument",
+          `Unknown pr-merge option '${argument}'.`,
+        );
+    }
+  }
+
+  return options;
+}
+
 function parseThreadReplyOptions(args: string[]): ThreadReplyOptions {
   const options: Partial<ThreadReplyOptions> = {};
 
@@ -551,6 +691,20 @@ function parseReviewEvent(
       throw createCommandError(
         "invalid_argument",
         `Unsupported review event '${value}'. Expected comment, approve, or request-changes.`,
+      );
+  }
+}
+
+function parseMergeMethod(value: string): MergeMethod {
+  switch (value.trim().toLowerCase()) {
+    case "merge":
+    case "squash":
+    case "rebase":
+      return value.trim().toLowerCase() as MergeMethod;
+    default:
+      throw createCommandError(
+        "invalid_argument",
+        `Unsupported merge method '${value}'. Expected merge, squash, or rebase.`,
       );
   }
 }
@@ -701,6 +855,8 @@ function renderGitHubSubcommandHelp(
       return renderPrReadHelp();
     case "pr-upsert":
       return renderPrUpsertHelp();
+    case "pr-merge":
+      return renderPrMergeHelp();
     case "review-thread-reply":
       return renderReviewThreadReplyHelp();
     case "review-thread-resolve":
@@ -749,6 +905,11 @@ function isSubcommandHelpRequest(subcommand: string, args: string[]): boolean {
       return args.length === 1 && isHelpFlag(args[0] ?? "");
     case "pr-upsert":
       return hasStandaloneHelpFlag(args, new Set(["--title", "--body", "--base"]));
+    case "pr-merge":
+      return hasStandaloneHelpFlag(
+        args,
+        new Set(["--method"]),
+      );
     case "review-thread-reply":
       return hasStandaloneHelpFlag(args, new Set(["--thread-id", "--body"]));
     case "review-thread-resolve":
@@ -807,6 +968,10 @@ function renderPrReadHelp(): string {
 
 function renderPrUpsertHelp(): string {
   return "github pr-upsert --title <title> --body <body> [--base <branch>]";
+}
+
+function renderPrMergeHelp(): string {
+  return "github pr-merge [--dry-run] [--method merge|squash|rebase] [--human-approved]";
 }
 
 function renderReviewThreadReplyHelp(): string {

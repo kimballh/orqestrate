@@ -353,12 +353,16 @@ export function createRuntimeFixture(t: TestContext): RuntimeFixture {
       logDir: path.join(rootDir, "logs"),
       runtimeLogDir: path.join(rootDir, "logs", "runtime"),
       databasePath: path.join(rootDir, "state", "runtime.sqlite"),
-      policy: {
-        maxConcurrentRuns: 4,
-        maxRunsPerProvider: 2,
-        allowMixedProviders: true,
-        defaultPhaseTimeoutSec: 5400,
+    policy: {
+      maxConcurrentRuns: 4,
+      maxRunsPerProvider: 2,
+      allowMixedProviders: true,
+      defaultPhaseTimeoutSec: 5400,
+      merge: {
+        allowedMethods: ["squash"],
+        requireHumanApproval: false,
       },
+    },
     },
   };
 }

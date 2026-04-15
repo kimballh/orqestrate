@@ -25,6 +25,7 @@ export const EXECUTABLE_WORK_PHASES = [
   "plan",
   "implement",
   "review",
+  "merge",
 ] as const;
 
 export type ExecutableWorkPhase = (typeof EXECUTABLE_WORK_PHASES)[number];

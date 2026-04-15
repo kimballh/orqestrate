@@ -236,7 +236,7 @@ Those should be status or structured fields.
 | `Done` | `none` | no active orchestration phase |
 | `Canceled` | `none` | intentionally inactive |
 
-`merge` remains a reserved future phase. If the workflow gains a first-class merge handoff later, it should be modeled through `harness_phase` before adding another planning status.
+`merge` is now an execution-only handoff phase that reuses the `Review` planning status. Keep merge in `harness_phase` rather than inventing a separate Linear status.
 
 ## 6. Pollable selectors
 
@@ -268,8 +268,10 @@ These are the main selectors the orchestrator should poll.
 
 ### Merge queue
 
-- no default merge queue yet
-- reserve `harness_phase = merge` for a future workflow revision instead of inventing a planning status early
+- status = `Review`
+- `harness_phase = merge`
+- `review_outcome = approved`
+- `harness_state IN (queued, failed)` or lease expired
 
 ## 7. Transition rules
 
@@ -284,9 +286,10 @@ Recommended first-pass transitions:
 7. `Implement -> Review`
 8. `Implement -> Blocked`
 9. `Review -> Implement` when rework is needed
-10. `Review -> Done` when approved
-11. `Blocked -> Design | Plan | Implement | Review`
-12. `Design | Plan | Implement | Review | Blocked -> Canceled`
+10. `Review -> Review` with `harness_phase = merge` when approved
+11. `Merge -> Done` after successful merge
+12. `Blocked -> Design | Plan | Implement | Review`
+13. `Design | Plan | Implement | Review | Blocked -> Canceled`
 
 ## 8. State update examples
 
@@ -320,9 +323,9 @@ If review fails:
 
 If review passes:
 
-- status = `Done`
-- `harness_phase = none`
-- `harness_state = completed`
+- status = `Review`
+- `harness_phase = merge`
+- `harness_state = queued`
 - `review_outcome = approved`
 
 ## 9. Practical recommendation

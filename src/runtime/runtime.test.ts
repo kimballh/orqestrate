@@ -422,6 +422,10 @@ function createRuntimeFixture(t: TestContext): RuntimeFixture {
         maxRunsPerProvider: 2,
         allowMixedProviders: true,
         defaultPhaseTimeoutSec: 5400,
+        merge: {
+          allowedMethods: ["squash"],
+          requireHumanApproval: false,
+        },
       },
     },
   };
@@ -558,6 +562,10 @@ function createLoadedConfigFixture(): LoadedConfig {
       maxRunsPerProvider: 2,
       allowMixedProviders: true,
       defaultPhaseTimeoutSec: 5400,
+      merge: {
+        allowedMethods: ["squash"],
+        requireHumanApproval: false,
+      },
     },
     prompts: {
       root: "/tmp/prompts",

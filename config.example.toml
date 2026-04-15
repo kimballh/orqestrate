@@ -12,6 +12,10 @@ max_runs_per_provider = 2
 allow_mixed_providers = true
 default_phase_timeout_sec = 5400
 
+[policy.merge]
+allowed_methods = ["squash"]
+require_human_approval = false
+
 [prompts]
 root = "./docs/prompts"
 active_pack = "default"
@@ -28,8 +32,8 @@ provider = "github"
 surface = "pull_request"
 effect = "read"
 target_scope = "linked_pull_request"
-allowed_phases = ["implement", "review"]
-allowed_roles = ["implement", "review"]
+allowed_phases = ["implement", "review", "merge"]
+allowed_roles = ["implement", "review", "merge"]
 required_context = ["pull_request_url"]
 
 [prompt_capabilities."github.push_branch"]
@@ -82,6 +86,16 @@ allowed_phases = ["review"]
 allowed_roles = ["review"]
 required_context = ["pull_request_url", "write_scope"]
 
+[prompt_capabilities."github.merge_pr"]
+authority = "execution_surface_write"
+provider = "github"
+surface = "merge"
+effect = "state_transition"
+target_scope = "linked_pull_request"
+allowed_phases = ["merge"]
+allowed_roles = ["merge"]
+required_context = ["pull_request_url", "write_scope"]
+
 [prompt_capabilities.playwright_exploration]
 authority = "behavioral"
 allowed_phases = ["implement", "review"]
@@ -112,6 +126,7 @@ review = "phases/review.md"
 "github.reply_review_thread" = "capabilities/github-reply-review-thread.md"
 "github.resolve_review_thread" = "capabilities/github-resolve-review-thread.md"
 "github.write_review" = "capabilities/github-write-review.md"
+"github.merge_pr" = "capabilities/github-merge-pr.md"
 playwright_exploration = "capabilities/playwright-exploration.md"
 user_journey_comparison = "capabilities/user-journey-comparison.md"
 

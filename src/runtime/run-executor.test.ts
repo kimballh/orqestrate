@@ -383,6 +383,10 @@ type RuntimeFixture = {
       maxRunsPerProvider: number;
       allowMixedProviders: boolean;
       defaultPhaseTimeoutSec: number;
+      merge: {
+        allowedMethods: string[];
+        requireHumanApproval: boolean;
+      };
     };
   };
 };
@@ -704,6 +708,10 @@ function createRuntimeFixture(t: TestContext): RuntimeFixture {
         maxRunsPerProvider: 2,
         allowMixedProviders: true,
         defaultPhaseTimeoutSec: 5400,
+        merge: {
+          allowedMethods: ["squash"],
+          requireHumanApproval: false,
+        },
       },
     },
   };

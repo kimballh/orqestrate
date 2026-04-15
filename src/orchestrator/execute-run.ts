@@ -29,7 +29,10 @@ export type ExecutePreparedRunDependencies = {
   runtimeObserver?: RuntimeObserver;
   createGitHubClient?: (
     cwd: string,
-  ) => Pick<GitHubCliClient, "readPullRequest" | "findOpenPullRequestForBranch">;
+  ) => Pick<
+    GitHubCliClient,
+    "readPullRequest" | "readPullRequestMergeReadiness" | "findOpenPullRequestForBranch"
+  >;
   now?: () => Date;
   eventPollWaitMs?: number;
   leaseSafetyWindowMs?: number;
@@ -103,6 +106,7 @@ export async function executePreparedRun(
     {
       planning: dependencies.planning,
       context: dependencies.context,
+      mergePolicy: dependencies.loadedConfig.policy.merge,
       createGitHubClient: dependencies.createGitHubClient,
     },
     prepared,

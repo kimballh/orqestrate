@@ -374,6 +374,33 @@ test("parses GitHub execution-surface metadata for canonical capabilities", () =
   );
 });
 
+test("accepts GitHub merge capabilities scoped to the merge phase", () => {
+  const fixture = createFixtureWorkspace();
+  const config = parseConfig(
+    `${VALID_CONFIG}
+
+[prompt_capabilities."github.merge_pr"]
+authority = "execution_surface_write"
+provider = "github"
+surface = "merge"
+effect = "state_transition"
+target_scope = "linked_pull_request"
+allowed_phases = ["merge"]
+allowed_roles = ["merge"]
+required_context = ["pull_request_url", "write_scope"]
+`,
+    {
+      sourcePath: fixture.sourcePath,
+      env: {},
+    },
+  );
+
+  assert.equal(config.promptCapabilities["github.merge_pr"]?.surface, "merge");
+  assert.deepEqual(config.promptCapabilities["github.merge_pr"]?.allowedPhases, [
+    "merge",
+  ]);
+});
+
 test("rejects GitHub capability metadata that violates role and phase policy", () => {
   const fixture = createFixtureWorkspace();
 

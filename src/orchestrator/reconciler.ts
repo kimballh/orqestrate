@@ -1,6 +1,8 @@
+import type { MergePolicyConfig } from "../config/types.js";
 import type { ContextBackend } from "../core/context-backend.js";
 import type { PlanningBackend } from "../core/planning-backend.js";
 import type { WorkItemRecord } from "../domain-model.js";
+import type { GitHubCliClient } from "../github/client.js";
 
 import { hasExpiredLease, hasActiveLease } from "./claimability.js";
 import { renewLeaseIfNeeded } from "./lease-renewer.js";
@@ -19,6 +21,10 @@ export type ReconcilerDependencies = {
   runtimeObserver: RuntimeObserver;
   owner: string;
   leaseDurationMs: number;
+  mergePolicy?: MergePolicyConfig;
+  createGitHubClient?: (
+    cwd: string,
+  ) => Pick<GitHubCliClient, "readPullRequest" | "readPullRequestMergeReadiness">;
   now?: () => Date;
 };
 
@@ -28,6 +34,10 @@ export class Reconciler {
   private readonly runtimeObserver: RuntimeObserver;
   private readonly owner: string;
   private readonly leaseDurationMs: number;
+  private readonly mergePolicy: MergePolicyConfig | undefined;
+  private readonly createGitHubClient:
+    | ((cwd: string) => Pick<GitHubCliClient, "readPullRequest" | "readPullRequestMergeReadiness">)
+    | undefined;
   private readonly now: () => Date;
 
   constructor(dependencies: ReconcilerDependencies) {
@@ -36,6 +46,8 @@ export class Reconciler {
     this.runtimeObserver = dependencies.runtimeObserver;
     this.owner = dependencies.owner;
     this.leaseDurationMs = dependencies.leaseDurationMs;
+    this.mergePolicy = dependencies.mergePolicy;
+    this.createGitHubClient = dependencies.createGitHubClient;
     this.now = dependencies.now ?? (() => new Date());
   }
 
@@ -81,6 +93,8 @@ export class Reconciler {
         const outcome = await applyRecoveredRuntimeOutcome({
           planning: this.planning,
           context: this.context,
+          mergePolicy: this.mergePolicy,
+          createGitHubClient: this.createGitHubClient,
           workItem: input.workItem,
           runtimeRun: runtimeRun as ObservedRuntimeRun,
         });
@@ -97,6 +111,8 @@ export class Reconciler {
         const staleOutcome = await applyRecoveredRuntimeOutcome({
           planning: this.planning,
           context: this.context,
+          mergePolicy: this.mergePolicy,
+          createGitHubClient: this.createGitHubClient,
           workItem: input.workItem,
           runtimeRun: {
           runId: input.workItem.orchestration.runId ?? "missing-run",
@@ -188,6 +204,8 @@ export class Reconciler {
       const outcome = await applyRecoveredRuntimeOutcome({
         planning: this.planning,
         context: this.context,
+        mergePolicy: this.mergePolicy,
+        createGitHubClient: this.createGitHubClient,
         workItem,
         runtimeRun: input.runtimeRun,
       });

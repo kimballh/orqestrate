@@ -238,6 +238,56 @@ test("reconciles completed implement runs by advancing the ticket and clearing t
   assert.equal(result.workItem?.orchestration.leaseUntil, null);
 });
 
+test("reconciles completed approved review runs into queued merge work", async () => {
+  const workItem = createWorkItem({
+    phase: "review",
+    status: "review",
+    orchestration: {
+      state: "running",
+      owner: "orchestrator:test",
+      runId: "run-44",
+      leaseUntil: "2026-04-15T00:00:10.000Z",
+      reviewOutcome: "approved",
+      blockedReason: null,
+      lastError: null,
+      attemptCount: 1,
+    },
+  });
+  const planning = new FakePlanningBackend(workItem);
+  const context = new FakeContextBackend(createArtifact());
+  const runtimeRun = createRuntimeRun({
+    runId: "run-44",
+    status: "completed",
+    phase: "review",
+    outcome: {
+      summary: "Recovered successful review run.",
+      error: null,
+      reviewOutcome: "approved",
+    },
+  });
+  const runtimeObserver = new FakeRuntimeObserver({
+    runsById: new Map([[runtimeRun.runId, runtimeRun]]),
+  });
+  const reconciler = new Reconciler({
+    planning,
+    context,
+    runtimeObserver,
+    owner: "orchestrator:test",
+    leaseDurationMs: 60_000,
+    now: () => new Date("2026-04-15T00:00:09.000Z"),
+  });
+
+  const result = await reconciler.reconcileLeasedWorkItem({
+    workItem,
+    runtimeHealthy: true,
+  });
+
+  assert.equal(result.classification.kind, "planning_active_runtime_terminal");
+  assert.equal(planning.transitionCalls[0]?.nextStatus, "review");
+  assert.equal(planning.transitionCalls[0]?.nextPhase, "merge");
+  assert.equal(result.workItem?.phase, "merge");
+});
+
 test("treats terminal runs for an older run id as orphaned instead of mutating the current work item", async () => {
   const workItem = createWorkItem({
     orchestration: {

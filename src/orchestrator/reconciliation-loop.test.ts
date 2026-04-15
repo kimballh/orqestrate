@@ -248,6 +248,23 @@ test("fast ticks reroute queued review work back to implement when the linked PR
         baseRefName: "main",
         authorLogin: "kimballh",
       }),
+      readPullRequestMergeReadiness: async () => ({
+        pullRequest: {
+          id: "PR_kwDOORQ43",
+          number: 43,
+          url: "https://github.com/kimballh/orqestrate/pull/43",
+          state: "OPEN",
+          isDraft: false,
+          reviewDecision: "APPROVED",
+          mergeStateStatus: "CLEAN",
+          mergeable: "MERGEABLE",
+          merged: false,
+          mergedAt: null,
+          headRefOid: "abc123",
+        },
+        statusCheckRollupState: "SUCCESS",
+        requiredChecks: [],
+      }),
       readPullRequest: async () => ({
         viewerLogin: "kimballh",
         pullRequest: {
@@ -346,6 +363,23 @@ test("fast ticks do not reroute failed work items from PR state alone", async ()
     listTrackedWorkItems: async () => [structuredClone(workItem)],
     createGitHubClient: () => ({
       findOpenPullRequestForBranch: async () => null,
+      readPullRequestMergeReadiness: async () => ({
+        pullRequest: {
+          id: "PR_unused",
+          number: 0,
+          url: "https://github.com/kimballh/orqestrate/pull/0",
+          state: "OPEN",
+          isDraft: false,
+          reviewDecision: "APPROVED",
+          mergeStateStatus: "CLEAN",
+          mergeable: "MERGEABLE",
+          merged: false,
+          mergedAt: null,
+          headRefOid: "abc123",
+        },
+        statusCheckRollupState: "SUCCESS",
+        requiredChecks: [],
+      }),
       readPullRequest: async () => {
         throw new Error("PR state should not be read for failed work");
       },

@@ -171,7 +171,7 @@ export function classifyPullRequestReviewLoop(
 }
 
 export function renderPullRequestReviewLoopContext(input: {
-  phase: "implement" | "review";
+  phase: "implement" | "review" | "merge";
   snapshot: PullRequestReviewLoopSnapshot;
 }): string | null {
   if (input.snapshot.unresolvedThreadCount === 0) {
@@ -185,21 +185,29 @@ export function renderPullRequestReviewLoopContext(input: {
   const relevantAction =
     input.phase === "implement"
       ? "implementer_action_required"
-      : "reviewer_action_required";
+      : input.phase === "review"
+        ? "reviewer_action_required"
+        : null;
   const relevantLabel =
     input.phase === "implement"
       ? "Threads requiring implementation action"
-      : "Threads requiring review action";
-  const relevantThreads = input.snapshot.threads.filter(
-    (thread) => thread.action === relevantAction,
-  );
+      : input.phase === "review"
+        ? "Threads requiring review action"
+        : "Merge-relevant review threads";
+  const relevantThreads =
+    relevantAction === null
+      ? input.snapshot.threads.filter((thread) => thread.action !== "ambiguous")
+      : input.snapshot.threads.filter((thread) => thread.action === relevantAction);
   const ambiguousThreads = input.snapshot.threads.filter(
     (thread) => thread.action === "ambiguous",
   );
-  const counterpartThreads = input.snapshot.threads.filter(
-    (thread) =>
-      thread.action !== relevantAction && thread.action !== "ambiguous",
-  );
+  const counterpartThreads =
+    relevantAction === null
+      ? []
+      : input.snapshot.threads.filter(
+          (thread) =>
+            thread.action !== relevantAction && thread.action !== "ambiguous",
+        );
 
   const lines = [
     `Pull request: ${input.snapshot.pullRequestUrl}`,
@@ -218,7 +226,11 @@ export function renderPullRequestReviewLoopContext(input: {
   lines.push(
     "",
     `Threads requiring ${
-      input.phase === "implement" ? "review" : "implementation"
+      input.phase === "implement"
+        ? "review"
+        : input.phase === "review"
+          ? "implementation"
+          : "follow-up"
     } action: ${counterpartThreads.length}`,
   );
   if (counterpartThreads.length > 0) {

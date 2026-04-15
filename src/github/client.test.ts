@@ -453,3 +453,128 @@ test("readPullRequest paginates files, reviews, threads, and thread comments", a
   assert.ok(calls.some((args) => args.some((arg) => arg === "cursor=thread-cursor-1")));
   assert.ok(calls.some((args) => args.some((arg) => arg === "cursor=comment-cursor-1")));
 });
+
+test("readPullRequestMergeReadiness parses merge policy fields and required checks", async () => {
+  const client = new GitHubCliClient({
+    cwd: "/repo",
+    env: {},
+    run: async () => ({
+      stdout: JSON.stringify({
+        data: {
+          repository: {
+            pullRequest: {
+              id: "PR_kwDO",
+              number: 44,
+              url: "https://github.com/kimballh/orqestrate/pull/44",
+              state: "OPEN",
+              isDraft: false,
+              reviewDecision: "APPROVED",
+              mergeStateStatus: "CLEAN",
+              mergeable: "MERGEABLE",
+              merged: false,
+              mergedAt: null,
+              headRefOid: "abc123",
+              statusCheckRollup: {
+                state: "SUCCESS",
+                contexts: {
+                  nodes: [
+                    {
+                      __typename: "CheckRun",
+                      name: "ci",
+                      status: "COMPLETED",
+                      conclusion: "SUCCESS",
+                      isRequired: true,
+                    },
+                    {
+                      __typename: "StatusContext",
+                      context: "optional-status",
+                      state: "SUCCESS",
+                      isRequired: false,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      }),
+      stderr: "",
+    }),
+  });
+
+  const result = await client.readPullRequestMergeReadiness({
+    owner: "kimballh",
+    repo: "orqestrate",
+    number: 44,
+    url: "https://github.com/kimballh/orqestrate/pull/44",
+  });
+
+  assert.equal(result.pullRequest.mergeable, "MERGEABLE");
+  assert.equal(result.statusCheckRollupState, "SUCCESS");
+  assert.deepEqual(result.requiredChecks, [
+    {
+      name: "ci",
+      state: "SUCCESS",
+      isRequired: true,
+    },
+  ]);
+});
+
+test("mergePullRequest passes through the selected merge method and head commit guard", async () => {
+  const calls: string[][] = [];
+  const client = new GitHubCliClient({
+    cwd: "/repo",
+    env: {},
+    run: async (input) => {
+      calls.push(input.args);
+      const command = input.args.join(" ");
+
+      if (command.startsWith("pr merge")) {
+        return {
+          stdout: "",
+          stderr: "",
+        };
+      }
+
+      return {
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              pullRequest: {
+                id: "PR_kwDO",
+                number: 44,
+                url: "https://github.com/kimballh/orqestrate/pull/44",
+                state: "MERGED",
+                isDraft: false,
+                reviewDecision: "APPROVED",
+                mergeStateStatus: "CLEAN",
+                mergeable: "MERGEABLE",
+                merged: true,
+                mergedAt: "2026-04-15T22:00:00.000Z",
+                headRefOid: "abc123",
+                statusCheckRollup: null,
+              },
+            },
+          },
+        }),
+        stderr: "",
+      };
+    },
+  });
+
+  const result = await client.mergePullRequest({
+    pullRequest: {
+      owner: "kimballh",
+      repo: "orqestrate",
+      number: 44,
+      url: "https://github.com/kimballh/orqestrate/pull/44",
+    },
+    method: "squash",
+    matchHeadCommit: "abc123",
+  });
+
+  assert.ok(calls[0]?.includes("--squash"));
+  assert.ok(calls[0]?.includes("--match-head-commit"));
+  assert.equal(result.method, "squash");
+  assert.equal(result.pullRequest.state, "MERGED");
+});

@@ -61,6 +61,7 @@ export const PROMPT_CAPABILITY_SURFACES = [
   "branch",
   "review_thread",
   "review_submission",
+  "merge",
 ] as const;
 
 export type PromptCapabilitySurface =
@@ -96,6 +97,15 @@ export interface PromptCapabilityDefinition {
   targetScope?: PromptCapabilityTargetScope;
 }
 
+export const MERGE_METHODS = ["merge", "squash", "rebase"] as const;
+
+export type MergeMethod = (typeof MERGE_METHODS)[number];
+
+export interface MergePolicyConfig {
+  allowedMethods: MergeMethod[];
+  requireHumanApproval: boolean;
+}
+
 export interface PathsConfig {
   stateDir: string;
   dataDir: string;
@@ -107,6 +117,7 @@ export interface PolicyConfig {
   maxRunsPerProvider: number;
   allowMixedProviders: boolean;
   defaultPhaseTimeoutSec: number;
+  merge: MergePolicyConfig;
 }
 
 export interface PromptsConfig {
