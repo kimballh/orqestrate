@@ -84,7 +84,7 @@ export async function runSetupCommand(
 export function renderSetupHelp(): string {
   return [
     "Setup commands:",
-    "  init      Create a starter config.toml from config.example.toml.",
+    "  init      Create a starter config.toml from the packaged example config.",
     "  bootstrap Validate the selected profile and prepare local state.",
   ].join("\n");
 }
@@ -94,7 +94,7 @@ function renderInitHelp(): string {
     "Init options:",
     "  --config <path>   Target config file path. Defaults to ./config.toml.",
     "  --profile <name>  Active profile to write into the generated config.",
-    "  --cwd <path>      Workspace root that contains config.example.toml.",
+    "  --cwd <path>      Workspace root where config.toml should be created.",
     "  --force           Overwrite an existing config file.",
   ].join("\n");
 }
@@ -104,7 +104,7 @@ function renderBootstrapHelp(): string {
     "Bootstrap options:",
     "  --config <path>   Config file path. Defaults to ./config.toml.",
     "  --profile <name>  Override the active profile for this bootstrap run.",
-    "  --cwd <path>      Workspace root for config and local example assets.",
+    "  --cwd <path>      Workspace root for config and generated local state.",
     "  --force           Re-seed the local example roots when applicable.",
   ].join("\n");
 }
@@ -152,10 +152,10 @@ function parseSetupOptions(
 
 function formatInitOutput(result: InitializeWorkspaceResult): string {
   const configDisplay = displayPath(result.workingDirectory, result.configPath);
-  const nextBootstrapCommand =
+  const nextBootstrapStep =
     result.profileName === "local"
       ? renderBootstrapCommand(result.workingDirectory, result.configPath)
-      : `Review ${configDisplay}, replace placeholder credentials, then run: ${renderBootstrapCommand(result.workingDirectory, result.configPath)}`;
+      : `Review ${configDisplay}, replace placeholder credentials, then run ${renderBootstrapCommand(result.workingDirectory, result.configPath)}.`;
 
   return [
     "Initialization complete.",
@@ -165,7 +165,7 @@ function formatInitOutput(result: InitializeWorkspaceResult): string {
     `Overwrite: ${result.overwritten ? "replaced existing file" : "created new file"}`,
     "",
     "Next steps:",
-    `  ${nextBootstrapCommand}`,
+    `  ${nextBootstrapStep}`,
   ].join("\n");
 }
 
@@ -212,13 +212,13 @@ function renderBootstrapCommand(
   configPath: string,
 ): string {
   if (isDefaultConfigPath(workingDirectory, configPath)) {
-    return "npm run orq:bootstrap";
+    return "orq bootstrap from this workspace (repo-local equivalent: npm run orq:bootstrap)";
   }
 
-  const parts = ["npx", "tsx", "src/index.ts", "bootstrap", "--config"];
-  parts.push(displayPath(workingDirectory, configPath));
+  const configDisplay = displayPath(workingDirectory, configPath);
+  const parts = ["orq", "bootstrap", "--config", configDisplay];
 
-  return parts.join(" ");
+  return `${parts.join(" ")} (repo-local equivalent: npx tsx src/index.ts bootstrap --config ${configDisplay})`;
 }
 
 function renderRuntimeNextStep(
@@ -226,13 +226,13 @@ function renderRuntimeNextStep(
   configPath: string,
   profileOverride?: string,
 ): string {
-  const parts = ["npx", "tsx", "src/runtime/main.ts"];
+  const parts = ["orq", "runtime", "start"];
 
   if (
     isDefaultConfigPath(workingDirectory, configPath) &&
     profileOverride === undefined
   ) {
-    return "npm run dev";
+    return "orq runtime start (repo-local equivalents: npm run dev or npm start)";
   }
 
   if (!isDefaultConfigPath(workingDirectory, configPath)) {
@@ -243,7 +243,7 @@ function renderRuntimeNextStep(
     parts.push("--profile", profileOverride);
   }
 
-  return parts.join(" ");
+  return `${parts.join(" ")} (repo-local equivalent: ${renderRepoLocalRuntimeCommand(workingDirectory, configPath, profileOverride)})`;
 }
 
 function formatHealthStatus(healthCheckOk: boolean | null): string {
@@ -262,6 +262,24 @@ function resolveCommandCwd(
   return cwdArgument === undefined
     ? path.resolve(baseCwd)
     : path.resolve(baseCwd, cwdArgument);
+}
+
+function renderRepoLocalRuntimeCommand(
+  workingDirectory: string,
+  configPath: string,
+  profileOverride?: string,
+): string {
+  const parts = ["npx", "tsx", "src/runtime/main.ts"];
+
+  if (!isDefaultConfigPath(workingDirectory, configPath)) {
+    parts.push("--config", displayPath(workingDirectory, configPath));
+  }
+
+  if (profileOverride !== undefined) {
+    parts.push("--profile", profileOverride);
+  }
+
+  return parts.join(" ");
 }
 
 function isDefaultConfigPath(workingDirectory: string, configPath: string): boolean {

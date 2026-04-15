@@ -1,19 +1,12 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
 import { runCli } from "../index.js";
 import { loadConfig } from "../config/loader.js";
 import { LocalFilesPlanningBackend } from "../providers/planning/local-files-backend.js";
-
-const REPO_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-);
 
 test("top-level help includes the setup commands", async () => {
   const fixture = createSetupCliFixture();
@@ -22,6 +15,7 @@ test("top-level help includes the setup commands", async () => {
   assert.equal(result.exitCode, 0);
   assert.match(result.stdout, /init\s+Create a starter config\.toml/);
   assert.match(result.stdout, /bootstrap\s+Validate the selected profile/);
+  assert.match(result.stdout, /runtime\s+Start the runtime daemon/);
 });
 
 test("init creates config.toml from the canonical example and can override the profile", async () => {
@@ -36,13 +30,18 @@ test("init creates config.toml from the canonical example and can override the p
   assert.match(result.stdout, /Profile: hybrid/);
   assert.match(
     result.stdout,
-    /replace placeholder credentials, then run: npm run orq:bootstrap/,
+    /replace placeholder credentials, then run orq bootstrap from this workspace/,
   );
-  assert.equal(
-    readFileSync(path.join(fixture.workspaceDir, "config.toml"), "utf8").includes(
-      'active_profile = "hybrid"',
-    ),
-    true,
+  const generatedConfig = readFileSync(
+    path.join(fixture.workspaceDir, "config.toml"),
+    "utf8",
+  );
+
+  assert.match(generatedConfig, /active_profile = "hybrid"/);
+  assert.match(generatedConfig, /root = ".*docs[\\/\\\\]prompts"/);
+  assert.match(
+    generatedConfig,
+    /artifact_template = ".*examples[\\/\\\\]local[\\/\\\\]context[\\/\\\\]templates[\\/\\\\]artifact\.md"/,
   );
 });
 
@@ -65,7 +64,10 @@ test("bootstrap seeds the local example and validates the local profile", async 
   const fixture = createSetupCliFixture();
   const initResult = await invokeCli(["init"], fixture.workspaceDir);
 
-  assert.match(initResult.stdout, /Next steps:\n  npm run orq:bootstrap/);
+  assert.match(
+    initResult.stdout,
+    /Next steps:\n  orq bootstrap from this workspace/,
+  );
   const result = await invokeCli(["bootstrap"], fixture.workspaceDir);
   const config = await loadConfig({
     configPath: path.join(fixture.workspaceDir, "config.toml"),
@@ -114,25 +116,5 @@ async function invokeCli(
 
 function createSetupCliFixture(): { workspaceDir: string } {
   const workspaceDir = mkdtempSync(path.join(tmpdir(), "orq-setup-cli-"));
-
-  cpSync(
-    path.join(REPO_ROOT, "config.example.toml"),
-    path.join(workspaceDir, "config.example.toml"),
-  );
-  cpSync(
-    path.join(REPO_ROOT, "docs", "prompts"),
-    path.join(workspaceDir, "docs", "prompts"),
-    {
-      recursive: true,
-    },
-  );
-  cpSync(
-    path.join(REPO_ROOT, "examples", "local"),
-    path.join(workspaceDir, "examples", "local"),
-    {
-      recursive: true,
-    },
-  );
-
   return { workspaceDir };
 }

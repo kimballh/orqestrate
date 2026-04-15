@@ -2,6 +2,7 @@ export * from "./bootstrap.js";
 export * from "./context-backend.js";
 export * from "./errors.js";
 export * from "./local-example.js";
+export * from "./package-assets.js";
 export * from "./planning-backend.js";
 export * from "./prompt-assembly.js";
 export * from "./provider-backend.js";

@@ -4,6 +4,14 @@
   "private": true,
   "description": "A provider-driven orchestration harness for planning, context, and agent execution.",
   "type": "module",
+  "files": [
+    "dist",
+    "config.example.toml",
+    "docs/prompts",
+    "examples/local",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "orq": "dist/index.js"
   },
