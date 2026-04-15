@@ -41,7 +41,7 @@ Recommended top-level sections:
 
 ## 4. Example
 
-See [config.example.toml](./config.example.toml).
+See [config.example.toml](../config.example.toml).
 
 ## 5. Recommended schema
 

@@ -1,0 +1,32 @@
+{
+  "id": "LOCAL-002",
+  "identifier": "LOCAL-002",
+  "title": "Seed the local-only provider fixtures",
+  "description": "This completed prerequisite demonstrates how downstream work can unblock once a local bootstrap dependency is already done.",
+  "status": "done",
+  "phase": "none",
+  "priority": 2,
+  "labels": [
+    "local-first"
+  ],
+  "url": null,
+  "parentId": null,
+  "dependencyIds": [],
+  "blockedByIds": [],
+  "blocksIds": [
+    "LOCAL-001"
+  ],
+  "artifactUrl": null,
+  "updatedAt": "2026-04-14T23:45:00.000Z",
+  "createdAt": "2026-04-14T22:30:00.000Z",
+  "orchestration": {
+    "state": "completed",
+    "owner": null,
+    "runId": "seed-run-1",
+    "leaseUntil": null,
+    "reviewOutcome": "none",
+    "blockedReason": null,
+    "lastError": null,
+    "attemptCount": 0
+  }
+}
