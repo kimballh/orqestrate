@@ -796,17 +796,32 @@ export class NotionContextBackend extends UnimplementedContextBackend<ContextNot
     const targets = await this.ensureTargets();
     const issueIdPropertyType =
       runDataSource.properties[schema.issueIdPropertyName]?.type ?? "unknown";
-    const results = await this.getClient().queryDataSourcePages({
-      dataSourceId: targets.runs.dataSourceId,
-      filter: buildExactMatchFilter(
-        schema.issueIdPropertyName,
-        issueIdPropertyType,
-        workItemId,
-      ),
-      pageSize: RECENT_RUN_LIMIT * 4,
-    });
+    const pages: NotionPage[] = [];
+    let nextCursor: string | undefined;
 
-    return results.results
+    do {
+      const results = await this.getClient().queryDataSourcePages({
+        dataSourceId: targets.runs.dataSourceId,
+        filter: buildExactMatchFilter(
+          schema.issueIdPropertyName,
+          issueIdPropertyType,
+          workItemId,
+        ),
+        sorts: [
+          {
+            property: schema.startedAtPropertyName,
+            direction: "descending",
+          },
+        ],
+        startCursor: nextCursor,
+        pageSize: RECENT_RUN_LIMIT,
+      });
+
+      pages.push(...results.results);
+      nextCursor = results.hasMore ? results.nextCursor ?? undefined : undefined;
+    } while (pages.length < RECENT_RUN_LIMIT && nextCursor !== undefined);
+
+    return pages
       .map((page) => toRunLedgerRecord(page, runDataSource, schema, page.id, workItemId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, RECENT_RUN_LIMIT);
@@ -1628,11 +1643,11 @@ function readArtifactReferenceId(
   value: unknown,
   propertyType: string | null,
 ): string | null {
-  if (propertyType !== "rich_text") {
-    return null;
+  if (propertyType === "rich_text" || propertyType === "url") {
+    return readStringPropertyValue(value);
   }
 
-  return readStringPropertyValue(value);
+  return null;
 }
 
 function renderArtifactDocument(workItem: WorkItemRecord): string {
