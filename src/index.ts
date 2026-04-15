@@ -14,6 +14,7 @@ import {
   renderPromptHelp,
   runPromptCommand,
 } from "./cli/prompt-command.js";
+import { renderRunHelp, runRunCommand } from "./cli/run-command.js";
 import {
   SetupCommandError,
   renderSetupHelp,
@@ -29,7 +30,10 @@ export * from "./runtime/index.js";
 export * from "./cli/prompt-command.js";
 export * from "./cli/prompt-diff.js";
 export * from "./cli/prompt-preview.js";
+export * from "./cli/run-command.js";
 export * from "./cli/setup-command.js";
+export * from "./diagnostics/failure-diagnosis.js";
+export * from "./diagnostics/run-diagnostics.js";
 export * from "./cli/github-command.js";
 export * from "./github/client.js";
 export * from "./github/permission-gate.js";
@@ -38,7 +42,8 @@ export * from "./github/scope.js";
 
 export type CliDependencies = Parameters<typeof runPromptCommand>[1] &
   Parameters<typeof runSetupCommand>[1] &
-  Parameters<typeof runGithubCommand>[1] & {
+  Parameters<typeof runGithubCommand>[1] &
+  Parameters<typeof runRunCommand>[1] & {
   stderr?: (message: string) => void;
 };
 
@@ -59,6 +64,10 @@ export async function runCli(
 
   if (command === "prompt") {
     return runPromptCommand(argv.slice(1), dependencies);
+  }
+
+  if (command === "run") {
+    return runRunCommand(argv.slice(1), dependencies);
   }
 
   if (command === "github") {
@@ -112,12 +121,15 @@ function renderTopLevelHelp(): string {
     "  bootstrap Validate the selected profile and prepare local state.",
     "  github   Run bounded GitHub PR interactions inside a managed run.",
     "  prompt   Render and diff resolved prompt variants.",
+    "  run      Inspect runtime runs as operator-friendly diagnostics views.",
     "",
     renderSetupHelp(),
     "",
     renderGitHubHelp(),
     "",
     renderPromptHelp(),
+    "",
+    renderRunHelp(),
   ].join("\n");
 }
 
