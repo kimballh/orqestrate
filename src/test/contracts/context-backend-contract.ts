@@ -107,6 +107,7 @@ export function defineContextBackendContract(
         phase: "implement",
         status: "running",
       });
+      const loadedRun = await setup.backend.getRunLedgerEntry("run-1");
       const finalizedRun = await setup.backend.finalizeRunLedgerEntry({
         runId: "run-1",
         status: "completed",
@@ -128,6 +129,7 @@ export function defineContextBackendContract(
       });
 
       assert.equal(createdRun.workItemId, workItem.id);
+      assert.deepEqual(loadedRun, createdRun);
       assert.equal(finalizedRun.status, "completed");
       assert.equal(finalizedRun.summary, "Checks passed.");
       assert.ok(storedArtifact);
@@ -176,6 +178,7 @@ export function defineContextBackendContract(
           }),
         /does not exist/i,
       );
+      assert.equal(await setup.backend.getRunLedgerEntry("missing-run"), null);
 
       const error = createProviderErrorFixture({
         providerFamily: "context",
