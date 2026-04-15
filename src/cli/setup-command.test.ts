@@ -34,6 +34,10 @@ test("init creates config.toml from the canonical example and can override the p
   assert.equal(result.exitCode, 0);
   assert.match(result.stdout, /Initialization complete\./);
   assert.match(result.stdout, /Profile: hybrid/);
+  assert.match(
+    result.stdout,
+    /replace placeholder credentials, then run: npm run orq:bootstrap/,
+  );
   assert.equal(
     readFileSync(path.join(fixture.workspaceDir, "config.toml"), "utf8").includes(
       'active_profile = "hybrid"',
@@ -59,8 +63,9 @@ test("init refuses to overwrite an existing config.toml without --force", async 
 
 test("bootstrap seeds the local example and validates the local profile", async () => {
   const fixture = createSetupCliFixture();
-  await invokeCli(["init"], fixture.workspaceDir);
+  const initResult = await invokeCli(["init"], fixture.workspaceDir);
 
+  assert.match(initResult.stdout, /Next steps:\n  npm run orq:bootstrap/);
   const result = await invokeCli(["bootstrap"], fixture.workspaceDir);
   const config = await loadConfig({
     configPath: path.join(fixture.workspaceDir, "config.toml"),
@@ -110,13 +115,24 @@ async function invokeCli(
 function createSetupCliFixture(): { workspaceDir: string } {
   const workspaceDir = mkdtempSync(path.join(tmpdir(), "orq-setup-cli-"));
 
-  cpSync(path.join(REPO_ROOT, "config.example.toml"), path.join(workspaceDir, "config.example.toml"));
-  cpSync(path.join(REPO_ROOT, "docs", "prompts"), path.join(workspaceDir, "docs", "prompts"), {
-    recursive: true,
-  });
-  cpSync(path.join(REPO_ROOT, "examples", "local"), path.join(workspaceDir, "examples", "local"), {
-    recursive: true,
-  });
+  cpSync(
+    path.join(REPO_ROOT, "config.example.toml"),
+    path.join(workspaceDir, "config.example.toml"),
+  );
+  cpSync(
+    path.join(REPO_ROOT, "docs", "prompts"),
+    path.join(workspaceDir, "docs", "prompts"),
+    {
+      recursive: true,
+    },
+  );
+  cpSync(
+    path.join(REPO_ROOT, "examples", "local"),
+    path.join(workspaceDir, "examples", "local"),
+    {
+      recursive: true,
+    },
+  );
 
   return { workspaceDir };
 }

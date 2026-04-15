@@ -211,11 +211,12 @@ function renderBootstrapCommand(
   workingDirectory: string,
   configPath: string,
 ): string {
-  const parts = ["orq", "bootstrap"];
-
-  if (!isDefaultConfigPath(workingDirectory, configPath)) {
-    parts.push("--config", displayPath(workingDirectory, configPath));
+  if (isDefaultConfigPath(workingDirectory, configPath)) {
+    return "npm run orq:bootstrap";
   }
+
+  const parts = ["npx", "tsx", "src/index.ts", "bootstrap", "--config"];
+  parts.push(displayPath(workingDirectory, configPath));
 
   return parts.join(" ");
 }
