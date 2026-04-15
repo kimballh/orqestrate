@@ -91,6 +91,15 @@ test("returns a prepared run after claiming, loading context, and assembling the
     result.prepared.submission.promptProvenance?.rendered.attachmentKinds,
     ["planning_url", "artifact_url"],
   );
+  assert.equal(result.prepared.submission.promptReplayContext?.runId, "run-37");
+  assert.equal(
+    result.prepared.submission.promptReplayContext?.workspace.assignedBranch,
+    null,
+  );
+  assert.match(
+    result.prepared.submission.promptReplayContext?.additionalContext ?? "",
+    /Loaded issue context\./,
+  );
   assert.ok(
     result.prepared.submission.promptProvenance?.sources.some(
       (source) => source.ref === "run-context",

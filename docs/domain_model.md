@@ -470,6 +470,34 @@ export type PromptProvenanceRecord = {
     attachmentCount: number;
   };
 };
+
+export type PromptReplayContextRecord = {
+  runId?: string | null;
+  workItem: Pick<
+    WorkItemRecord,
+    "id" | "identifier" | "title" | "description" | "labels" | "url"
+  >;
+  artifact?: Pick<ArtifactRecord, "artifactId" | "url" | "summary"> | null;
+  workspace: {
+    repoRoot: string;
+    workingDir?: string | null;
+    mode: WorkspaceMode;
+    assignedBranch?: string | null;
+    baseBranch?: string | null;
+    pullRequestUrl?: string | null;
+    pullRequestMode?: string | null;
+    writeScope?: string | null;
+  };
+  expectations: {
+    expectedOutputs?: string[];
+    verificationRequired?: boolean;
+    requiredRepoChecks?: string[];
+    testExpectations?: string | null;
+  };
+  operatorNote?: string | null;
+  additionalContext?: string | null;
+  attachments?: PromptAttachment[];
+};
 ```
 
 Rules:
@@ -479,6 +507,7 @@ Rules:
 - attachments are typed references, not unstructured prose
 - prompt source refs should be symbolic and portable, such as `prompt-pack:default/roles/implement.md`, not absolute filesystem paths
 - runtime providers must not infer prompt structure by scraping human-readable summaries
+- `PromptReplayContextRecord` is the replayable prompt-input snapshot used by local diagnostics, not a public runtime-read surface
 
 ### 6.3 Run submission payload
 
@@ -507,6 +536,7 @@ export type RunSubmissionPayload = {
   prompt: PromptEnvelope;
   grantedCapabilities: string[];
   promptProvenance?: PromptProvenanceRecord | null;
+  promptReplayContext?: PromptReplayContextRecord | null;
   limits: {
     maxWallTimeSec: number;
     idleTimeoutSec: number;
@@ -521,6 +551,7 @@ Rules:
 - runtime submission must be self-contained for one run
 - `phase` is explicit on the payload and must never be inferred by the runtime from planning status text
 - `grantedCapabilities` carries the effective run-scoped capability grants, not just prompt prose
+- `promptReplayContext` persists the structured prompt-input snapshot needed for local replay tooling and should stay internal to runtime storage and local diagnostics
 - runtime should not need to query Linear, Notion, or `config.toml` to execute a run
 - all timestamps crossing process boundaries should be ISO 8601 UTC strings
 - enums serialize as lower-case ASCII strings

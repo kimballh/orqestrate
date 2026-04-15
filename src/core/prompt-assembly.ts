@@ -13,10 +13,9 @@ import type {
   PromptAttachment,
   PromptEnvelope,
   PromptProvenanceRecord,
+  PromptReplayContextRecord,
   PromptSourceKind,
-  WorkItemRecord,
   WorkPhase,
-  WorkspaceMode,
 } from "../domain-model.js";
 
 const MISSING_VALUE = "(none)";
@@ -28,33 +27,7 @@ export type PromptAssemblyAddition = {
   markdown: string;
 };
 
-export type PromptAssemblyContext = {
-  runId?: string | null;
-  workItem: Pick<
-    WorkItemRecord,
-    "id" | "identifier" | "title" | "description" | "labels" | "url"
-  >;
-  artifact?: Pick<ArtifactRecord, "artifactId" | "url" | "summary"> | null;
-  workspace: {
-    repoRoot: string;
-    workingDir?: string | null;
-    mode: WorkspaceMode;
-    assignedBranch?: string | null;
-    baseBranch?: string | null;
-    pullRequestUrl?: string | null;
-    pullRequestMode?: string | null;
-    writeScope?: string | null;
-  };
-  expectations: {
-    expectedOutputs?: string[];
-    verificationRequired?: boolean;
-    requiredRepoChecks?: string[];
-    testExpectations?: string | null;
-  };
-  operatorNote?: string | null;
-  additionalContext?: string | null;
-  attachments?: PromptAttachment[];
-};
+export type PromptAssemblyContext = PromptReplayContextRecord;
 
 export type PromptAssemblyRequest = {
   promptPackName?: string;

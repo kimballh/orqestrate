@@ -30,6 +30,7 @@ export * from "./runtime/index.js";
 export * from "./cli/prompt-command.js";
 export * from "./cli/prompt-diff.js";
 export * from "./cli/prompt-preview.js";
+export * from "./cli/prompt-replay.js";
 export * from "./cli/run-command.js";
 export * from "./cli/setup-command.js";
 export * from "./diagnostics/failure-diagnosis.js";

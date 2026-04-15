@@ -325,6 +325,34 @@ export type PromptEnvelope = {
   };
 };
 
+export type PromptReplayContextRecord = {
+  runId?: string | null;
+  workItem: Pick<
+    WorkItemRecord,
+    "id" | "identifier" | "title" | "description" | "labels" | "url"
+  >;
+  artifact?: Pick<ArtifactRecord, "artifactId" | "url" | "summary"> | null;
+  workspace: {
+    repoRoot: string;
+    workingDir?: string | null;
+    mode: WorkspaceMode;
+    assignedBranch?: string | null;
+    baseBranch?: string | null;
+    pullRequestUrl?: string | null;
+    pullRequestMode?: string | null;
+    writeScope?: string | null;
+  };
+  expectations: {
+    expectedOutputs?: string[];
+    verificationRequired?: boolean;
+    requiredRepoChecks?: string[];
+    testExpectations?: string | null;
+  };
+  operatorNote?: string | null;
+  additionalContext?: string | null;
+  attachments?: PromptAttachment[];
+};
+
 export type RunSubmissionPayload = {
   runId: string;
   phase: WorkPhase;
@@ -347,6 +375,7 @@ export type RunSubmissionPayload = {
   prompt: PromptEnvelope;
   grantedCapabilities: string[];
   promptProvenance?: PromptProvenanceRecord | null;
+  promptReplayContext?: PromptReplayContextRecord | null;
   limits: {
     maxWallTimeSec: number;
     idleTimeoutSec: number;

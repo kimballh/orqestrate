@@ -74,6 +74,7 @@ CREATE TABLE runs (
   prompt_contract TEXT NOT NULL,
   prompt_envelope_json TEXT,
   prompt_provenance_json TEXT,
+  prompt_replay_context_json TEXT,
   system_prompt_hash TEXT,
   user_prompt_hash TEXT NOT NULL,
   artifact_url TEXT,
@@ -111,6 +112,7 @@ Column rules:
 - `status` is authoritative runtime state
 - `prompt_envelope_json` persists the launchable prompt payload so the runtime can actually start a queued run without depending on another store for the prompt body
 - `prompt_provenance_json` persists the public-safe prompt provenance record returned on canonical run reads
+- `prompt_replay_context_json` persists the structured replay-context snapshot for local prompt replay tooling and should not be returned on canonical public run reads
 - `summary`, `outcome_code`, and `last_error` are write-on-transition fields, not free-form logs
 - `version` exists for optimistic updates if you need them later
 

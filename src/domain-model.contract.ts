@@ -6,6 +6,7 @@ import type {
   ArtifactRecord,
   PromptEnvelope,
   PromptProvenanceRecord,
+  PromptReplayContextRecord,
   ProviderError,
   RunLedgerRecord,
   RunRecord,
@@ -178,6 +179,48 @@ const runRecordFixture = {
   lastHeartbeatAt: "2026-04-14T00:59:30.000Z",
 } satisfies RunRecord;
 
+const promptReplayContextFixture = {
+  runId: runRecordFixture.runId,
+  workItem: {
+    id: workItemFixture.id,
+    identifier: workItemFixture.identifier,
+    title: workItemFixture.title,
+    description: workItemFixture.description,
+    labels: workItemFixture.labels,
+    url: workItemFixture.url,
+  },
+  artifact: {
+    artifactId: artifactFixture.artifactId,
+    url: artifactFixture.url,
+    summary: artifactFixture.summary,
+  },
+  workspace: {
+    repoRoot: runRecordFixture.repoRoot,
+    workingDir: runRecordFixture.workspace.workingDirHint,
+    mode: runRecordFixture.workspace.mode,
+    assignedBranch: runRecordFixture.workspace.branchName,
+    baseBranch: runRecordFixture.workspace.baseRef,
+    pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/16",
+    pullRequestMode: "draft",
+    writeScope: "repo",
+  },
+  expectations: {
+    expectedOutputs: ["update artifact", "run verification"],
+    verificationRequired: true,
+    requiredRepoChecks: ["npm run check"],
+    testExpectations: "Add targeted coverage when behavior changes.",
+  },
+  operatorNote: "Stay scoped to ORQ-16.",
+  additionalContext: "Local docs reviewed before implementation.",
+  attachments: [
+    {
+      kind: "text",
+      value: "Review docs/domain_model.md before editing.",
+      label: "Reminder",
+    },
+  ],
+} satisfies PromptReplayContextRecord;
+
 const runLedgerFixture = {
   runId: runRecordFixture.runId,
   workItemId: workItemFixture.id,
@@ -223,6 +266,7 @@ const runSubmissionFixture = {
   prompt: promptFixture,
   grantedCapabilities: runRecordFixture.grantedCapabilities,
   promptProvenance: promptProvenanceFixture,
+  promptReplayContext: promptReplayContextFixture,
   limits: runRecordFixture.limits,
   requestedBy: runRecordFixture.requestedBy,
 } satisfies RunSubmissionPayload;

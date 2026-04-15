@@ -421,6 +421,7 @@ function parseCreateRunBody(body: Record<string, unknown>) {
         ? []
         : requireStringArray(body.grantedCapabilities, "grantedCapabilities"),
     promptProvenance: optionalPromptProvenance(body.promptProvenance),
+    promptReplayContext: optionalPromptReplayContext(body.promptReplayContext),
     limits: requireLimits(body.limits),
     requestedBy: optionalString(body.requestedBy, "requestedBy"),
     artifact: optionalArtifact(body.artifact),
@@ -588,6 +589,41 @@ function optionalPromptProvenance(value: unknown) {
   };
 }
 
+function optionalPromptReplayContext(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  assertPlainObject(value, "promptReplayContext");
+
+  return {
+    runId: optionalString(value.runId, "promptReplayContext.runId"),
+    workItem: requireWorkItem(value.workItem),
+    artifact: optionalArtifact(value.artifact),
+    workspace: requireReplayWorkspace(value.workspace),
+    expectations: requireReplayExpectations(value.expectations),
+    operatorNote: optionalString(
+      value.operatorNote,
+      "promptReplayContext.operatorNote",
+    ),
+    additionalContext: optionalString(
+      value.additionalContext,
+      "promptReplayContext.additionalContext",
+    ),
+    attachments:
+      value.attachments === undefined
+        ? undefined
+        : requirePromptAttachments(
+            value.attachments,
+            "promptReplayContext.attachments",
+          ),
+  };
+}
+
 function requireLimits(value: unknown) {
   assertPlainObject(value, "limits");
 
@@ -615,6 +651,75 @@ function optionalArtifact(value: unknown) {
     artifactId: requireString(value.artifactId, "artifact.artifactId"),
     url: requireString(value.url, "artifact.url"),
     summary: optionalString(value.summary, "artifact.summary"),
+  };
+}
+
+function requireReplayWorkspace(value: unknown) {
+  assertPlainObject(value, "promptReplayContext.workspace");
+
+  return {
+    repoRoot: requireString(value.repoRoot, "promptReplayContext.workspace.repoRoot"),
+    workingDir: optionalString(
+      value.workingDir,
+      "promptReplayContext.workspace.workingDir",
+    ),
+    mode: requireOneOf(
+      value.mode,
+      ["shared_readonly", "ephemeral_worktree"] as const,
+      "promptReplayContext.workspace.mode",
+    ),
+    assignedBranch: optionalString(
+      value.assignedBranch,
+      "promptReplayContext.workspace.assignedBranch",
+    ),
+    baseBranch: optionalString(
+      value.baseBranch,
+      "promptReplayContext.workspace.baseBranch",
+    ),
+    pullRequestUrl: optionalString(
+      value.pullRequestUrl,
+      "promptReplayContext.workspace.pullRequestUrl",
+    ),
+    pullRequestMode: optionalString(
+      value.pullRequestMode,
+      "promptReplayContext.workspace.pullRequestMode",
+    ),
+    writeScope: optionalString(
+      value.writeScope,
+      "promptReplayContext.workspace.writeScope",
+    ),
+  };
+}
+
+function requireReplayExpectations(value: unknown) {
+  assertPlainObject(value, "promptReplayContext.expectations");
+
+  return {
+    expectedOutputs:
+      value.expectedOutputs === undefined
+        ? undefined
+        : requireStringArray(
+            value.expectedOutputs,
+            "promptReplayContext.expectations.expectedOutputs",
+          ),
+    verificationRequired:
+      value.verificationRequired === undefined
+        ? undefined
+        : requireBoolean(
+            value.verificationRequired,
+            "promptReplayContext.expectations.verificationRequired",
+          ),
+    requiredRepoChecks:
+      value.requiredRepoChecks === undefined
+        ? undefined
+        : requireStringArray(
+            value.requiredRepoChecks,
+            "promptReplayContext.expectations.requiredRepoChecks",
+          ),
+    testExpectations: optionalString(
+      value.testExpectations,
+      "promptReplayContext.expectations.testExpectations",
+    ),
   };
 }
 
@@ -672,6 +777,16 @@ function optionalString(
 function requireNumber(value: unknown, fieldName: string): number {
   if (typeof value !== "number" || Number.isFinite(value) === false) {
     throw new RuntimeError(`'${fieldName}' must be a number.`, {
+      code: "invalid_request",
+    });
+  }
+
+  return value;
+}
+
+function requireBoolean(value: unknown, fieldName: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new RuntimeError(`'${fieldName}' must be a boolean.`, {
       code: "invalid_request",
     });
   }

@@ -492,10 +492,35 @@ The text output reports:
 Users should be able to replay a past run context against a prompt variant:
 
 ```text
-orq prompt replay --run-id run-123 --experiment reviewer_playwright_heavy
+orq prompt replay --run-id run-123 --variant-experiment reviewer_playwright_heavy
 ```
 
-This is still a future workflow. ORQ-45 ships `render` and `diff` plus optional JSON preview context files; historical replay remains a later ticket so prompt iteration can land now without coupling to persisted run records.
+The shipped replay surface now:
+
+- loads the stored historical prompt envelope and safe provenance for the selected run
+- prefers a lossless persisted replay-context snapshot for new runs
+- falls back to a clearly labeled legacy reconstruction path for older runs that predate replay-context persistence
+- re-renders the current prompt selection and shows source-level plus unified text diffs against what actually ran
+
+Useful examples:
+
+```text
+orq prompt replay --run-id run-123
+```
+
+```text
+orq prompt replay \
+  --run-id run-123 \
+  --variant-profile hybrid \
+  --variant-no-experiment \
+  --format json
+```
+
+Replay notes:
+
+- the public runtime API still only exposes safe provenance on canonical run reads
+- replay context remains an internal runtime-storage and local CLI diagnostic surface
+- `--format json` returns the recovered replay context, historical run summary, rendered current prompt, and diff payload for scripting
 
 ### 11.4 Fixture-based tests
 
