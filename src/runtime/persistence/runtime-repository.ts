@@ -9,6 +9,7 @@ import type {
   ReviewOutcome,
   RunStatus,
   VerificationSummary,
+  WorkspaceSetupRecord,
 } from "../../domain-model.js";
 import { RuntimeError } from "../errors.js";
 import type {
@@ -52,6 +53,7 @@ type RunRow = {
   prompt_envelope_json: string | null;
   prompt_provenance_json: string | null;
   prompt_replay_context_json: string | null;
+  workspace_setup_json: string | null;
   system_prompt_hash: string | null;
   user_prompt_hash: string;
   artifact_url: string | null;
@@ -205,6 +207,7 @@ export class RuntimeRepository {
                 prompt_envelope_json,
                 prompt_provenance_json,
                 prompt_replay_context_json,
+                workspace_setup_json,
                 system_prompt_hash,
                 user_prompt_hash,
                 artifact_url,
@@ -232,7 +235,7 @@ export class RuntimeRepository {
                 last_heartbeat_at,
                 version
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
           )
           .run(
@@ -257,6 +260,7 @@ export class RuntimeRepository {
             encodeJson(createRunInput.prompt),
             encodeJson(createRunInput.promptProvenance ?? null),
             encodeJson(createRunInput.promptReplayContext ?? null),
+            encodeJson(createRunInput.workspace.setup ?? null),
             createRunInput.prompt.digests.system ?? null,
             createRunInput.prompt.digests.user,
             createRunInput.artifact?.url ?? null,
@@ -1345,6 +1349,10 @@ export class RuntimeRepository {
     const promptReplayContext = parseJson<PromptReplayContextRecord>(
       row.prompt_replay_context_json,
     );
+    const workspaceSetup =
+      parseJson<WorkspaceSetupRecord>(row.workspace_setup_json) ??
+      promptReplayContext?.workspace.setup ??
+      null;
     const hasOutcome =
       row.outcome_code !== null ||
       row.exit_code !== null ||
@@ -1376,7 +1384,7 @@ export class RuntimeRepository {
         pullRequestUrl: row.pull_request_url,
         pullRequestMode: row.pull_request_mode,
         writeScope: row.write_scope,
-        setup: promptReplayContext?.workspace.setup,
+        setup: workspaceSetup,
       },
       artifactUrl: row.artifact_url,
       requestedBy: row.requested_by,

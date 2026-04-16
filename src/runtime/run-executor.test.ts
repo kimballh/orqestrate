@@ -67,7 +67,9 @@ test("run executor drives a claimed run to completion and records evidence", asy
   }) as ExecutableRunRecord;
 
   const execution = executor.executeClaimedRun(claimedRun);
-  await waitForAsyncTurn();
+  await waitForCondition(
+    () => repository.getRun(claimedRun.runId)?.status === "bootstrapping",
+  );
 
   assert.equal(repository.getRun(claimedRun.runId)?.status, "bootstrapping");
 
@@ -95,7 +97,154 @@ test("run executor drives a claimed run to completion and records evidence", asy
   assert.match(logContents, /PROGRESS/);
 });
 
-test("run executor prepares the worktree and runs the setup hook before launch", async (t) => {
+test("run executor prefers submitted workspace setup over legacy hook discovery", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  const hookPath = "/repo/.worktrees/run-001/scripts/codex-setup.sh";
+  const workspaceHarness = createWorkspaceOperationsHarness({
+    hookPath,
+  });
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+      workspaceOperations: workspaceHarness.operations,
+    },
+  );
+  repository.enqueueRun(
+    createRunInput({
+      workspaceSetup: {
+        source: "config",
+        scriptPath: "/config/scripts/prepare-worktree.sh",
+      },
+      workspace: {
+        mode: "ephemeral_worktree",
+        workingDirHint: "/repo/.worktrees/run-001",
+      },
+    }),
+  );
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  try {
+    await waitForCondition(
+      () =>
+        supervisor.launchSpecs.length === 1 &&
+        workspaceHarness.commands.length >= 2 &&
+        repository
+          .listRunEvents(claimedRun.runId)
+          .some((event) => event.eventType === "workspace_setup_started"),
+    );
+
+    assert.equal(supervisor.launchSpecs.length, 1);
+    assert.equal(workspaceHarness.commands[1]?.command, "bash");
+    assert.deepEqual(workspaceHarness.commands[1]?.args, [
+      "/config/scripts/prepare-worktree.sh",
+    ]);
+
+    const setupStartedEvent = repository
+      .listRunEvents(claimedRun.runId)
+      .find((event) => event.eventType === "workspace_setup_started");
+    assert.deepEqual(setupStartedEvent?.payload, {
+      allocationId: "workspace-run-001",
+      setupSource: "config",
+      scriptPath: "/config/scripts/prepare-worktree.sh",
+    });
+
+    supervisor.emitOutput("session-1", "READY\n");
+    await waitForAsyncTurn();
+    supervisor.emitExit("session-1", 0, null);
+    await execution;
+  } finally {
+    await executor.shutdown("Test cleanup after explicit workspace setup.");
+  }
+});
+
+test("run executor executes Codex environment workspace setup before launch", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  const workspaceHarness = createWorkspaceOperationsHarness();
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+      workspaceOperations: workspaceHarness.operations,
+    },
+  );
+  repository.enqueueRun(
+    createRunInput({
+      workspaceSetup: {
+        source: "codex_environment",
+        environmentPath: "/repo/.codex/environments/environment.toml",
+        script: "pnpm install --frozen-lockfile",
+      },
+      workspace: {
+        mode: "ephemeral_worktree",
+        workingDirHint: "/repo/.worktrees/run-001",
+      },
+    }),
+  );
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  try {
+    await waitForCondition(
+      () =>
+        supervisor.launchSpecs.length === 1 &&
+        workspaceHarness.commands.length >= 2 &&
+        repository
+          .listRunEvents(claimedRun.runId)
+          .some((event) => event.eventType === "workspace_setup_completed"),
+    );
+
+    assert.equal(supervisor.launchSpecs.length, 1);
+    assert.equal(workspaceHarness.commands[1]?.command, "bash");
+    assert.deepEqual(workspaceHarness.commands[1]?.args, [
+      "-lc",
+      "pnpm install --frozen-lockfile",
+    ]);
+
+    const setupCompletedEvent = repository
+      .listRunEvents(claimedRun.runId)
+      .find((event) => event.eventType === "workspace_setup_completed");
+    assert.equal(setupCompletedEvent?.payload.setupSource, "codex_environment");
+    assert.equal(
+      setupCompletedEvent?.payload.environmentPath,
+      "/repo/.codex/environments/environment.toml",
+    );
+
+    supervisor.emitOutput("session-1", "READY\n");
+    await waitForAsyncTurn();
+    supervisor.emitExit("session-1", 0, null);
+    await execution;
+  } finally {
+    await executor.shutdown("Test cleanup after Codex environment workspace setup.");
+  }
+});
+
+test("run executor prepares the worktree and falls back to legacy setup hooks before launch", async (t) => {
   const { fixture, repository } = createRepositoryFixture(t);
   const registry = new RuntimeAdapterRegistry().register(
     "codex",
@@ -179,8 +328,8 @@ test("run executor prepares the worktree and runs the setup hook before launch",
     "released",
   );
   assert.ok(events.includes("workspace_preparation_started"));
-  assert.ok(events.includes("workspace_setup_hook_started"));
-  assert.ok(events.includes("workspace_setup_hook_completed"));
+  assert.ok(events.includes("workspace_setup_started"));
+  assert.ok(events.includes("workspace_setup_completed"));
   assert.ok(events.includes("workspace_prepared"));
   assert.ok(events.includes("workspace_released"));
   assert.equal(workspaceHarness.commands.at(-1)?.command, "git");
@@ -1164,9 +1313,13 @@ function createRunInput(
     runId?: string;
     phase?: CreateRunInput["phase"];
     provider?: CreateRunInput["provider"];
+    workspaceSetup?: CreateRunInput["workspace"]["setup"];
     workspace?: Partial<CreateRunInput["workspace"]>;
   } = {},
 ): CreateRunInput {
+  const workspaceSetup =
+    overrides.workspace?.setup ?? overrides.workspaceSetup;
+
   return {
     runId: overrides.runId ?? "run-001",
     phase: overrides.phase ?? "implement",
@@ -1192,6 +1345,7 @@ function createRunInput(
         "https://github.com/kimballh/orqestrate/pull/33",
       pullRequestMode: overrides.workspace?.pullRequestMode ?? "draft",
       writeScope: overrides.workspace?.writeScope ?? "repo",
+      setup: workspaceSetup,
     },
     prompt: {
       contractId: "orqestrate/implement/v1",
@@ -1215,4 +1369,19 @@ function createRunInput(
 
 async function waitForAsyncTurn(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function waitForCondition(
+  predicate: () => boolean,
+  attempts = 200,
+): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+
+    await waitForAsyncTurn();
+  }
+
+  assert.fail("Condition was not satisfied before the test timed out.");
 }

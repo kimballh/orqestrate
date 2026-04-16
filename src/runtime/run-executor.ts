@@ -3,7 +3,11 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type { ProviderError, RunStatus, WorkspaceMode } from "../domain-model.js";
+import type {
+  ProviderError,
+  RunStatus,
+  WorkspaceMode,
+} from "../domain-model.js";
 import { RuntimeError } from "./errors.js";
 import { LiveRunRegistry } from "./live-run-registry.js";
 import {
@@ -64,8 +68,16 @@ type PreparedWorkspaceState = {
   mode: WorkspaceMode;
   workingDir: string;
   worktreeCreated: boolean;
-  setupHookPath: string | null;
+  setupExecution: WorkspaceSetupExecution | null;
   cleanupComplete: boolean;
+};
+
+type WorkspaceSetupExecution = {
+  source: "config" | "codex_environment" | "legacy_hook";
+  command: string;
+  args: string[];
+  location: string;
+  payload: Record<string, unknown>;
 };
 
 class WorkspacePreparationError extends Error {
@@ -723,7 +735,7 @@ export class RunExecutor {
       mode: context.run.workspace.mode,
       workingDir,
       worktreeCreated: false,
-      setupHookPath: null,
+      setupExecution: null,
       cleanupComplete: false,
     };
     context.preparedWorkspace = preparedWorkspace;
@@ -789,37 +801,38 @@ export class RunExecutor {
       });
       preparedWorkspace.worktreeCreated = true;
 
-      const setupHookPath = resolveSetupHookPath(
+      const setupExecution = resolveWorkspaceSetupExecution(
+        context,
         workingDir,
         this.workspaceOperations.exists,
       );
-      preparedWorkspace.setupHookPath = setupHookPath;
+      preparedWorkspace.setupExecution = setupExecution;
       if (this.shouldAbortPrelaunch(context)) {
         return;
       }
 
-      if (setupHookPath !== null) {
+      if (setupExecution !== null) {
         this.appendWorkspaceEvent(context, {
-          eventType: "workspace_setup_hook_started",
+          eventType: "workspace_setup_started",
           payload: {
             allocationId,
-            hookPath: setupHookPath,
+            ...setupExecution.payload,
           },
         });
 
         const result = await this.workspaceOperations.runCommand({
-          command: "bash",
-          args: [setupHookPath],
+          command: setupExecution.command,
+          args: setupExecution.args,
           cwd: workingDir,
           env: buildSetupHookEnvironment(context, workingDir),
           timeoutMs: context.run.limits.bootstrapTimeoutSec * 1_000,
         });
 
         this.appendWorkspaceEvent(context, {
-          eventType: "workspace_setup_hook_completed",
+          eventType: "workspace_setup_completed",
           payload: {
             allocationId,
-            hookPath: setupHookPath,
+            ...setupExecution.payload,
             stdout: summarizeCommandOutput(result.stdout),
             stderr: summarizeCommandOutput(result.stderr),
           },
@@ -843,7 +856,7 @@ export class RunExecutor {
         payload: {
           allocationId,
           workingDir,
-          setupHookPath,
+          ...buildWorkspaceSetupPayload(setupExecution),
         },
       });
     } catch (error) {
@@ -856,7 +869,7 @@ export class RunExecutor {
               : "workspace_create",
         allocationId,
         workingDir,
-        setupHookPath: preparedWorkspace.setupHookPath,
+        setupExecution: preparedWorkspace.setupExecution,
       });
       this.appendWorkspaceEvent(context, {
         eventType: "workspace_preparation_failed",
@@ -1278,6 +1291,56 @@ function buildSetupHookEnvironment(
   };
 }
 
+function resolveWorkspaceSetupExecution(
+  context: LiveRunContext,
+  workingDir: string,
+  exists: WorkspaceOperations["exists"],
+): WorkspaceSetupExecution | null {
+  const workspaceSetup = context.run.workspace.setup;
+
+  if (workspaceSetup?.source === "config") {
+    return {
+      source: "config",
+      command: "bash",
+      args: [workspaceSetup.scriptPath],
+      location: workspaceSetup.scriptPath,
+      payload: buildWorkspaceSetupPayload({
+        source: "config",
+        scriptPath: workspaceSetup.scriptPath,
+      }),
+    };
+  }
+
+  if (workspaceSetup?.source === "codex_environment") {
+    return {
+      source: "codex_environment",
+      command: "bash",
+      args: ["-lc", workspaceSetup.script],
+      location: workspaceSetup.environmentPath,
+      payload: buildWorkspaceSetupPayload({
+        source: "codex_environment",
+        environmentPath: workspaceSetup.environmentPath,
+      }),
+    };
+  }
+
+  const setupHookPath = resolveSetupHookPath(workingDir, exists);
+  if (setupHookPath === null) {
+    return null;
+  }
+
+  return {
+    source: "legacy_hook",
+    command: "bash",
+    args: [setupHookPath],
+    location: setupHookPath,
+    payload: buildWorkspaceSetupPayload({
+      source: "legacy_hook",
+      hookPath: setupHookPath,
+    }),
+  };
+}
+
 function resolveSetupHookPath(
   workingDir: string,
   exists: WorkspaceOperations["exists"],
@@ -1304,6 +1367,57 @@ function summarizeCommandOutput(output: string, maxChars = 4_000): string | null
   }
 
   return `${trimmed.slice(0, maxChars)}...`;
+}
+
+function buildWorkspaceSetupPayload(
+  setupExecution:
+    | {
+        source: "config";
+        scriptPath: string;
+      }
+    | {
+        source: "codex_environment";
+        environmentPath: string;
+      }
+    | {
+        source: "legacy_hook";
+        hookPath: string;
+      }
+    | WorkspaceSetupExecution
+    | null,
+): Record<string, unknown> {
+  if (setupExecution === null) {
+    return {
+      setupSource: null,
+    };
+  }
+
+  switch (setupExecution.source) {
+    case "config":
+      return {
+        setupSource: "config",
+        scriptPath:
+          "location" in setupExecution
+            ? setupExecution.location
+            : setupExecution.scriptPath,
+      };
+    case "codex_environment":
+      return {
+        setupSource: "codex_environment",
+        environmentPath:
+          "location" in setupExecution
+            ? setupExecution.location
+            : setupExecution.environmentPath,
+      };
+    case "legacy_hook":
+      return {
+        setupSource: "legacy_hook",
+        hookPath:
+          "location" in setupExecution
+            ? setupExecution.location
+            : setupExecution.hookPath,
+      };
+  }
 }
 
 function createWorkspaceCommandError(
@@ -1344,7 +1458,7 @@ function toWorkspacePreparationError(
     stage: string | null;
     allocationId: string;
     workingDir: string;
-    setupHookPath: string | null;
+    setupExecution: WorkspaceSetupExecution | null;
   },
 ): WorkspacePreparationError {
   if (error instanceof WorkspacePreparationError) {
@@ -1368,7 +1482,7 @@ function toWorkspacePreparationError(
       stage,
       allocationId: fallback.allocationId,
       workingDir: fallback.workingDir,
-      hookPath: fallback.setupHookPath,
+      ...buildWorkspaceSetupPayload(fallback.setupExecution),
       message,
     },
   });

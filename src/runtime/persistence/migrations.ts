@@ -34,6 +34,10 @@ const RUN_PROMPT_REPLAY_CONTEXT_SQL = readFileSync(
   new URL("./sql/0006_run_prompt_replay_context.sql", import.meta.url),
   "utf8",
 );
+const WORKSPACE_SETUP_SQL = readFileSync(
+  new URL("./sql/0007_workspace_setup.sql", import.meta.url),
+  "utf8",
+);
 
 const RUNTIME_MIGRATIONS: RuntimeMigration[] = [
   {
@@ -65,6 +69,11 @@ const RUNTIME_MIGRATIONS: RuntimeMigration[] = [
     version: 6,
     name: "run_prompt_replay_context",
     sql: RUN_PROMPT_REPLAY_CONTEXT_SQL,
+  },
+  {
+    version: 7,
+    name: "workspace_setup",
+    sql: WORKSPACE_SETUP_SQL,
   },
 ];
 
