@@ -87,14 +87,8 @@ test("linked install preserves installed package paths in generated config", asy
     path.join(workspaceDir, "config.toml"),
     "utf8",
   );
-  assert.match(
-    generatedConfig,
-    new RegExp(
-      escapeForRegExp(
-        path.join(workspaceDir, "node_modules", "orqestrate", "docs", "prompts"),
-      ),
-    ),
-  );
+  assert.match(generatedConfig, /Prompt behavior is zero-config by default\./);
+  assert.doesNotMatch(generatedConfig, /^\[prompts\]$/m);
   assert.doesNotMatch(
     generatedConfig,
     new RegExp(escapeForRegExp(path.join(REPO_ROOT, "docs", "prompts"))),
@@ -148,12 +142,8 @@ async function assertInstalledWorkflow(options: {
     path.join(options.workspaceDir, "config.toml"),
     "utf8",
   );
-  assert.match(
-    generatedConfig,
-    new RegExp(
-      escapeForRegExp(path.join(options.expectedPackageRoot, "docs", "prompts")),
-    ),
-  );
+  assert.doesNotMatch(generatedConfig, /^\[prompts\]$/m);
+  assert.match(generatedConfig, /Prompt behavior is zero-config by default\./);
   assert.match(
     generatedConfig,
     new RegExp(

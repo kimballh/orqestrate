@@ -363,8 +363,10 @@ function createLoadedConfigFixture(kind: PlanningProviderConfig["kind"]): Loaded
     },
     prompts: {
       root: "/tmp/prompts",
+      invariantRoot: "/tmp/prompts",
       activePack: "default",
       invariants: [],
+      localOverrideRoot: "/tmp/.orqestrate/prompts",
     },
     promptCapabilities: {},
     promptPacks: {},
@@ -380,6 +382,7 @@ function createLoadedConfigFixture(kind: PlanningProviderConfig["kind"]): Loaded
       contextProvider,
       promptPack: {
         name: "default",
+        root: "/tmp/prompts",
         baseSystem: "/tmp/system.md",
         roles: {},
         phases: {},
@@ -394,6 +397,7 @@ function createLoadedConfigFixture(kind: PlanningProviderConfig["kind"]): Loaded
         promptPackName: "default",
         promptPack: {
           name: "default",
+          root: "/tmp/prompts",
           baseSystem: "/tmp/system.md",
           roles: {},
           phases: {},

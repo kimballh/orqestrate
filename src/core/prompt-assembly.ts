@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { resolvePromptSelection } from "../config/prompt-selection.js";
@@ -109,7 +109,6 @@ export async function assemblePrompt(
   }
 
   const { promptPackName, promptPack } = selection;
-  const promptRoot = config.prompts.root;
   const requestedCapabilities = dedupeStrings(request.capabilities);
   const unknownCapabilities = requestedCapabilities.filter(
     (capability) => !hasOwn(config.promptCapabilities, capability),
@@ -141,13 +140,13 @@ export async function assemblePrompt(
   systemLayers.push({
     kind: "base_pack",
     path: promptPack.baseSystem,
-    ref: createPackRef(promptPackName, promptRoot, promptPack.baseSystem),
+    ref: createPackRef(promptPackName, promptPack.root, promptPack.baseSystem),
   });
   for (const invariantPath of config.prompts.invariants) {
     systemLayers.push({
       kind: "invariant",
       path: invariantPath,
-      ref: createInvariantRef(promptRoot, invariantPath),
+      ref: createInvariantRef(config.prompts.invariantRoot, invariantPath),
     });
   }
 
@@ -163,7 +162,7 @@ export async function assemblePrompt(
   userFileLayers.push({
     kind: "role_prompt",
     path: rolePath,
-    ref: createPackRef(promptPackName, promptRoot, rolePath),
+    ref: createPackRef(promptPackName, promptPack.root, rolePath),
   });
 
   const phasePath = promptPack.phases[request.phase];
@@ -171,7 +170,7 @@ export async function assemblePrompt(
     userFileLayers.push({
       kind: "phase_prompt",
       path: phasePath,
-      ref: createPackRef(promptPackName, promptRoot, phasePath),
+      ref: createPackRef(promptPackName, promptPack.root, phasePath),
     });
   }
 
@@ -180,7 +179,7 @@ export async function assemblePrompt(
     userFileLayers.push({
       kind: "capability",
       path: capabilityPath,
-      ref: createPackRef(promptPackName, promptRoot, capabilityPath),
+      ref: createPackRef(promptPackName, promptPack.root, capabilityPath),
     });
   }
 
@@ -191,7 +190,7 @@ export async function assemblePrompt(
     userFileLayers.push({
       kind: "overlay",
       path: overlay.assetPath,
-      ref: createPackRef(promptPackName, promptRoot, overlay.assetPath),
+      ref: createPackRef(promptPackName, promptPack.root, overlay.assetPath),
     });
   }
 
@@ -203,17 +202,31 @@ export async function assemblePrompt(
           path: selection.experiment.assetPath,
           ref: createPackRef(
             promptPackName,
-            promptRoot,
+            promptPack.root,
             selection.experiment.assetPath,
           ),
         };
+
+  const resolvedUserFileLayers = await resolveWorkspacePromptOverrides(
+    userFileLayers,
+    promptPack.root,
+    config.prompts.localOverrideRoot,
+  );
+  const resolvedExperimentLayers =
+    experimentLayer === null
+      ? []
+      : await resolveWorkspacePromptOverrides(
+          [experimentLayer],
+          promptPack.root,
+          config.prompts.localOverrideRoot,
+        );
 
   const fileLayersByPath = new Map<string, string>();
   await Promise.all(
     [
       ...systemLayers,
-      ...userFileLayers,
-      ...(experimentLayer === null ? [] : [experimentLayer]),
+      ...resolvedUserFileLayers,
+      ...resolvedExperimentLayers,
     ].map(async (layer) => {
       const contents = normalizePromptText(await readFile(layer.path, "utf8"));
       fileLayersByPath.set(layer.path, contents);
@@ -244,7 +257,7 @@ export async function assemblePrompt(
     );
   }
 
-  for (const fileLayer of userFileLayers) {
+  for (const fileLayer of resolvedUserFileLayers) {
     const contents = fileLayersByPath.get(fileLayer.path);
 
     if (contents === undefined || contents.length === 0) {
@@ -274,19 +287,19 @@ export async function assemblePrompt(
     });
   }
 
-  if (experimentLayer !== null) {
-    const contents = fileLayersByPath.get(experimentLayer.path);
+  for (const fileLayer of resolvedExperimentLayers) {
+    const contents = fileLayersByPath.get(fileLayer.path);
 
     if (contents === undefined || contents.length === 0) {
       throw new PromptAssemblyError(
-        `Prompt layer '${experimentLayer.path}' resolved to empty content.`,
+        `Prompt layer '${fileLayer.path}' resolved to empty content.`,
       );
     }
 
     userLayers.push({
-      kind: experimentLayer.kind,
-      ref: experimentLayer.ref,
-      path: experimentLayer.path,
+      kind: fileLayer.kind,
+      ref: fileLayer.ref,
+      path: fileLayer.path,
       content: contents,
     });
   }
@@ -543,6 +556,86 @@ function createPackRef(
 ): string {
   const relativePath = toPosixPath(path.relative(promptRoot, assetPath));
   return `prompt-pack:${promptPackName}/${relativePath}`;
+}
+
+async function resolveWorkspacePromptOverrides(
+  layers: readonly FileLayerSpec[],
+  promptRoot: string,
+  localOverrideRoot: string,
+): Promise<FileLayerSpec[]> {
+  const resolvedLayers: FileLayerSpec[] = [];
+
+  for (const layer of layers) {
+    const relativePath = toPosixPath(path.relative(promptRoot, layer.path));
+    const replacementPath = path.join(localOverrideRoot, relativePath);
+    const prependPath = buildWorkspaceOverrideSiblingPath(
+      localOverrideRoot,
+      relativePath,
+      "prepend",
+    );
+    const appendPath = buildWorkspaceOverrideSiblingPath(
+      localOverrideRoot,
+      relativePath,
+      "append",
+    );
+
+    if (await promptAssetExists(prependPath)) {
+      resolvedLayers.push({
+        kind: layer.kind,
+        path: prependPath,
+        ref: createWorkspaceOverrideRef("prepend", relativePath),
+      });
+    }
+
+    if (await promptAssetExists(replacementPath)) {
+      resolvedLayers.push({
+        kind: layer.kind,
+        path: replacementPath,
+        ref: createWorkspaceOverrideRef("replace", relativePath),
+      });
+    } else {
+      resolvedLayers.push(layer);
+    }
+
+    if (await promptAssetExists(appendPath)) {
+      resolvedLayers.push({
+        kind: layer.kind,
+        path: appendPath,
+        ref: createWorkspaceOverrideRef("append", relativePath),
+      });
+    }
+  }
+
+  return resolvedLayers;
+}
+
+function buildWorkspaceOverrideSiblingPath(
+  localOverrideRoot: string,
+  relativePath: string,
+  variant: "prepend" | "append",
+): string {
+  const parsedPath = path.parse(relativePath);
+  return path.join(
+    localOverrideRoot,
+    parsedPath.dir,
+    `${parsedPath.name}.${variant}${parsedPath.ext}`,
+  );
+}
+
+function createWorkspaceOverrideRef(
+  mode: "replace" | "prepend" | "append",
+  relativePath: string,
+): string {
+  return `workspace-prompt:${mode}/${relativePath}`;
+}
+
+async function promptAssetExists(assetPath: string): Promise<boolean> {
+  try {
+    const stats = await stat(assetPath);
+    return stats.isFile();
+  } catch {
+    return false;
+  }
 }
 
 function createInvariantRef(promptRoot: string, assetPath: string): string {

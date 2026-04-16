@@ -851,26 +851,148 @@ test("rejects empty invariant prompt assets", () => {
   );
 });
 
-test("rejects configs that omit prompt invariants", () => {
+test("defaults omitted prompt invariants to the built-in catalog", () => {
   const fixture = createFixtureWorkspace();
-  assert.throws(
-    () =>
-      parseConfig(
-        VALID_CONFIG.replace(
-          "invariants = [\n  \"invariants/run-scope.md\",\n  \"invariants/verification.md\",\n]\n\n",
-          "",
-        ),
-        {
-          sourcePath: fixture.sourcePath,
-          env: {},
-        },
-      ),
-    (error: unknown) => {
-      assert.ok(error instanceof ConfigError);
-      assert.equal(error.code, "invalid_type");
-      assert.equal(error.path, "prompts.invariants");
-      return true;
+  const config = parseConfig(
+    VALID_CONFIG.replace(
+      "invariants = [\n  \"invariants/run-scope.md\",\n  \"invariants/verification.md\",\n]\n\n",
+      "",
+    ),
+    {
+      sourcePath: fixture.sourcePath,
+      env: {},
     },
+  );
+
+  assert.ok(config.prompts.invariants.length > 0);
+  assert.equal(
+    config.prompts.invariants.some((entry) => entry.endsWith("run-scope.md")),
+    true,
+  );
+});
+
+test("loads built-in prompt defaults when prompt sections are omitted entirely", () => {
+  const fixture = createFixtureWorkspace();
+  const config = parseConfig(
+    VALID_CONFIG.replace(
+      `[prompts]
+root = "./prompts"
+active_pack = "default"
+invariants = [
+  "invariants/run-scope.md",
+  "invariants/verification.md",
+]
+
+[prompt_capabilities."github.read_pr"]
+authority = "execution_surface_read"
+provider = "github"
+surface = "pull_request"
+effect = "read"
+target_scope = "linked_pull_request"
+allowed_phases = ["implement", "review"]
+allowed_roles = ["implement", "review"]
+required_context = ["pull_request_url"]
+
+[prompt_capabilities.playwright_exploration]
+authority = "behavioral"
+allowed_phases = ["implement", "review"]
+
+[prompt_packs.default]
+base_system = "base/system.md"
+
+[prompt_packs.default.roles]
+design = "roles/design.md"
+implement = "roles/implement.md"
+
+[prompt_packs.default.phases]
+review = "phases/review.md"
+
+[prompt_packs.default.capabilities]
+"github.read_pr" = "capabilities/github-read-pr.md"
+playwright_exploration = "capabilities/playwright-exploration.md"
+
+[prompt_packs.default.overlays.organization]
+reviewer_qa = "overlays/org/reviewer-qa.md"
+
+[prompt_packs.default.overlays.project]
+reviewer_webapp = "overlays/project/reviewer-webapp.md"
+
+[prompt_packs.default.experiments]
+reviewer_v2 = "experiments/reviewer-v2.md"
+
+`,
+      "",
+    ),
+    {
+      sourcePath: fixture.sourcePath,
+      env: {},
+    },
+  );
+
+  assert.equal(config.prompts.activePack, "default");
+  assert.equal(
+    config.activeProfile.promptPack.baseSystem.endsWith("docs/prompts/base/system.md"),
+    true,
+  );
+  assert.equal(
+    config.promptCapabilities["github.push_branch"].authority,
+    "execution_surface_write",
+  );
+  assert.equal(
+    config.prompts.localOverrideRoot,
+    path.join(fixture.workspaceDir, ".orqestrate", "prompts"),
+  );
+});
+
+test("anchors workspace-local prompt overrides to the workspace root for nested configs", () => {
+  const fixture = createFixtureWorkspace();
+  const nestedConfigPath = path.join(fixture.workspaceDir, "ops", "config.toml");
+
+  mkdirSync(path.dirname(nestedConfigPath), { recursive: true });
+
+  const config = parseConfig(
+    VALID_CONFIG.replace('root = "./prompts"', 'root = "../prompts"'),
+    {
+      sourcePath: nestedConfigPath,
+      workspaceRoot: fixture.workspaceDir,
+      env: {},
+    },
+  );
+
+  assert.equal(
+    config.prompts.localOverrideRoot,
+    path.join(fixture.workspaceDir, ".orqestrate", "prompts"),
+  );
+});
+
+test("loadConfig infers the workspace root from an explicit config path", async () => {
+  const fixture = createFixtureWorkspace();
+  const nestedConfigPath = path.join(fixture.workspaceDir, "ops", "config.toml");
+  const outsideDir = mkdtempSync(
+    path.join(tmpdir(), "orqestrate-config-outside-fixture-"),
+  );
+
+  mkdirSync(path.dirname(nestedConfigPath), { recursive: true });
+  writeFileSync(
+    path.join(fixture.workspaceDir, "package.json"),
+    JSON.stringify({ name: "config-loader-fixture", private: true }, null, 2),
+    "utf8",
+  );
+  writeFileSync(
+    nestedConfigPath,
+    VALID_CONFIG.replace('root = "./prompts"', 'root = "../prompts"'),
+    "utf8",
+  );
+
+  const config = await loadConfig({
+    cwd: outsideDir,
+    configPath: nestedConfigPath,
+    env: {},
+  });
+
+  assert.equal(
+    config.prompts.localOverrideRoot,
+    path.join(fixture.workspaceDir, ".orqestrate", "prompts"),
   );
 });
 

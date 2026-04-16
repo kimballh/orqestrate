@@ -417,6 +417,7 @@ function createFakeProfile(): ProfileConfig {
     } as ContextLocalFilesProviderConfig,
     promptPack: {
       name: "default",
+      root: "/tmp/prompts",
       baseSystem: "/tmp/system.md",
       roles: {},
       phases: {},
@@ -431,6 +432,7 @@ function createFakeProfile(): ProfileConfig {
       promptPackName: "default",
       promptPack: {
         name: "default",
+        root: "/tmp/prompts",
         baseSystem: "/tmp/system.md",
         roles: {},
         phases: {},
@@ -474,8 +476,10 @@ function createFakeLoadedConfig(): LoadedConfig {
     },
     prompts: {
       root: "/tmp/prompts",
+      invariantRoot: "/tmp/prompts",
       activePack: "default",
       invariants: [],
+      localOverrideRoot: "/tmp/.orqestrate/prompts",
     },
     promptCapabilities: {},
     promptPacks: {
