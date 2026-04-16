@@ -204,6 +204,14 @@ export class RunExecutor {
       this.activeContexts.set(run.runId, context);
       const executionTask = this.executeInternal(context).catch(async (error) => {
         if (context.finishing) {
+          this.resolveFinishingPrelaunchContext(context);
+          if (
+            !this.activeContexts.has(context.run.runId) ||
+            TERMINAL_STATUSES.has(context.currentRun.status)
+          ) {
+            return;
+          }
+
           reject(error);
           return;
         }
