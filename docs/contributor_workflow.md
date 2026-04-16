@@ -70,6 +70,7 @@ npm install /path/to/orqestrate-0.1.0.tgz
 orq init
 orq bootstrap
 orq runtime start
+orq orchestrator start --repo-root "$PWD"
 ```
 
 That installed path should work without copying `config.example.toml`, `docs/prompts`, or `examples/local` into the target workspace first.
@@ -98,7 +99,8 @@ If you switch to a non-local profile:
 
 1. Update `config.toml` to point at the right providers and credentials.
 2. Re-run `npm run orq:bootstrap`.
-3. Start the daemon with `orq runtime start`, `npm run dev`, or `npm start`.
+3. Start the runtime with `orq runtime start`, `npm run dev`, or `npm start`.
+4. Start the orchestrator with `orq orchestrator start --repo-root "$PWD"`, `npm run dev:orchestrator -- --repo-root "$PWD"`, or `npm run start:orchestrator -- --repo-root "$PWD"`.
 
 ## Important Local Paths
 
@@ -218,8 +220,11 @@ npm run orq:init -- --help
 npm run orq:bootstrap -- --help
 orq local sweep
 npx tsx src/index.ts runtime start --help
+npx tsx src/index.ts orchestrator start --help
 npm run dev
+npm run dev:orchestrator -- --repo-root "$PWD"
 npm start
+npm run start:orchestrator -- --repo-root "$PWD"
 npm run check
 ```
 

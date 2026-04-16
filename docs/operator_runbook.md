@@ -4,6 +4,7 @@ This guide covers the practical runtime and orchestrator troubleshooting surface
 
 Use it when you need to:
 
+- start or restart the orchestrator service
 - start or restart the runtime daemon
 - inspect health, capacity, or run state
 - respond to `waiting_human` runs
@@ -15,6 +16,34 @@ For deeper rationale and contract details, see:
 - [runtime_api.md](./runtime_api.md)
 - [agent_runtime.md](./agent_runtime.md)
 - [orchestrator.md](./orchestrator.md)
+
+## Orchestrator Entry Points
+
+Start the local orchestrator service from source:
+
+```bash
+npm run dev:orchestrator -- --repo-root "$PWD"
+```
+
+Start the built orchestrator service:
+
+```bash
+npm run start:orchestrator -- --repo-root "$PWD"
+```
+
+Start the installed-package orchestrator service from any configured workspace:
+
+```bash
+orq orchestrator start --repo-root "$PWD"
+```
+
+The orchestrator service:
+
+- reads `config.toml`
+- creates and maintains the wakeup database
+- starts the wakeup and reconciliation loops
+- optionally starts the webhook listener for supported planning providers
+- dispatches claimed work into the runtime
 
 ## Runtime Entry Points
 

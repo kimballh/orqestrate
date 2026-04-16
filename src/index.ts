@@ -15,6 +15,11 @@ import {
   runLocalCommand,
 } from "./cli/local-command.js";
 import {
+  OrchestratorCommandError,
+  renderOrchestratorHelp,
+  runOrchestratorCommand,
+} from "./cli/orchestrator-command.js";
+import {
   PromptCommandError,
   renderPromptHelp,
   runPromptCommand,
@@ -38,6 +43,7 @@ export * from "./orchestrator/index.js";
 export * from "./providers/index.js";
 export * from "./runtime/index.js";
 export * from "./cli/local-command.js";
+export * from "./cli/orchestrator-command.js";
 export * from "./cli/prompt-command.js";
 export * from "./cli/prompt-diff.js";
 export * from "./cli/prompt-preview.js";
@@ -55,6 +61,7 @@ export * from "./github/scope.js";
 
 export type CliDependencies = Parameters<typeof runPromptCommand>[1] &
   Parameters<typeof runLocalCommand>[1] &
+  Parameters<typeof runOrchestratorCommand>[1] &
   Parameters<typeof runSetupCommand>[1] &
   Parameters<typeof runGithubCommand>[1] &
   Parameters<typeof runRunCommand>[1] &
@@ -87,6 +94,10 @@ export async function runCli(
 
   if (command === "runtime") {
     return runRuntimeCommand(argv.slice(1), dependencies);
+  }
+
+  if (command === "orchestrator") {
+    return runOrchestratorCommand(argv.slice(1), dependencies);
   }
 
   if (command === "github") {
@@ -144,6 +155,7 @@ function renderTopLevelHelp(): string {
     "  bootstrap Validate the selected profile and prepare local state.",
     "  github   Run bounded GitHub PR interactions inside a managed run.",
     "  local    Manage planning.local_files work items.",
+    "  orchestrator Start the orchestrator service from the installed CLI.",
     "  prompt   Render and diff resolved prompt variants.",
     "  run      Inspect runtime runs as operator-friendly diagnostics views.",
     "  runtime  Start the runtime daemon from the installed CLI.",
@@ -153,6 +165,8 @@ function renderTopLevelHelp(): string {
     renderGitHubHelp(),
     "",
     renderLocalHelp(),
+    "",
+    renderOrchestratorHelp(),
     "",
     renderPromptHelp(),
     "",

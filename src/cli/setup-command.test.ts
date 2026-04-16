@@ -15,6 +15,7 @@ test("top-level help includes the setup commands", async () => {
   assert.equal(result.exitCode, 0);
   assert.match(result.stdout, /init\s+Create a starter config\.toml/);
   assert.match(result.stdout, /bootstrap\s+Validate the selected profile/);
+  assert.match(result.stdout, /orchestrator\s+Start the orchestrator service/);
   assert.match(result.stdout, /runtime\s+Start the runtime daemon/);
 });
 

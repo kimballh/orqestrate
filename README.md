@@ -44,6 +44,7 @@ From the root of the project where you want to use Orqestrate:
 orq init
 orq bootstrap
 orq runtime start
+orq orchestrator start --repo-root "$PWD"
 ```
 
 That flow:
@@ -51,6 +52,7 @@ That flow:
 - creates `./config.toml` from the packaged example config
 - validates and prepares the selected profile
 - starts the runtime daemon for that project
+- starts the orchestrator service for that project when you are ready to claim and advance work
 
 ## What Orqestrate Owns
 
@@ -61,20 +63,19 @@ Orqestrate is designed so:
 - the orchestrator claims and advances one active phase at a time
 - the runtime daemon executes and supervises agent runs locally
 
-## Current Packaging Notes
+## Installed CLI Surface
 
-The installed CLI currently exposes:
+The installed CLI exposes:
 
 - `orq init`
 - `orq bootstrap`
+- `orq orchestrator start`
 - `orq runtime start`
 - `orq run ...`
 - `orq prompt ...`
 - `orq github ...`
 
-The runtime daemon is already packaged behind the global CLI.
-
-The orchestrator service is implemented in this repository, and the user guides call out the current packaging boundary while its top-level installed CLI entrypoint is finalized.
+The runtime daemon and orchestrator service are both packaged behind the global CLI so consumer workspaces can start each long-lived service without reaching into `node_modules/.../dist`.
 
 ## Contributing
 
