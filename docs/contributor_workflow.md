@@ -15,7 +15,7 @@ For the durable operating contract that agents follow inside this repo, also rea
 
 ## Prerequisites
 
-- Node.js `>=20.18.0`
+- Node.js `>=22.12.0`
 - `npm`
 - a clone of this repository
 - for SaaS-backed profiles only: valid Linear and Notion credentials in the environment variables referenced by `config.toml`
@@ -50,6 +50,15 @@ daemon is running:
 ```bash
 orq local sweep
 ```
+
+If you are working on the public site under `/site`, start the Astro dev server
+from the repo root:
+
+```bash
+npm run site:dev
+```
+
+That package serves the landing page at `/` and the Starlight docs at `/docs`.
 
 ## Installed Package Smoke Path
 
@@ -222,6 +231,13 @@ npm run test
 
 Implementation work should also run the strongest practical targeted verification for the area you touched.
 
+For changes in `/site`, the targeted verification should also include:
+
+```bash
+npm run site:build
+npm run site:check
+```
+
 If you change behavior and do not add automated coverage, call out:
 
 - why coverage was not added
@@ -242,6 +258,9 @@ npm run dev:orchestrator -- --repo-root "$PWD"
 npm start
 npm run start:orchestrator -- --repo-root "$PWD"
 npm run check
+npm run site:dev
+npm run site:build
+npm run site:check
 ```
 
 ## When To Update Local Docs
