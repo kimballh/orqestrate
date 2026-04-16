@@ -261,4 +261,5 @@ export interface ParseConfigOptions {
   sourcePath: string;
   activeProfile?: string;
   env?: NodeJS.ProcessEnv;
+  workspaceRoot?: string;
 }

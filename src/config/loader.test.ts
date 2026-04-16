@@ -944,6 +944,27 @@ reviewer_v2 = "experiments/reviewer-v2.md"
   );
 });
 
+test("anchors workspace-local prompt overrides to the workspace root for nested configs", () => {
+  const fixture = createFixtureWorkspace();
+  const nestedConfigPath = path.join(fixture.workspaceDir, "ops", "config.toml");
+
+  mkdirSync(path.dirname(nestedConfigPath), { recursive: true });
+
+  const config = parseConfig(
+    VALID_CONFIG.replace('root = "./prompts"', 'root = "../prompts"'),
+    {
+      sourcePath: nestedConfigPath,
+      workspaceRoot: fixture.workspaceDir,
+      env: {},
+    },
+  );
+
+  assert.equal(
+    config.prompts.localOverrideRoot,
+    path.join(fixture.workspaceDir, ".orqestrate", "prompts"),
+  );
+});
+
 test("rejects prompt packs that reference undefined prompt capabilities", () => {
   const fixture = createFixtureWorkspace();
 

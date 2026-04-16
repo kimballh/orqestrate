@@ -146,6 +146,51 @@ test("prompt render uses the repo root when the config lives in a nested directo
   assert.equal(parsed.context.workspace.workingDir, fixture.workspaceDir);
 });
 
+test("prompt render reads workspace-local prompt overrides from the workspace root for nested configs", async () => {
+  const fixture = createPromptCliFixture({ configSubdir: "ops" });
+  const overridePath = path.join(
+    fixture.workspaceDir,
+    ".orqestrate",
+    "prompts",
+    "roles",
+    "review.md",
+  );
+
+  mkdirSync(path.dirname(overridePath), { recursive: true });
+  writeFileSync(overridePath, "Workspace review override.\n", "utf8");
+
+  const result = await invokeCli(
+    [
+      "prompt",
+      "render",
+      "--config",
+      fixture.configPath,
+      "--role",
+      "review",
+      "--phase",
+      "review",
+      "--format",
+      "json",
+    ],
+    fixture.workspaceDir,
+  );
+
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(
+    parsed.selection.profileName,
+    "local",
+  );
+  assert.equal(
+    parsed.resolvedLayers.some(
+      (layer: { ref: string }) =>
+        layer.ref === "workspace-prompt:replace/roles/review.md",
+    ),
+    true,
+  );
+  assert.match(parsed.prompt.userPrompt, /Workspace review override\./);
+  assert.doesNotMatch(parsed.prompt.userPrompt, /Review role instructions\./);
+});
+
 test("prompt diff reports source and prompt changes for variant overrides", async () => {
   const fixture = createPromptCliFixture();
   const result = await invokeCli(

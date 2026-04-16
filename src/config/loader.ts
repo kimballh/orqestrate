@@ -134,6 +134,7 @@ export async function loadConfig(
     sourcePath,
     activeProfile: options.activeProfile,
     env: options.env,
+    workspaceRoot: cwd,
   });
 }
 
@@ -143,6 +144,7 @@ export function parseConfig(
 ): LoadedConfig {
   const sourcePath = path.resolve(options.sourcePath);
   const configDir = path.dirname(sourcePath);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? configDir);
   const env = options.env ?? process.env;
 
   let parsedDocument: unknown;
@@ -161,7 +163,11 @@ export function parseConfig(
   const document = expectRecord(parsedDocument, "config");
   assertAllowedKeys(document, TOP_LEVEL_KEYS, "");
 
-  const localOverrideRoot = path.join(configDir, ".orqestrate", "prompts");
+  const localOverrideRoot = path.join(
+    workspaceRoot,
+    ".orqestrate",
+    "prompts",
+  );
   const builtinPrompts = createBuiltinPromptsConfig(localOverrideRoot);
   const builtinPromptCapabilities = createBuiltinPromptCapabilities();
   const builtinPromptPacks = createBuiltinPromptPacks();
