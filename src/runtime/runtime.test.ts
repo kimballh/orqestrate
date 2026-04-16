@@ -607,13 +607,16 @@ function createLoadedConfigFixture(): LoadedConfig {
     },
     prompts: {
       root: "/tmp/prompts",
+      invariantRoot: "/tmp/prompts",
       activePack: "default",
       invariants: [],
+      localOverrideRoot: "/tmp/.orqestrate/prompts",
     },
     promptCapabilities: {},
     promptPacks: {
       default: {
         name: "default",
+        root: "/tmp/prompts",
         baseSystem: "/tmp/prompts/base/system.md",
         roles: {},
         phases: {},
@@ -647,6 +650,7 @@ function createLoadedConfigFixture(): LoadedConfig {
         },
         promptPack: {
           name: "default",
+          root: "/tmp/prompts",
           baseSystem: "/tmp/prompts/base/system.md",
           roles: {},
           phases: {},
@@ -661,6 +665,7 @@ function createLoadedConfigFixture(): LoadedConfig {
           promptPackName: "default",
           promptPack: {
             name: "default",
+            root: "/tmp/prompts",
             baseSystem: "/tmp/prompts/base/system.md",
             roles: {},
             phases: {},
@@ -699,6 +704,7 @@ function createLoadedConfigFixture(): LoadedConfig {
       },
       promptPack: {
         name: "default",
+        root: "/tmp/prompts",
         baseSystem: "/tmp/prompts/base/system.md",
         roles: {},
         phases: {},
@@ -713,6 +719,7 @@ function createLoadedConfigFixture(): LoadedConfig {
         promptPackName: "default",
         promptPack: {
           name: "default",
+          root: "/tmp/prompts",
           baseSystem: "/tmp/prompts/base/system.md",
           roles: {},
           phases: {},

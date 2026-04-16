@@ -165,14 +165,9 @@ function prepareInitializedConfig(
 
   return replaceRequiredConfigValue(
     replaceRequiredConfigValue(
-      replaceRequiredConfigValue(
-        source.replace(
-          activeProfilePattern,
-          `active_profile = ${formatTomlString(profileName)}`,
-        ),
-        /^root = "\.\/docs\/prompts"$/m,
-        `root = ${formatTomlString(assetPaths.promptsRoot)}`,
-        "config.example.toml is missing the canonical prompts root.",
+      source.replace(
+        activeProfilePattern,
+        `active_profile = ${formatTomlString(profileName)}`,
       ),
       /^artifact_template = "\.\/examples\/local\/context\/templates\/artifact\.md"$/m,
       `artifact_template = ${formatTomlString(assetPaths.artifactTemplatePath)}`,

@@ -39,7 +39,8 @@ test("init creates config.toml from the canonical example and can override the p
   );
 
   assert.match(generatedConfig, /active_profile = "hybrid"/);
-  assert.match(generatedConfig, /root = ".*docs[\\/\\\\]prompts"/);
+  assert.doesNotMatch(generatedConfig, /^\[prompts\]$/m);
+  assert.match(generatedConfig, /Prompt behavior is zero-config by default\./);
   assert.match(
     generatedConfig,
     /artifact_template = ".*examples[\\/\\\\]local[\\/\\\\]context[\\/\\\\]templates[\\/\\\\]artifact\.md"/,

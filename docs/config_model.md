@@ -35,10 +35,14 @@ Recommended top-level sections:
 - `[paths]`
 - `[workspace]`
 - `[policy]`
-- `[prompts]`
-- `[prompt_packs.<name>]`
 - `[providers.<name>]`
 - `[profiles.<name>]`
+
+Optional advanced sections:
+
+- `[prompts]`
+- `[prompt_capabilities.<name>]`
+- `[prompt_packs.<name>]`
 
 ## 4. Example
 
@@ -65,10 +69,6 @@ max_concurrent_runs = 4
 max_runs_per_provider = 2
 allow_mixed_providers = true
 default_phase_timeout_sec = 5400
-
-[prompts]
-root = "./prompts"
-active_pack = "default"
 
 [prompt_packs.default]
 base_system = "base/system.md"
@@ -117,7 +117,6 @@ root = ".harness/local/context"
 [profiles.saas]
 planning = "linear_main"
 context = "notion_main"
-prompt_pack = "default"
 
 [profiles.saas.prompt]
 organization_overlays = ["reviewer_qa"]
@@ -127,12 +126,10 @@ default_experiment = "reviewer_v2"
 [profiles.local]
 planning = "local_planning"
 context = "local_context"
-prompt_pack = "default"
 
 [profiles.hybrid]
 planning = "linear_main"
 context = "local_context"
-prompt_pack = "default"
 ```
 
 ## 6. Provider instance rules
@@ -163,7 +160,6 @@ Profiles should choose active provider instances by name.
 [profiles.default]
 planning = "linear_main"
 context = "notion_main"
-prompt_pack = "default"
 ```
 
 This lets the same installation support multiple deployment modes:
@@ -179,7 +175,6 @@ Profiles may also own prompt behavior for the selected pack:
 [profiles.default]
 planning = "linear_main"
 context = "notion_main"
-prompt_pack = "default"
 
 [profiles.default.prompt]
 organization_overlays = ["reviewer_qa"]
@@ -187,7 +182,7 @@ project_overlays = ["reviewer_webapp"]
 default_experiment = "reviewer_v2"
 ```
 
-That keeps prompt assets in the pack catalog while making overlay and default-experiment choice profile-specific.
+That keeps prompt behavior selection profile-specific while the built-in catalog stays product-owned by default.
 
 ## 8. Environment variable references
 
@@ -317,11 +312,11 @@ run_template = "default_run"
 
 This keeps the top-level config stable while allowing provider-specific tuning.
 
-Leave room for prompt-pack customization too:
+Leave room for advanced prompt-pack customization too:
 
 ```toml
 [prompts]
-root = "./prompts"
+root = "./my-prompts"
 active_pack = "default"
 
 [prompt_packs.default.phases]
@@ -340,7 +335,6 @@ reviewer_v2 = "experiments/reviewer-v2.md"
 [profiles.saas]
 planning = "linear_main"
 context = "notion_main"
-prompt_pack = "default"
 
 [profiles.saas.prompt]
 organization_overlays = ["reviewer_qa"]
@@ -348,7 +342,7 @@ project_overlays = ["reviewer_webapp"]
 default_experiment = "reviewer_v2"
 ```
 
-This keeps prompt customization config-driven instead of hardcoded.
+This keeps advanced prompt customization config-driven instead of hardcoded, while the common case can stay zero-config.
 
 ## 13. Recommendation
 
@@ -357,7 +351,8 @@ Use:
 - `config.toml`
 - named provider instances
 - profile-based provider selection
-- prompt-pack selection through config
+- built-in prompt defaults unless you need advanced customization
+- `.orqestrate/prompts/` for everyday local prompt overrides
 - env-var references for secrets
 - a default SaaS profile using `planning.linear` and `context.notion`
 - an optional local profile using `local_files` for both planning and context

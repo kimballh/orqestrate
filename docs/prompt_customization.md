@@ -11,19 +11,23 @@ The goal is:
 
 ## 1. Main recommendation
 
-Do not make prompt customization a single raw string override.
+Start with the built-in prompt catalog.
 
-Use layered prompt composition with explicit override points.
+Do not make normal users define prompt packs or capability catalogs just to tweak one instruction.
+
+Use layered prompt composition with local override files for the common case, and reserve explicit prompt-pack config for advanced customization.
 
 Recommended layers:
 
 1. `base system prompt`
-2. `role prompt`
-3. `phase prompt`
-4. `organization overlay`
-5. `project overlay`
-6. `run-specific additions`
-7. `experiment variant overlay`
+2. `hard invariants`
+3. `role prompt`
+4. `phase prompt`
+5. `capability fragments`
+6. `organization overlay`
+7. `project overlay`
+8. `run-specific additions`
+9. `experiment variant overlay`
 
 That gives users control without forcing them to replace everything.
 
@@ -106,7 +110,40 @@ These are system invariants, not style preferences.
 
 If someone wants to change those, that should be a code/config-level change, not a prompt snippet.
 
-## 6. File layout recommendation
+## 6. Everyday override layout
+
+The primary user-facing override surface should be workspace-local:
+
+```text
+.orqestrate/
+  prompts/
+```
+
+Use these conventions:
+
+- `name.md` replaces the built-in fragment
+- `name.prepend.md` inserts instructions before the effective fragment
+- `name.append.md` inserts instructions after the effective fragment
+
+Example:
+
+```text
+.orqestrate/
+  prompts/
+    roles/
+      review.md
+    phases/
+      implement.append.md
+    capabilities/
+      github-write-review.append.md
+    overlays/
+      project/
+        reviewer-webapp.md
+```
+
+That keeps everyday customization local, incremental, and easy to inspect in `orq prompt render`.
+
+## 7. Built-in catalog layout
 
 Recommended repo-level layout:
 
@@ -146,15 +183,30 @@ orqestrate/
 
 This keeps prompt assets organized by purpose instead of shoving everything into one directory.
 
-## 7. Config-driven prompt selection
+## 8. Config-driven prompt selection
 
 Prompt selection should be driven by config, not hardcoded in the orchestrator.
 
-Recommended additions to `config.toml`:
+For the common case, config should stay selection-oriented:
+
+```toml
+[profiles.saas]
+planning = "linear_main"
+context = "notion_main"
+
+[profiles.saas.prompt]
+organization_overlays = ["reviewer_qa"]
+project_overlays = ["reviewer_webapp"]
+default_experiment = "reviewer_v2"
+```
+
+The built-in prompt catalog, invariants, and standard capability registry load automatically.
+
+Explicit prompt-pack and capability definitions remain available as an advanced escape hatch:
 
 ```toml
 [prompts]
-root = "./prompts"
+root = "./my-prompts"
 active_pack = "default"
 invariants = [
   "invariants/run-scope.md",
@@ -277,7 +329,7 @@ project_overlays = ["reviewer_webapp"]
 default_experiment = "reviewer_v2"
 ```
 
-This gives users a stable way to swap prompt assets without code edits while keeping overlay and default-experiment choice profile-owned.
+This gives advanced users a stable way to swap prompt assets without code edits while keeping overlay and default-experiment choice profile-owned.
 
 ## 8. Run-time prompt assembly
 

@@ -220,6 +220,74 @@ test("allows phases without a configured phase fragment", async () => {
   assert.match(result.prompt.userPrompt, /Design role instructions\./);
 });
 
+test("applies workspace-local prompt replacements plus prepend and append fragments", async () => {
+  const fixture = createFixtureWorkspace();
+  writePromptFile(
+    path.join(fixture.workspaceDir, ".orqestrate", "prompts"),
+    "roles/implement.md",
+    "Workspace role override.\n",
+  );
+  writePromptFile(
+    path.join(fixture.workspaceDir, ".orqestrate", "prompts"),
+    "phases/implement.prepend.md",
+    "Workspace phase prepend.\n",
+  );
+  writePromptFile(
+    path.join(fixture.workspaceDir, ".orqestrate", "prompts"),
+    "capabilities/cap-first.append.md",
+    "Workspace capability append.\n",
+  );
+
+  const result = await assemblePrompt(fixture.loadedConfig, {
+    role: "implement",
+    phase: "implement",
+    capabilities: ["cap_first"],
+    context: {
+      workItem: {
+        id: "work-20",
+        identifier: "ORQ-20",
+        title: "Implement prompt assembly pipeline",
+        description: null,
+        labels: [],
+        url: "https://linear.app/orqestrate/issue/ORQ-20",
+      },
+      workspace: {
+        repoRoot: fixture.workspaceDir,
+        mode: "ephemeral_worktree",
+      },
+      expectations: {},
+    },
+  });
+
+  assert.deepEqual(
+    result.resolvedLayers.map((layer) => layer.ref),
+    [
+      "prompt-pack:default/base/system.md",
+      "prompt-invariant:invariants/run-scope.md",
+      "prompt-invariant:invariants/verification.md",
+      "workspace-prompt:replace/roles/implement.md",
+      "workspace-prompt:prepend/phases/implement.md",
+      "prompt-pack:default/phases/implement.md",
+      "prompt-pack:default/capabilities/cap-first.md",
+      "workspace-prompt:append/capabilities/cap-first.md",
+      "prompt-pack:default/overlays/org/org.md",
+      "prompt-pack:default/overlays/project/project.md",
+      "prompt-pack:default/experiments/review.md",
+      "run-context",
+    ],
+  );
+  assert.doesNotMatch(result.prompt.userPrompt, /Implement role instructions\./);
+  assert.match(result.prompt.userPrompt, /Workspace role override\./);
+  assert.match(
+    result.prompt.userPrompt,
+    /Workspace phase prepend\.\n\nImplementation phase instructions\./,
+  );
+  assert.match(
+    result.prompt.userPrompt,
+    /Capability one comes first\.\n\nWorkspace capability append\./,
+  );
+});
+
 test("fails clearly when a requested capability is unknown", async () => {
   const fixture = createFixtureWorkspace();
 

@@ -126,8 +126,10 @@ export interface PolicyConfig {
 
 export interface PromptsConfig {
   root: string;
-  activePack?: string;
+  invariantRoot: string;
+  activePack: string;
   invariants: string[];
+  localOverrideRoot: string;
 }
 
 export const PROMPT_OVERLAY_GROUPS = ["organization", "project"] as const;
@@ -143,6 +145,7 @@ export type PromptOverlayCatalog = Record<PromptOverlayGroup, Record<string, str
 
 export interface PromptPackConfig {
   name: string;
+  root: string;
   baseSystem: string;
   roles: Record<string, string>;
   phases: Record<string, string>;

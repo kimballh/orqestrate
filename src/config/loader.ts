@@ -4,6 +4,11 @@ import path from "node:path";
 
 import { parse as parseToml } from "smol-toml";
 
+import {
+  createBuiltinPromptCapabilities,
+  createBuiltinPromptPacks,
+  createBuiltinPromptsConfig,
+} from "./builtin-prompts.js";
 import { ConfigError } from "./errors.js";
 import {
   PromptSelectionError,
@@ -156,6 +161,10 @@ export function parseConfig(
   const document = expectRecord(parsedDocument, "config");
   assertAllowedKeys(document, TOP_LEVEL_KEYS, "");
 
+  const localOverrideRoot = path.join(configDir, ".orqestrate", "prompts");
+  const builtinPrompts = createBuiltinPromptsConfig(localOverrideRoot);
+  const builtinPromptCapabilities = createBuiltinPromptCapabilities();
+  const builtinPromptPacks = createBuiltinPromptPacks();
   const version = parseVersion(document.version);
   const configuredActiveProfile = readOptionalString(
     document,
@@ -165,18 +174,20 @@ export function parseConfig(
   const paths = parsePathsSection(document.paths, configDir);
   const workspace = parseWorkspaceSection(document.workspace, configDir);
   const policy = parsePolicySection(document.policy);
-  const prompts = parsePromptsSection(document.prompts, configDir);
+  const prompts = parsePromptsSection(document.prompts, configDir, builtinPrompts);
   const promptCapabilities = parsePromptCapabilitiesSection(
     document.prompt_capabilities,
+    builtinPromptCapabilities,
   );
-  const promptPacks = parsePromptPacksSection(document.prompt_packs, prompts.root);
+  const promptPacks = parsePromptPacksSection(
+    document.prompt_packs,
+    prompts.root,
+    builtinPromptPacks,
+  );
   validatePromptCapabilityRegistry(promptCapabilities);
   validatePromptPackCapabilityReferences(promptPacks, promptCapabilities);
 
-  if (
-    prompts.activePack !== undefined &&
-    !hasOwn(promptPacks, prompts.activePack)
-  ) {
+  if (!hasOwn(promptPacks, prompts.activePack)) {
     throw new ConfigError(
       `Prompt pack '${prompts.activePack}' does not exist.`,
       {
@@ -380,28 +391,47 @@ function parseMergePolicySection(value: unknown): PolicyConfig["merge"] {
   };
 }
 
-function parsePromptsSection(value: unknown, configDir: string): PromptsConfig {
-  const section = expectRequiredRecord(value, "prompts");
+function parsePromptsSection(
+  value: unknown,
+  configDir: string,
+  defaults: PromptsConfig,
+): PromptsConfig {
+  if (value === undefined) {
+    return {
+      root: defaults.root,
+      invariantRoot: defaults.invariantRoot,
+      activePack: defaults.activePack,
+      invariants: [...defaults.invariants],
+      localOverrideRoot: defaults.localOverrideRoot,
+    };
+  }
+
+  const section = expectRecord(value, "prompts");
   assertAllowedKeys(section, ["root", "active_pack", "invariants"], "prompts");
 
   const activePack =
     section.active_pack === undefined
-      ? undefined
+      ? defaults.activePack
       : expectNonEmptyString(section.active_pack, "prompts.active_pack");
-  const root = resolveFileSystemPath(
-    expectNonEmptyString(section.root, "prompts.root"),
-    configDir,
-    "prompts.root",
-  );
-  const invariants = expectStringArray(
-    section.invariants,
-    "prompts.invariants",
-  ).map((entry, index) => {
-    const fieldPath = `prompts.invariants[${index}]`;
-    const resolvedPath = resolvePromptAssetPath(entry, fieldPath, root);
-    assertPromptAssetHasContent(resolvedPath, fieldPath);
-    return resolvedPath;
-  });
+  const root =
+    section.root === undefined
+      ? defaults.root
+      : resolveFileSystemPath(
+          expectNonEmptyString(section.root, "prompts.root"),
+          configDir,
+          "prompts.root",
+        );
+  const invariants =
+    section.invariants === undefined
+      ? [...defaults.invariants]
+      : expectStringArray(section.invariants, "prompts.invariants").map(
+          (entry, index) => {
+            const fieldPath = `prompts.invariants[${index}]`;
+            const resolvedPath = resolvePromptAssetPath(entry, fieldPath, root);
+            assertPromptAssetHasContent(resolvedPath, fieldPath);
+            return resolvedPath;
+          },
+        );
 
   if (invariants.length === 0) {
     throw new ConfigError("Expected 'prompts.invariants' to contain at least one prompt asset.", {
@@ -413,154 +443,178 @@ function parsePromptsSection(value: unknown, configDir: string): PromptsConfig {
 
   return {
     root,
+    invariantRoot: section.invariants === undefined ? defaults.invariantRoot : root,
     activePack,
     invariants,
+    localOverrideRoot: defaults.localOverrideRoot,
   };
 }
 
 function parsePromptCapabilitiesSection(
   value: unknown,
+  defaults: Record<string, PromptCapabilityDefinition>,
 ): Record<string, PromptCapabilityDefinition> {
   if (value === undefined) {
-    return {};
+    return { ...defaults };
   }
 
   const section = expectRecord(value, "prompt_capabilities");
 
-  return Object.fromEntries(
-    Object.entries(section).map(([name, definitionValue]) => {
-      const definitionPath = joinPath("prompt_capabilities", name);
-      const definition = expectRecord(definitionValue, definitionPath);
+  return {
+    ...defaults,
+    ...Object.fromEntries(
+      Object.entries(section).map(([name, definitionValue]) => {
+        const definitionPath = joinPath("prompt_capabilities", name);
+        const definition = expectRecord(definitionValue, definitionPath);
 
-      assertAllowedKeys(
-        definition,
-        [
-          "authority",
-          "allowed_phases",
-          "allowed_roles",
-          "required_context",
-          "requires",
-          "conflicts_with",
-          "provider",
-          "surface",
-          "effect",
-          "target_scope",
-        ],
-        definitionPath,
-      );
+        assertAllowedKeys(
+          definition,
+          [
+            "authority",
+            "allowed_phases",
+            "allowed_roles",
+            "required_context",
+            "requires",
+            "conflicts_with",
+            "provider",
+            "surface",
+            "effect",
+            "target_scope",
+          ],
+          definitionPath,
+        );
 
-      return [
-        name,
-        {
-          authority: parsePromptCapabilityAuthority(
-            definition.authority,
-            `${definitionPath}.authority`,
-          ),
-          allowedPhases: parseWorkPhaseArray(
-            definition.allowed_phases,
-            `${definitionPath}.allowed_phases`,
-          ),
-          allowedRoles: parseWorkPhaseArray(
-            definition.allowed_roles,
-            `${definitionPath}.allowed_roles`,
-          ),
-          requiredContext: parsePromptCapabilityContextRequirementArray(
-            definition.required_context,
-            `${definitionPath}.required_context`,
-          ),
-          requires:
-            definition.requires === undefined
-              ? []
-              : expectStringArray(definition.requires, `${definitionPath}.requires`),
-          conflictsWith:
-            definition.conflicts_with === undefined
-              ? []
-              : expectStringArray(
-                  definition.conflicts_with,
-                  `${definitionPath}.conflicts_with`,
-                ),
-          provider:
-            definition.provider === undefined
-              ? undefined
-              : parsePromptCapabilityProvider(
-                  definition.provider,
-                  `${definitionPath}.provider`,
-                ),
-          surface:
-            definition.surface === undefined
-              ? undefined
-              : parsePromptCapabilitySurface(
-                  definition.surface,
-                  `${definitionPath}.surface`,
-                ),
-          effect:
-            definition.effect === undefined
-              ? undefined
-              : parsePromptCapabilityEffect(
-                  definition.effect,
-                  `${definitionPath}.effect`,
-                ),
-          targetScope:
-            definition.target_scope === undefined
-              ? undefined
-              : parsePromptCapabilityTargetScope(
-                  definition.target_scope,
-                  `${definitionPath}.target_scope`,
-                ),
-        } satisfies PromptCapabilityDefinition,
-      ];
-    }),
-  );
+        return [
+          name,
+          {
+            authority: parsePromptCapabilityAuthority(
+              definition.authority,
+              `${definitionPath}.authority`,
+            ),
+            allowedPhases: parseWorkPhaseArray(
+              definition.allowed_phases,
+              `${definitionPath}.allowed_phases`,
+            ),
+            allowedRoles: parseWorkPhaseArray(
+              definition.allowed_roles,
+              `${definitionPath}.allowed_roles`,
+            ),
+            requiredContext: parsePromptCapabilityContextRequirementArray(
+              definition.required_context,
+              `${definitionPath}.required_context`,
+            ),
+            requires:
+              definition.requires === undefined
+                ? []
+                : expectStringArray(definition.requires, `${definitionPath}.requires`),
+            conflictsWith:
+              definition.conflicts_with === undefined
+                ? []
+                : expectStringArray(
+                    definition.conflicts_with,
+                    `${definitionPath}.conflicts_with`,
+                  ),
+            provider:
+              definition.provider === undefined
+                ? undefined
+                : parsePromptCapabilityProvider(
+                    definition.provider,
+                    `${definitionPath}.provider`,
+                  ),
+            surface:
+              definition.surface === undefined
+                ? undefined
+                : parsePromptCapabilitySurface(
+                    definition.surface,
+                    `${definitionPath}.surface`,
+                  ),
+            effect:
+              definition.effect === undefined
+                ? undefined
+                : parsePromptCapabilityEffect(
+                    definition.effect,
+                    `${definitionPath}.effect`,
+                  ),
+            targetScope:
+              definition.target_scope === undefined
+                ? undefined
+                : parsePromptCapabilityTargetScope(
+                    definition.target_scope,
+                    `${definitionPath}.target_scope`,
+                  ),
+          } satisfies PromptCapabilityDefinition,
+        ];
+      }),
+    ),
+  };
 }
 
 function parsePromptPacksSection(
   value: unknown,
   promptRoot: string,
+  defaults: Record<string, PromptPackConfig>,
 ): Record<string, PromptPackConfig> {
-  const section = expectRequiredRecord(value, "prompt_packs");
+  if (value === undefined) {
+    return {
+      ...defaults,
+    };
+  }
+
+  const section = expectRecord(value, "prompt_packs");
   assertNonEmptyNamedSection(section, "prompt_packs");
 
-  return Object.fromEntries(
-    Object.entries(section).map(([name, packValue]) => {
-      const packPath = joinPath("prompt_packs", name);
-      const pack = expectRecord(packValue, packPath);
+  return {
+    ...defaults,
+    ...Object.fromEntries(
+      Object.entries(section).map(([name, packValue]) => {
+        const packPath = joinPath("prompt_packs", name);
+        const pack = expectRecord(packValue, packPath);
 
-      assertAllowedKeys(
-        pack,
-        ["base_system", "roles", "phases", "capabilities", "overlays", "experiments"],
-        packPath,
-      );
+        assertAllowedKeys(
+          pack,
+          [
+            "base_system",
+            "roles",
+            "phases",
+            "capabilities",
+            "overlays",
+            "experiments",
+          ],
+          packPath,
+        );
 
-      return [
-        name,
-        {
+        return [
           name,
-          baseSystem: resolvePromptAssetPath(
-            expectNonEmptyString(pack.base_system, `${packPath}.base_system`),
-            `${packPath}.base_system`,
-            promptRoot,
-          ),
-          roles: parsePromptAssetMap(pack.roles, `${packPath}.roles`, promptRoot),
-          phases: parsePromptAssetMap(pack.phases, `${packPath}.phases`, promptRoot),
-          capabilities: parsePromptAssetMap(
-            pack.capabilities,
-            `${packPath}.capabilities`,
-            promptRoot,
-          ),
-          overlays: parsePromptOverlayCatalog(
-            pack.overlays,
-            `${packPath}.overlays`,
-            promptRoot,
-          ),
-          experiments: parsePromptAssetMap(
-            pack.experiments,
-            `${packPath}.experiments`,
-            promptRoot,
-          ),
-        } satisfies PromptPackConfig,
-      ];
-    }),
-  );
+          {
+            name,
+            root: promptRoot,
+            baseSystem: resolvePromptAssetPath(
+              expectNonEmptyString(pack.base_system, `${packPath}.base_system`),
+              `${packPath}.base_system`,
+              promptRoot,
+            ),
+            roles: parsePromptAssetMap(pack.roles, `${packPath}.roles`, promptRoot),
+            phases: parsePromptAssetMap(pack.phases, `${packPath}.phases`, promptRoot),
+            capabilities: parsePromptAssetMap(
+              pack.capabilities,
+              `${packPath}.capabilities`,
+              promptRoot,
+            ),
+            overlays: parsePromptOverlayCatalog(
+              pack.overlays,
+              `${packPath}.overlays`,
+              promptRoot,
+            ),
+            experiments: parsePromptAssetMap(
+              pack.experiments,
+              `${packPath}.experiments`,
+              promptRoot,
+            ),
+          } satisfies PromptPackConfig,
+        ];
+      }),
+    ),
+  };
 }
 
 function parseProvidersSection(
