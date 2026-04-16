@@ -1,17 +1,24 @@
 import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { bootstrapActiveProfile } from "../core/bootstrap.js";
 import { loadConfig } from "../config/loader.js";
 import type { PlanningLocalFilesProviderConfig } from "../config/types.js";
 import {
+  AGENT_PROVIDERS,
   WORK_ITEM_STATUSES,
   WORK_PHASES,
   WORK_PHASES_OR_NONE,
+  type AgentProvider,
   type WorkItemRecord,
   type WorkItemStatus,
   type WorkPhase,
   type WorkPhaseOrNone,
 } from "../domain-model.js";
+import {
+  executeClaimedRun,
+  type ExecuteClaimedRunResult,
+} from "../orchestrator/execute-run.js";
 import { LocalFilesPlanningBackend } from "../providers/planning/local-files-backend.js";
 
 type WriteFn = (message: string) => void;
@@ -23,6 +30,8 @@ export type LocalCommandDependencies = {
   stdout?: WriteFn;
   loadConfig?: typeof loadConfig;
   now?: () => string;
+  bootstrapActiveProfile?: typeof bootstrapActiveProfile;
+  executeClaimedRunFn?: typeof executeClaimedRun;
 };
 
 type SharedLocalCommandOptions = {
@@ -50,6 +59,33 @@ type LocalAddIssueResult = {
   planningRoot: string;
   issuePath: string;
   record: WorkItemRecord;
+};
+
+type SweepCommandOptions = SharedLocalCommandOptions & {
+  limit: number;
+  provider: AgentProvider;
+  repoRoot?: string;
+};
+
+type LocalSweepItemResult = {
+  workItemId: string;
+  identifier: string | null;
+  title: string;
+  phase: WorkPhaseOrNone;
+  outcome: "executed" | "noop";
+  runId: string | null;
+  runtimeStatus: string | null;
+  summary: string;
+};
+
+type LocalSweepResult = {
+  profileName: string;
+  provider: AgentProvider;
+  repoRoot: string;
+  candidateCount: number;
+  executedCount: number;
+  noopCount: number;
+  results: LocalSweepItemResult[];
 };
 
 type LocalPlanningIndexEntry = {
@@ -123,6 +159,23 @@ export async function runLocalCommand(
     return 0;
   }
 
+  if (command === "sweep") {
+    const options = parseSweepOptions(args.slice(1));
+
+    if (options === "help") {
+      write(dependencies.stdout, renderSweepHelp());
+      return 0;
+    }
+
+    const result = await runSweepCommand(options, dependencies);
+    const output =
+      options.format === "json"
+        ? JSON.stringify(result, null, 2)
+        : renderSweepResult(result);
+    write(dependencies.stdout, output);
+    return 0;
+  }
+
   throw new LocalCommandError(`Unknown local command '${command}'.`);
 }
 
@@ -130,6 +183,7 @@ export function renderLocalHelp(): string {
   return [
     "Local commands:",
     "  local add-issue            Create a work item in the active planning.local_files store.",
+    "  local sweep                Discover and execute actionable planning.local_files work items.",
   ].join("\n");
 }
 
@@ -151,6 +205,18 @@ function renderAddIssueHelp(): string {
     "  --depends-on <id>      Repeatable dependency id.",
     "  --blocked-by <id>      Repeatable blocker id.",
     "  --blocks <id>          Repeatable downstream issue id.",
+  ].join("\n");
+}
+
+function renderSweepHelp(): string {
+  return [
+    "Local sweep options:",
+    "  --config <path>        Config file path. Defaults to ./config.toml.",
+    "  --profile <name>       Override the active profile for this command.",
+    "  --format <value>       text or json. Defaults to text.",
+    "  --limit <n>            Maximum actionable items to sweep. Defaults to 10.",
+    `  --provider <value>     ${AGENT_PROVIDERS.join(", ")}. Defaults to codex.`,
+    "  --repo-root <path>     Repo root to pass into the execution flow. Defaults to the current working directory.",
   ].join("\n");
 }
 
@@ -248,6 +314,70 @@ async function createLocalIssue(input: {
     planningRoot,
     issuePath,
     record,
+  };
+}
+
+async function runSweepCommand(
+  options: SweepCommandOptions,
+  dependencies: LocalCommandDependencies,
+): Promise<LocalSweepResult> {
+  const cwd = resolveCommandCwd(dependencies.cwd);
+  const loadedConfig = await (dependencies.loadConfig ?? loadConfig)({
+    cwd,
+    configPath: options.configPath,
+    activeProfile: options.profile,
+    env: process.env,
+  });
+  const planningProvider = loadedConfig.activeProfile.planningProvider;
+
+  if (planningProvider.kind !== "planning.local_files") {
+    throw new LocalCommandError(
+      `Profile '${loadedConfig.activeProfileName}' uses '${planningProvider.kind}', but 'local sweep' requires planning.local_files.`,
+    );
+  }
+
+  const repoRoot = path.resolve(options.repoRoot ?? cwd);
+  const bootstrap =
+    dependencies.bootstrapActiveProfile ?? bootstrapActiveProfile;
+  const executeClaimedRunFn =
+    dependencies.executeClaimedRunFn ?? executeClaimedRun;
+  const bootstrapped = await bootstrap(loadedConfig);
+  const candidates = await bootstrapped.planning.listActionableWorkItems({
+    limit: options.limit,
+  });
+  const results: LocalSweepItemResult[] = [];
+
+  for (const candidate of candidates) {
+    const executionResult = await executeClaimedRunFn(
+      {
+        planning: bootstrapped.planning,
+        context: bootstrapped.context,
+        loadedConfig,
+      },
+      {
+        workItemId: candidate.id,
+        provider: options.provider,
+        repoRoot,
+        owner: "local-sweep-cli",
+        requestedBy: `local:sweep:${candidate.id}`,
+      },
+    );
+
+    results.push(mapSweepItemResult(candidate, executionResult));
+  }
+
+  const executedCount = results.filter(
+    (result) => result.outcome === "executed",
+  ).length;
+
+  return {
+    profileName: loadedConfig.activeProfileName,
+    provider: options.provider,
+    repoRoot,
+    candidateCount: candidates.length,
+    executedCount,
+    noopCount: results.length - executedCount,
+    results,
   };
 }
 
@@ -357,6 +487,60 @@ function parseAddIssueOptions(args: string[]): AddIssueCommandOptions | "help" {
     ...options,
     title: options.title,
   };
+}
+
+function parseSweepOptions(args: string[]): SweepCommandOptions | "help" {
+  const options: SweepCommandOptions = {
+    format: "text",
+    limit: 10,
+    provider: "codex",
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+
+    if (isHelpFlag(argument)) {
+      return "help";
+    }
+
+    switch (argument) {
+      case "--config":
+        options.configPath = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--profile":
+        options.profile = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      case "--format":
+        options.format = parseFormat(readOptionValue(args, index, argument), argument);
+        index += 1;
+        break;
+      case "--limit":
+        options.limit = parseNonNegativeInteger(
+          readOptionValue(args, index, argument),
+          argument,
+        );
+        index += 1;
+        break;
+      case "--provider":
+        options.provider = parseValue(
+          readOptionValue(args, index, argument),
+          AGENT_PROVIDERS,
+          argument,
+        );
+        index += 1;
+        break;
+      case "--repo-root":
+        options.repoRoot = readOptionValue(args, index, argument);
+        index += 1;
+        break;
+      default:
+        throw new LocalCommandError(`Unknown local sweep option '${argument}'.`);
+    }
+  }
+
+  return options;
 }
 
 function createWorkItemRecord(input: {
@@ -602,6 +786,77 @@ function renderAddIssueResult(result: LocalAddIssueResult): string {
     `File: ${result.issuePath}`,
     `Planning root: ${result.planningRoot}`,
   ].join("\n");
+}
+
+function renderSweepResult(result: LocalSweepResult): string {
+  const sections = [
+    "Local sweep complete.",
+    `Profile: ${result.profileName}`,
+    `Provider: ${result.provider}`,
+    `Repo root: ${result.repoRoot}`,
+    `Candidates: ${result.candidateCount}`,
+    `Executed: ${result.executedCount}`,
+    `No-op: ${result.noopCount}`,
+  ];
+
+  if (result.results.length > 0) {
+    sections.push("", "Results:");
+    for (const item of result.results) {
+      const runLabel = item.runId === null ? "" : ` run ${item.runId}`;
+      const runtimeLabel =
+        item.runtimeStatus === null ? "" : ` -> ${item.runtimeStatus}`;
+      sections.push(
+        `- ${item.workItemId} [${item.outcome}]${runLabel}${runtimeLabel}: ${item.summary}`,
+      );
+    }
+  }
+
+  return sections.join("\n");
+}
+
+function mapSweepItemResult(
+  candidate: WorkItemRecord,
+  result: ExecuteClaimedRunResult,
+): LocalSweepItemResult {
+  if (!result.ok) {
+    return {
+      workItemId: candidate.id,
+      identifier: candidate.identifier ?? null,
+      title: candidate.title,
+      phase: candidate.phase,
+      outcome: "noop",
+      runId: null,
+      runtimeStatus: null,
+      summary: summarizeNoopResult(result),
+    };
+  }
+
+  return {
+    workItemId: result.prepared.claimedWorkItem.id,
+    identifier: result.prepared.claimedWorkItem.identifier ?? null,
+    title: result.prepared.claimedWorkItem.title,
+    phase: result.prepared.claimedWorkItem.phase,
+    outcome: "executed",
+    runId: result.prepared.runId,
+    runtimeStatus:
+      "execution" in result ? result.execution.watched.run.status : null,
+    summary:
+      "execution" in result
+        ? `Observed runtime status '${result.execution.watched.run.status}'.`
+        : "Run was prepared successfully.",
+  };
+}
+
+function summarizeNoopResult(result: Extract<ExecuteClaimedRunResult, { ok: false }>): string {
+  if (result.decision !== undefined && "message" in result.decision) {
+    return result.decision.message;
+  }
+
+  if ("message" in result.resolution) {
+    return result.resolution.message;
+  }
+
+  return `Work item '${result.workItem.id}' was not executed.`;
 }
 
 function resolveCommandCwd(cwdProvider: (() => string) | undefined): string {

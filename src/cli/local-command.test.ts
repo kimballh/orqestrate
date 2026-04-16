@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { runCli } from "../index.js";
 import { loadConfig } from "../config/loader.js";
 import { LocalFilesPlanningBackend } from "../providers/planning/local-files-backend.js";
+import type { ExecuteClaimedRunResult } from "../orchestrator/execute-run.js";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -134,6 +135,76 @@ test("local add-issue rejects non-local planning profiles", async () => {
   }
 });
 
+test("local sweep executes actionable local issues through the orchestration path", async () => {
+  const fixture = createLocalCliFixture();
+  await bootstrapLocalFixture(fixture.workspaceDir);
+  const invokedWorkItemIds: string[] = [];
+
+  const result = await runCli(
+    ["local", "sweep", "--format", "json", "--limit", "5"],
+    {
+      cwd: () => fixture.workspaceDir,
+      stdout: (message) => {
+        fixture.stdout.push(message);
+      },
+      stderr: () => undefined,
+      executeClaimedRunFn: async (_dependencies, input) => {
+        invokedWorkItemIds.push(input.workItemId);
+        return createExecutedSweepResult(input.workItemId);
+      },
+    },
+  );
+
+  assert.equal(result, 0);
+  assert.deepEqual(invokedWorkItemIds, ["LOCAL-001"]);
+
+  const parsed = JSON.parse(fixture.stdout.join("\n"));
+  assert.equal(parsed.candidateCount, 1);
+  assert.equal(parsed.executedCount, 1);
+  assert.equal(parsed.noopCount, 0);
+  assert.equal(parsed.results[0].workItemId, "LOCAL-001");
+  assert.equal(parsed.results[0].outcome, "executed");
+  assert.equal(parsed.results[0].runId, "run-local-sweep-001");
+  assert.equal(parsed.results[0].runtimeStatus, "completed");
+});
+
+test("local sweep rejects non-local planning profiles", async () => {
+  const fixture = createLocalCliFixture();
+  await bootstrapLocalFixture(fixture.workspaceDir);
+
+  const previousToken = process.env.LINEAR_API_KEY;
+  const previousSecret = process.env.LINEAR_WEBHOOK_SECRET;
+  process.env.LINEAR_API_KEY = "test-linear-token";
+  process.env.LINEAR_WEBHOOK_SECRET = "test-linear-secret";
+
+  try {
+    await assert.rejects(
+      () =>
+        runCli(
+          ["local", "sweep", "--profile", "hybrid"],
+          {
+            cwd: () => fixture.workspaceDir,
+            stdout: () => undefined,
+            stderr: () => undefined,
+          },
+        ),
+      /requires planning\.local_files/i,
+    );
+  } finally {
+    if (previousToken === undefined) {
+      delete process.env.LINEAR_API_KEY;
+    } else {
+      process.env.LINEAR_API_KEY = previousToken;
+    }
+
+    if (previousSecret === undefined) {
+      delete process.env.LINEAR_WEBHOOK_SECRET;
+    } else {
+      process.env.LINEAR_WEBHOOK_SECRET = previousSecret;
+    }
+  }
+});
+
 async function bootstrapLocalFixture(workspaceDir: string): Promise<void> {
   const initResult = await invokeCli(["init"], workspaceDir);
   assert.equal(initResult.exitCode, 0);
@@ -161,7 +232,7 @@ async function invokeCli(
   };
 }
 
-function createLocalCliFixture(): { workspaceDir: string } {
+function createLocalCliFixture(): { workspaceDir: string; stdout: string[] } {
   const workspaceDir = mkdtempSync(path.join(tmpdir(), "orq-local-cli-"));
 
   cpSync(
@@ -183,5 +254,101 @@ function createLocalCliFixture(): { workspaceDir: string } {
     },
   );
 
-  return { workspaceDir };
+  return { workspaceDir, stdout: [] };
+}
+
+function createExecutedSweepResult(
+  workItemId: string,
+): ExecuteClaimedRunResult {
+  return {
+    ok: true,
+    prepared: {
+      runId: "run-local-sweep-001",
+      claimedWorkItem: {
+        id: workItemId,
+        identifier: workItemId,
+        title: "Implement the local bootstrap happy path",
+        description: null,
+        status: "implement",
+        phase: "implement",
+        priority: 1,
+        labels: [],
+        url: null,
+        parentId: null,
+        dependencyIds: [],
+        blockedByIds: [],
+        blocksIds: [],
+        artifactUrl: null,
+        updatedAt: "2026-04-15T00:00:00.000Z",
+        createdAt: "2026-04-15T00:00:00.000Z",
+        orchestration: {
+          state: "claimed",
+          owner: "local-sweep-cli",
+          runId: "run-local-sweep-001",
+          leaseUntil: "2026-04-15T00:15:00.000Z",
+          reviewOutcome: "none",
+          blockedReason: null,
+          lastError: null,
+          attemptCount: 1,
+        },
+      },
+    },
+    execution: {
+      watched: {
+        run: {
+          runId: "run-local-sweep-001",
+          workItemId,
+          workItemIdentifier: workItemId,
+          phase: "implement",
+          provider: "codex",
+          status: "completed",
+          repoRoot: "/tmp/repo",
+          workspace: {
+            mode: "ephemeral_worktree",
+            workingDirHint: "/tmp/repo/.worktrees/run-local-sweep-001",
+            assignedBranch: null,
+            baseRef: null,
+            pullRequestUrl: null,
+            pullRequestMode: null,
+            writeScope: null,
+          },
+          artifactUrl: null,
+          requestedBy: "local:sweep",
+          grantedCapabilities: [],
+          promptContractId: "contract-local-sweep",
+          promptDigests: {
+            system: null,
+            user: "user-prompt-digest",
+          },
+          promptProvenance: null,
+          limits: {
+            maxWallTimeSec: 5400,
+            idleTimeoutSec: 300,
+            bootstrapTimeoutSec: 120,
+          },
+          outcome: null,
+          createdAt: "2026-04-15T00:00:00.000Z",
+          admittedAt: null,
+          startedAt: null,
+          completedAt: "2026-04-15T00:01:00.000Z",
+          lastHeartbeatAt: null,
+          lastEventSeq: 10,
+        },
+        lastEventSeq: 10,
+        waitingHumanReason: null,
+        waitingHumanDetails: null,
+      },
+      prepared: {} as never,
+      writeback: {} as never,
+    },
+    resolution: {
+      actionable: true,
+      phase: "implement",
+    },
+    decision: {
+      claimable: true,
+      phase: "implement",
+      hasExpiredLease: false,
+    },
+  } as unknown as ExecuteClaimedRunResult;
 }

@@ -43,6 +43,14 @@ After setup, start the runtime daemon:
 npm run dev
 ```
 
+If you are using the `local` profile and want to dispatch actionable local work
+without Linear, run a manual local sweep from the project root while the runtime
+daemon is running:
+
+```bash
+orq local sweep
+```
+
 ## Installed Package Smoke Path
 
 When you need to validate Orqestrate outside the repo:
@@ -208,6 +216,7 @@ If you change behavior and do not add automated coverage, call out:
 npm run setup
 npm run orq:init -- --help
 npm run orq:bootstrap -- --help
+orq local sweep
 npx tsx src/index.ts runtime start --help
 npm run dev
 npm start
