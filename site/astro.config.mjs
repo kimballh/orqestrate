@@ -27,7 +27,7 @@ export default defineConfig({
       ],
       tagline: 'The harness layer for AI engineering.',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/kimballh/orqestrate' }],
-      customCss: ['./src/styles/global.css'],
+      customCss: ['./src/styles/starlight.css'],
     }),
   ],
 });

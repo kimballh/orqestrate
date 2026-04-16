@@ -1,0 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap');
+
+:root {
+  --sl-font: 'Space Grotesk';
+  --sl-font-mono: 'IBM Plex Mono';
+
+  --sl-color-accent-low: hsl(186, 72%, 18%);
+  --sl-color-accent: hsl(186, 92%, 47%);
+  --sl-color-accent-high: hsl(186, 85%, 78%);
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: hsl(186, 70%, 90%);
+  --sl-color-accent: hsl(186, 80%, 38%);
+  --sl-color-accent-high: hsl(199, 42%, 22%);
+}
