@@ -5,6 +5,7 @@ import type {
   ProviderFamily,
   WorkItemRecord,
 } from "../domain-model.js";
+import { WorkspaceSetupResolutionError } from "../core/workspace-setup.js";
 
 import type {
   PostClaimFailureContext,
@@ -65,6 +66,14 @@ export function defaultClassifyPostClaimFailure(
       kind: "blocked",
       blockedReason: error.blockedReason,
       error: error.providerError ?? null,
+    };
+  }
+
+  if (error instanceof WorkspaceSetupResolutionError) {
+    return {
+      kind: "blocked",
+      blockedReason: error.message,
+      error: error.providerError,
     };
   }
 

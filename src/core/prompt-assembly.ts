@@ -490,6 +490,8 @@ function renderRunContext(
     `Pull request URL: ${formatScalar(context.workspace.pullRequestUrl)}`,
     `Pull request mode: ${formatScalar(context.workspace.pullRequestMode)}`,
     `Write scope: ${formatScalar(context.workspace.writeScope)}`,
+    `Workspace setup source: ${formatWorkspaceSetupSource(context.workspace.setup)}`,
+    `Workspace setup location: ${formatWorkspaceSetupLocation(context.workspace.setup)}`,
     `Expected outputs: ${formatList(context.expectations.expectedOutputs)}`,
     `Verification required: ${formatBoolean(
       context.expectations.verificationRequired,
@@ -735,6 +737,22 @@ function formatBoolean(value: boolean | undefined): string {
   }
 
   return value ? "yes" : "no";
+}
+
+function formatWorkspaceSetupSource(
+  value: PromptAssemblyContext["workspace"]["setup"],
+): string {
+  return value === undefined || value === null ? MISSING_VALUE : value.source;
+}
+
+function formatWorkspaceSetupLocation(
+  value: PromptAssemblyContext["workspace"]["setup"],
+): string {
+  if (value === undefined || value === null) {
+    return MISSING_VALUE;
+  }
+
+  return value.source === "config" ? value.scriptPath : value.environmentPath;
 }
 
 function hasMeaningfulText(value: string | null | undefined): boolean {

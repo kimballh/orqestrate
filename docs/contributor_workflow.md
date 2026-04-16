@@ -98,9 +98,11 @@ npm run orq:bootstrap -- --help
 If you switch to a non-local profile:
 
 1. Update `config.toml` to point at the right providers and credentials.
-2. Re-run `npm run orq:bootstrap`.
-3. Start the runtime with `orq runtime start`, `npm run dev`, or `npm start`.
-4. Start the orchestrator with `orq orchestrator start --repo-root "$PWD"`, `npm run dev:orchestrator -- --repo-root "$PWD"`, or `npm run start:orchestrator -- --repo-root "$PWD"`.
+2. Optionally set `[workspace].setup_script` if your implementation workspaces need repo-local bootstrap steps.
+3. If you omit that explicit setting, Orqestrate can fall back to `.codex/environments/environment.toml` when it exposes a non-empty `[setup].script`.
+4. Re-run `npm run orq:bootstrap`.
+5. Start the runtime with `orq runtime start`, `npm run dev`, or `npm start`.
+6. Start the orchestrator with `orq orchestrator start --repo-root "$PWD"`, `npm run dev:orchestrator -- --repo-root "$PWD"`, or `npm run start:orchestrator -- --repo-root "$PWD"`.
 
 ## Important Local Paths
 

@@ -5,6 +5,7 @@ import {
   PROMPT_ATTACHMENT_KINDS,
   PROMPT_SOURCE_KINDS,
   RUN_STATUSES,
+  WORKSPACE_SETUP_SOURCES,
   WORK_PHASES,
   type AgentProvider,
   type RunStatus,
@@ -505,6 +506,7 @@ function requireWorkspace(value: unknown) {
       "workspace.pullRequestMode",
     ),
     writeScope: optionalString(value.writeScope, "workspace.writeScope"),
+    setup: optionalWorkspaceSetup(value.setup, "workspace.setup"),
   };
 }
 
@@ -688,6 +690,43 @@ function requireReplayWorkspace(value: unknown) {
       value.writeScope,
       "promptReplayContext.workspace.writeScope",
     ),
+    setup: optionalWorkspaceSetup(
+      value.setup,
+      "promptReplayContext.workspace.setup",
+    ),
+  };
+}
+
+function optionalWorkspaceSetup(value: unknown, fieldName: string) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  assertPlainObject(value, fieldName);
+  const source = requireOneOf(
+    value.source,
+    WORKSPACE_SETUP_SOURCES,
+    `${fieldName}.source`,
+  );
+
+  if (source === "config") {
+    return {
+      source,
+      scriptPath: requireString(value.scriptPath, `${fieldName}.scriptPath`),
+    };
+  }
+
+  return {
+    source,
+    environmentPath: requireString(
+      value.environmentPath,
+      `${fieldName}.environmentPath`,
+    ),
+    script: requireString(value.script, `${fieldName}.script`),
   };
 }
 

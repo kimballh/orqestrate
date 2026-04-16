@@ -461,6 +461,7 @@ function createFakeLoadedConfig(): LoadedConfig {
       dataDir: "/tmp/data",
       logDir: "/tmp/logs",
     },
+    workspace: {},
     policy: {
       maxConcurrentRuns: 1,
       maxRunsPerProvider: 1,

@@ -238,6 +238,30 @@ test("enqueueRun persists replay context for internal executable reads only", (t
   assert.equal("promptReplayContext" in (canonicalRun ?? {}), false);
 });
 
+test("enqueueRun persists workspace setup on canonical reads without replay context", (t) => {
+  const repository = createRepository(t);
+  const input = createRunInput({
+    workspaceSetup: {
+      source: "config",
+      scriptPath: "/repo/scripts/prepare-worktree.sh",
+    },
+  });
+  input.promptReplayContext = null;
+
+  const run = repository.enqueueRun(input);
+  const canonicalRun = repository.getRun(run.runId);
+  const executableRun = repository.getExecutableRun(run.runId);
+
+  assert.deepEqual(canonicalRun?.workspace.setup, {
+    source: "config",
+    scriptPath: "/repo/scripts/prepare-worktree.sh",
+  });
+  assert.deepEqual(executableRun?.workspace.setup, {
+    source: "config",
+    scriptPath: "/repo/scripts/prepare-worktree.sh",
+  });
+});
+
 test("legacy runs without prompt provenance deserialize with a null provenance field", (t) => {
   const { database, repository } = createRepositoryFixture(t);
   const run = repository.enqueueRun(createRunInput());
@@ -445,9 +469,13 @@ function createRunInput(
     provider?: CreateRunInput["provider"];
     requestedBy?: string | null;
     workItem?: Partial<CreateRunInput["workItem"]>;
+    workspaceSetup?: CreateRunInput["workspace"]["setup"];
     workspace?: Partial<CreateRunInput["workspace"]>;
   } = {},
 ): CreateRunInput {
+  const workspaceSetup =
+    overrides.workspace?.setup ?? overrides.workspaceSetup;
+
   return {
     runId: overrides.runId ?? "run-001",
     phase: overrides.phase ?? "implement",
@@ -474,6 +502,7 @@ function createRunInput(
         "https://github.com/kimballh/orqestrate/pull/32",
       pullRequestMode: overrides.workspace?.pullRequestMode ?? "draft",
       writeScope: overrides.workspace?.writeScope ?? "repo",
+      setup: workspaceSetup,
     },
     prompt: {
       contractId: "orqestrate/implement/v1",
@@ -534,6 +563,7 @@ function createRunInput(
           "https://github.com/kimballh/orqestrate/pull/32",
         pullRequestMode: overrides.workspace?.pullRequestMode ?? "draft",
         writeScope: overrides.workspace?.writeScope ?? "repo",
+        setup: workspaceSetup,
       },
       expectations: {
         expectedOutputs: ["persist runtime state"],
@@ -564,6 +594,7 @@ function createLoadedConfigFixture(): LoadedConfig {
       dataDir: "/tmp/data",
       logDir: "/tmp/logs",
     },
+    workspace: {},
     policy: {
       maxConcurrentRuns: 4,
       maxRunsPerProvider: 2,
