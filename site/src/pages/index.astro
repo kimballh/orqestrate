@@ -1,0 +1,145 @@
+---
+import HeroDiagram from '../components/HeroDiagram.astro';
+import SectionIntro from '../components/SectionIntro.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import SiteHeader from '../components/SiteHeader.astro';
+import {
+  coordinationPillars,
+  docsLinks,
+  proofStrip,
+  validationSignals,
+  workflowSteps,
+} from '../data/site-content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout
+  title="Orqestrate | The orchestration layer for coding agents"
+  description="Coordinate planning, context, execution, and validation so coding agents can operate inside real engineering workflows."
+>
+  <SiteHeader />
+
+  <main class="landing-shell">
+    <section class="hero-section">
+      <div class="hero-copy">
+        <p class="eyebrow">Planning. Context. Execution. Validation.</p>
+        <h1>The orchestration layer for coding agents.</h1>
+        <p class="hero-lede">
+          Turn Codex, Claude Code, and your project systems into a coordinated delivery loop with
+          real context, isolated execution, and validation that goes beyond unit tests.
+        </p>
+        <div class="cta-row">
+          <a class="button button-primary" href="/docs/">Read the docs</a>
+          <a class="button button-secondary" href="/docs/getting-started/">Get started</a>
+          <a class="text-link" href="https://github.com/kimballh/orqestrate">View on GitHub</a>
+        </div>
+        <ul class="proof-strip" aria-label="Supported systems">
+          {proofStrip.map((tool) => (
+            <li>{tool}</li>
+          ))}
+        </ul>
+      </div>
+
+      <HeroDiagram />
+    </section>
+
+    <section class="surface-panel" id="product">
+      <SectionIntro
+        eyebrow="Core thesis"
+        title="The model is not the whole product."
+        body="The hard part is the harness: how work gets assigned, how context is assembled, how execution stays isolated, and how outcomes get verified before they come back to the team."
+      />
+      <div class="card-grid">
+        {coordinationPillars.map((pillar) => (
+          <article class="feature-card">
+            <p class="card-index">{pillar.index}</p>
+            <h3>{pillar.title}</h3>
+            <p>{pillar.body}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="surface-panel" id="how-it-works">
+      <SectionIntro
+        eyebrow="Operating loop"
+        title="Move from suggestion engine to execution system."
+        body="Orqestrate coordinates the same loop engineering teams already live in: project systems assign work, context systems preserve memory, local runtimes execute in isolation, and validation closes the loop with real evidence."
+      />
+      <div class="workflow-grid">
+        {workflowSteps.map((step) => (
+          <article class="workflow-step">
+            <p class="workflow-step-number">{step.step}</p>
+            <h3>{step.title}</h3>
+            <p>{step.body}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="split-panel" id="local-first">
+      <div>
+        <SectionIntro
+          eyebrow="Local-first advantage"
+          title="Run agents where the real tools already are."
+          body="Orqestrate is designed for the machines and environments your team already trusts: authenticated browsers, existing MCP servers, local runtimes, and worktree-backed isolation."
+        />
+      </div>
+      <div class="callout-card">
+        <h3>Why teams reach for it</h3>
+        <ul class="signal-list">
+          <li>Coordinate Codex and Claude Code without rebuilding everything around raw API calls.</li>
+          <li>Keep browser automation and OAuth-backed tools available where agents are actually running.</li>
+          <li>Use isolated worktrees so parallel execution stays practical instead of chaotic.</li>
+          <li>Preserve planning systems, docs, and execution history as one durable operating context.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="surface-panel" id="validation">
+      <SectionIntro
+        eyebrow="Validation"
+        title="Code generation is not the finish line."
+        body="The harness is built around verification. A completed run should come back with tests, browser-driven checks, and enough context to understand why the result is trustworthy."
+      />
+      <div class="validation-grid">
+        {validationSignals.map((signal) => (
+          <article class="validation-card">
+            <h3>{signal.title}</h3>
+            <p>{signal.body}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="surface-panel" id="docs">
+      <SectionIntro
+        eyebrow="Docs handoff"
+        title="Start locally in minutes."
+        body="The first docs set keeps the path lightweight: what Orqestrate is, how to start the local runtime, and how the planning, context, and execution layers fit together."
+      />
+      <div class="card-grid docs-grid">
+        {docsLinks.map((doc) => (
+          <a class="docs-card" href={doc.href}>
+            <p class="card-index">{doc.index}</p>
+            <h3>{doc.title}</h3>
+            <p>{doc.body}</p>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="final-cta">
+      <div>
+        <p class="eyebrow">Ready to explore?</p>
+        <h2>Start with the docs. Build with your real tools.</h2>
+      </div>
+      <div class="cta-row">
+        <a class="button button-primary" href="/docs/">Read the docs</a>
+        <a class="button button-secondary" href="/docs/getting-started/">Open quickstart</a>
+      </div>
+    </section>
+  </main>
+
+  <SiteFooter />
+</BaseLayout>

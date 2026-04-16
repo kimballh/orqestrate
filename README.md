@@ -35,6 +35,7 @@ orq --help
 - Project setup guide: [docs/guides/setup-your-project.md](./docs/guides/setup-your-project.md)
 - Day-to-day usage guide: [docs/guides/use-orqestrate.md](./docs/guides/use-orqestrate.md)
 - Full docs index: [docs/README.md](./docs/README.md)
+- Website package and deploy notes: [site/README.md](./site/README.md)
 
 ## Quickstart
 
@@ -82,3 +83,4 @@ The runtime daemon and orchestrator service are both packaged behind the global 
 If you want to work on Orqestrate itself rather than use it as a tool:
 
 - Contributor docs: [docs/contributors/README.md](./docs/contributors/README.md)
+- Website dev server: `npm run site:dev`

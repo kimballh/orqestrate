@@ -4,6 +4,9 @@
   "private": true,
   "description": "A provider-driven orchestration harness for planning, context, and agent execution.",
   "type": "module",
+  "workspaces": [
+    "site"
+  ],
   "files": [
     "dist",
     "config.example.toml",
@@ -16,21 +19,29 @@
     "orq": "dist/index.js"
   },
   "engines": {
-    "node": ">=20.18.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "bootstrap:local": "node --import tsx ./scripts/materialize-local-example.mjs",
-    "build": "tsc -p tsconfig.json && node ./scripts/copy-runtime-assets.mjs",
+    "build": "npm run build:core && npm run build:site",
+    "build:core": "tsc -p tsconfig.json && node ./scripts/copy-runtime-assets.mjs",
+    "build:site": "npm run build --workspace @orqestrate/site",
     "check": "npm run typecheck && npm run build && npm run test",
     "dev": "tsx src/runtime/main.ts",
     "dev:orchestrator": "tsx src/orchestrator/main.ts",
     "orq:bootstrap": "tsx src/index.ts bootstrap",
     "orq:init": "tsx src/index.ts init",
     "setup": "bash ./scripts/codex-setup.sh",
+    "site:build": "npm run build --workspace @orqestrate/site",
+    "site:check": "npm run check --workspace @orqestrate/site",
+    "site:dev": "npm run dev --workspace @orqestrate/site",
+    "site:preview": "npm run preview --workspace @orqestrate/site",
     "start": "node --enable-source-maps dist/runtime/main.js",
     "start:orchestrator": "node --enable-source-maps dist/orchestrator/main.js",
     "test": "tsx --test $(find src -name '*.test.ts' | sort)",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "npm run typecheck:core && npm run typecheck:site",
+    "typecheck:core": "tsc --noEmit -p tsconfig.json",
+    "typecheck:site": "npm run check --workspace @orqestrate/site"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
