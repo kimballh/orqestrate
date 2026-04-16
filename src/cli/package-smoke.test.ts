@@ -111,6 +111,25 @@ async function assertInstalledWorkflow(options: {
     cwd: options.workspaceDir,
   });
   assert.match(helpResult.stdout, /Usage: orq <command>/);
+  assert.match(helpResult.stdout, /orchestrator\s+Start the orchestrator service/);
+
+  const orchestratorHelpResult = await execFileAsync(
+    options.cliPath,
+    ["orchestrator", "--help"],
+    {
+      cwd: options.workspaceDir,
+    },
+  );
+  assert.match(orchestratorHelpResult.stdout, /orchestrator start/);
+
+  const orchestratorStartHelpResult = await execFileAsync(
+    options.cliPath,
+    ["orchestrator", "start", "--help"],
+    {
+      cwd: options.workspaceDir,
+    },
+  );
+  assert.match(orchestratorStartHelpResult.stdout, /--repo-root <path>/);
 
   const initResult = await execFileAsync(options.cliPath, ["init"], {
     cwd: options.workspaceDir,
@@ -203,6 +222,48 @@ async function assertInstalledWorkflow(options: {
   } finally {
     stopRuntime();
   }
+
+  const orchestratorLog: string[] = [];
+  const orchestratorProcess = spawn(
+    options.cliPath,
+    [
+      "orchestrator",
+      "start",
+      "--profile",
+      "local",
+      "--repo-root",
+      options.workspaceDir,
+    ],
+    {
+      cwd: options.workspaceDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+
+  orchestratorProcess.stdout.on("data", (chunk) => {
+    orchestratorLog.push(String(chunk));
+  });
+  orchestratorProcess.stderr.on("data", (chunk) => {
+    orchestratorLog.push(String(chunk));
+  });
+
+  try {
+    await waitForLogLine(orchestratorLog, /Orchestrator service ready/);
+    const orchestratorDatabasePath = path.join(
+      options.workspaceDir,
+      ".harness",
+      "state",
+      "orchestrator.sqlite",
+    );
+    await waitForFile(orchestratorDatabasePath);
+    assert.equal(
+      existsSync(orchestratorDatabasePath),
+      true,
+      orchestratorLog.join(""),
+    );
+  } finally {
+    orchestratorProcess.kill("SIGTERM");
+  }
 }
 
 async function createPackagedTarball(): Promise<string> {
@@ -227,6 +288,30 @@ async function waitForSocket(socketPath: string): Promise<void> {
   }
 
   throw new Error(`Runtime socket '${socketPath}' was not created in time.`);
+}
+
+async function waitForFile(filePath: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (existsSync(filePath)) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new Error(`Expected file '${filePath}' was not created in time.`);
+}
+
+async function waitForLogLine(log: string[], pattern: RegExp): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (pattern.test(log.join(""))) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new Error(`Expected log pattern '${pattern.source}' did not appear.`);
 }
 
 async function requestRuntimeHealth(

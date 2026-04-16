@@ -60,7 +60,22 @@ The runtime daemon owns:
 - event persistence
 - operator actions like cancel, interrupt, and human input
 
-## 6. Understand the local state created by Orqestrate
+## 6. Start the orchestrator service
+
+When you are ready for Orqestrate to claim and advance work, run:
+
+```bash
+orq orchestrator start --repo-root "$PWD"
+```
+
+The orchestrator service owns:
+
+- actionable ticket discovery
+- wakeup and reconciliation loops
+- work claiming and dispatch into the runtime
+- optional webhook intake for supported planning providers
+
+## 7. Understand the local state created by Orqestrate
 
 With the shipped config defaults, Orqestrate resolves state under `./.harness/` in your project:
 
@@ -69,23 +84,6 @@ With the shipped config defaults, Orqestrate resolves state under `./.harness/` 
 - `./.harness/local/` for local example profiles
 
 Your `config.toml` is authoritative if you customize those paths.
-
-## Current packaging note
-
-The product architecture includes both:
-
-- an orchestrator service
-- a runtime daemon
-
-The runtime daemon is already exposed through the installed `orq` CLI.
-
-The orchestrator service is implemented in this repository, but its installed CLI entrypoint is still being finalized. Until that lands as a top-level `orq` command, the global install is best used for:
-
-- config initialization
-- profile bootstrap
-- runtime startup
-- prompt tooling
-- run diagnostics
 
 ## Next step
 

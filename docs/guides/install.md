@@ -27,22 +27,24 @@ Confirm the CLI is available:
 
 ```bash
 orq --help
+orq orchestrator --help
 orq runtime --help
 orq prompt --help
 ```
 
-## What the global CLI currently provides
+## What the global CLI provides
 
-The installed CLI currently exposes:
+The installed CLI exposes:
 
 - `orq init`
 - `orq bootstrap`
+- `orq orchestrator start`
 - `orq runtime start`
 - `orq run ...`
 - `orq prompt ...`
 - `orq github ...`
 
-That is enough to initialize config, bootstrap profiles, start the runtime, inspect runs, and work with prompt tooling.
+That is enough to initialize config, bootstrap profiles, start the orchestrator and runtime services, inspect runs, and work with prompt tooling.
 
 ## Next step
 

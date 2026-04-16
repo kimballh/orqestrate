@@ -44,6 +44,12 @@ Inspect runtime commands:
 orq runtime --help
 ```
 
+Inspect orchestrator commands:
+
+```bash
+orq orchestrator --help
+```
+
 Inspect run diagnostics:
 
 ```bash
@@ -60,6 +66,7 @@ orq prompt --help
 
 Even as the product moves toward autonomous orchestration, there are still a few practical surfaces operators will care about:
 
+- whether the orchestrator is running and can claim actionable work
 - whether the runtime is healthy
 - whether a run is blocked on human input
 - whether credentials and provider configuration are valid

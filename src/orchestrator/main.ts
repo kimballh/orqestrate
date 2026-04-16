@@ -10,7 +10,7 @@ import {
   type OrchestratorService,
 } from "./service.js";
 
-type OrchestratorCliOptions = {
+export type OrchestratorCliOptions = {
   configPath?: string;
   activeProfile?: string;
   repoRoot: string;
