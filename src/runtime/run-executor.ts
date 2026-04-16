@@ -301,14 +301,15 @@ export class RunExecutor {
     reason: string,
     requestedBy?: string | null,
   ): Promise<PersistedRunRecord> {
-    const context = this.liveRuns.getByRunId(runId);
+    const context =
+      this.liveRuns.getByRunId(runId) ?? this.activeContexts.get(runId) ?? null;
     const run = this.requireRun(runId);
 
     if (TERMINAL_STATUSES.has(run.status)) {
       return run;
     }
 
-    if (context === null || context.controller === null) {
+    if (context === null) {
       return this.repository.cancelRunBeforeLaunch({
         runId,
         occurredAt: this.now(),
@@ -318,6 +319,17 @@ export class RunExecutor {
     }
 
     context.cancelRequested = { reason, requestedBy };
+    if (context.controller === null) {
+      context.currentRun = this.repository.cancelRunBeforeLaunch({
+        runId,
+        occurredAt: this.now(),
+        reason,
+        requestedBy: requestedBy ?? null,
+      });
+      context.finishing = true;
+      return context.currentRun;
+    }
+
     if (context.currentRun.status !== "stopping") {
       context.currentRun = this.repository.markRunStopping({
         runId,
@@ -379,6 +391,7 @@ export class RunExecutor {
         context,
         "Run finished before provider launch started.",
       );
+      this.resolveFinishingPrelaunchContext(context);
       return;
     }
 
@@ -417,6 +430,7 @@ export class RunExecutor {
         context,
         "Run finished before provider launch completed.",
       );
+      this.resolveFinishingPrelaunchContext(context);
       return;
     }
 
@@ -772,6 +786,10 @@ export class RunExecutor {
         this.workspaceOperations.exists,
       );
       preparedWorkspace.setupHookPath = setupHookPath;
+      if (this.shouldAbortPrelaunch(context)) {
+        return;
+      }
+
       if (setupHookPath !== null) {
         this.appendWorkspaceEvent(context, {
           eventType: "workspace_setup_hook_started",
@@ -798,6 +816,10 @@ export class RunExecutor {
             stderr: summarizeCommandOutput(result.stderr),
           },
         });
+      }
+
+      if (this.shouldAbortPrelaunch(context)) {
+        return;
       }
 
       this.repository.updateWorkspaceAllocationStatus({
@@ -911,8 +933,6 @@ export class RunExecutor {
           ],
           cwd: context.run.repoRoot,
         });
-      } else if (this.workspaceOperations.exists(preparedWorkspace.workingDir)) {
-        this.workspaceOperations.removeDir(preparedWorkspace.workingDir);
       }
 
       this.repository.updateWorkspaceAllocationStatus({
@@ -958,6 +978,23 @@ export class RunExecutor {
     if (refreshedCurrentRun !== null) {
       context.currentRun = refreshedCurrentRun;
     }
+  }
+
+  private shouldAbortPrelaunch(context: LiveRunContext): boolean {
+    return context.finishing || TERMINAL_STATUSES.has(context.currentRun.status);
+  }
+
+  private resolveFinishingPrelaunchContext(context: LiveRunContext): void {
+    if (
+      context.controller !== null ||
+      !TERMINAL_STATUSES.has(context.currentRun.status) ||
+      !this.activeContexts.has(context.run.runId)
+    ) {
+      return;
+    }
+
+    this.activeContexts.delete(context.run.runId);
+    context.resolve(context.currentRun);
   }
 
   private appendWorkspaceEvent(

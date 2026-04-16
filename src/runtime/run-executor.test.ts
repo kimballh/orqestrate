@@ -253,6 +253,114 @@ test("workspace setup hook failures stop the run before provider launch", async 
   );
 });
 
+test("pre-existing workspace directories are not deleted on preparation conflict", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  const workspaceHarness = createWorkspaceOperationsHarness({
+    existingPaths: ["/repo/.worktrees/run-001"],
+  });
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+      workspaceOperations: workspaceHarness.operations,
+    },
+  );
+  repository.enqueueRun(
+    createRunInput({
+      workspace: {
+        mode: "ephemeral_worktree",
+        workingDirHint: "/repo/.worktrees/run-001",
+      },
+    }),
+  );
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const failedRun = await executor.executeClaimedRun(claimedRun);
+
+  assert.equal(failedRun.status, "failed");
+  assert.equal(failedRun.outcome?.code, "workspace_preparation_failed");
+  assert.equal(supervisor.launchSpecs.length, 0);
+  assert.deepEqual(workspaceHarness.removedDirs, []);
+  assert.equal(
+    repository.getWorkspaceAllocation("workspace-run-001")?.status,
+    "released",
+  );
+});
+
+test("cancel during workspace preparation completes as canceled before launch", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  const workspaceHarness = createWorkspaceOperationsHarness({
+    hookPath: "/repo/.worktrees/run-001/scripts/codex-setup.sh",
+    pauseSetup: true,
+  });
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+      workspaceOperations: workspaceHarness.operations,
+    },
+  );
+  repository.enqueueRun(
+    createRunInput({
+      workspace: {
+        mode: "ephemeral_worktree",
+        workingDirHint: "/repo/.worktrees/run-001",
+      },
+    }),
+  );
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  await waitForAsyncTurn();
+
+  const canceledRun = await executor.cancelRun(
+    claimedRun.runId,
+    "Human canceled during workspace preparation.",
+    "Kimball Hill",
+  );
+  assert.equal(canceledRun.status, "canceled");
+
+  workspaceHarness.resolveSetup?.();
+  const completedRun = await execution;
+  const events = repository
+    .listRunEvents(claimedRun.runId)
+    .map((event) => event.eventType);
+
+  assert.equal(completedRun.status, "canceled");
+  assert.equal(supervisor.launchSpecs.length, 0);
+  assert.equal(
+    repository.getWorkspaceAllocation("workspace-run-001")?.status,
+    "released",
+  );
+  assert.ok(events.includes("cancel_requested"));
+  assert.ok(events.includes("run_canceled"));
+  assert.ok(!events.includes("workspace_prepared"));
+});
+
 test("shutdown marks active runs stale and ignores later heartbeat ticks", async (t) => {
   const { fixture, database, repository } = createRepositoryFixture(t);
   const registry = new RuntimeAdapterRegistry().register(
@@ -835,6 +943,8 @@ class FakeProviderAdapter implements ProviderAdapter {
 function createWorkspaceOperationsHarness(options: {
   hookPath?: string;
   failSetup?: boolean;
+  pauseSetup?: boolean;
+  existingPaths?: string[];
 } = {}): {
   commands: Array<{
     command: string;
@@ -843,6 +953,8 @@ function createWorkspaceOperationsHarness(options: {
     env?: Record<string, string>;
     timeoutMs?: number;
   }>;
+  removedDirs: string[];
+  resolveSetup?: () => void;
   operations: {
     exists(filePath: string): boolean;
     mkdir(dirPath: string): void;
@@ -857,7 +969,10 @@ function createWorkspaceOperationsHarness(options: {
   };
 } {
   const existingPaths = new Set<string>(
-    options.hookPath === undefined ? [] : [options.hookPath],
+    [
+      ...(options.existingPaths ?? []),
+      ...(options.hookPath === undefined ? [] : [options.hookPath]),
+    ],
   );
   const commands: Array<{
     command: string;
@@ -866,13 +981,24 @@ function createWorkspaceOperationsHarness(options: {
     env?: Record<string, string>;
     timeoutMs?: number;
   }> = [];
+  const removedDirs: string[] = [];
+  let resolveSetup: (() => void) | undefined;
+  const pausedSetup =
+    options.pauseSetup === true
+      ? new Promise<void>((resolve) => {
+          resolveSetup = resolve;
+        })
+      : null;
 
   return {
     commands,
+    removedDirs,
+    resolveSetup,
     operations: {
       exists: (filePath) => existingPaths.has(filePath),
       mkdir: () => undefined,
       removeDir: (dirPath) => {
+        removedDirs.push(dirPath);
         existingPaths.delete(dirPath);
       },
       runCommand: async (input) => {
@@ -902,6 +1028,10 @@ function createWorkspaceOperationsHarness(options: {
         }
 
         if (input.command === "bash") {
+          if (pausedSetup !== null) {
+            await pausedSetup;
+          }
+
           if (options.failSetup === true) {
             throw new Error("setup hook failed");
           }
