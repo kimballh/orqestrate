@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -33,6 +34,7 @@ export async function createLocalFilesE2eFixture(
   writePromptFixtureFiles(promptRoot);
   seedPlanningIssues(planningRoot, [workItem]);
   writeFileSync(configPath, renderConfigToml(), "utf8");
+  initializeGitRepository(workspaceDir);
 
   const loadedConfig = await loadConfig({
     configPath,
@@ -179,4 +181,31 @@ function writePromptFixtureFiles(promptRoot: string): void {
     mkdirSync(path.dirname(absolutePath), { recursive: true });
     writeFileSync(absolutePath, contents, "utf8");
   }
+}
+
+function initializeGitRepository(workspaceDir: string): void {
+  execFileSync("git", ["init"], {
+    cwd: workspaceDir,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["checkout", "-b", "main"], {
+    cwd: workspaceDir,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["config", "user.name", "Orqestrate Test"], {
+    cwd: workspaceDir,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: workspaceDir,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["add", "."], {
+    cwd: workspaceDir,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["commit", "-m", "Initial fixture"], {
+    cwd: workspaceDir,
+    stdio: "ignore",
+  });
 }

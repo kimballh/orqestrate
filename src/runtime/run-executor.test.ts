@@ -95,6 +95,164 @@ test("run executor drives a claimed run to completion and records evidence", asy
   assert.match(logContents, /PROGRESS/);
 });
 
+test("run executor prepares the worktree and runs the setup hook before launch", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  const hookPath = "/repo/.worktrees/run-001/scripts/codex-setup.sh";
+  const workspaceHarness = createWorkspaceOperationsHarness({
+    hookPath,
+  });
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+      workspaceOperations: workspaceHarness.operations,
+    },
+  );
+  repository.enqueueRun(
+    createRunInput({
+      workspace: {
+        mode: "ephemeral_worktree",
+        workingDirHint: "/repo/.worktrees/run-001",
+      },
+    }),
+  );
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const execution = executor.executeClaimedRun(claimedRun);
+  await waitForAsyncTurn();
+
+  assert.equal(supervisor.launchSpecs.length, 1);
+  assert.equal(supervisor.launchSpecs[0]?.cwd, "/repo/.worktrees/run-001");
+  assert.equal(workspaceHarness.commands[0]?.command, "git");
+  assert.deepEqual(workspaceHarness.commands[0]?.args, [
+    "-C",
+    "/repo",
+    "worktree",
+    "add",
+    "--detach",
+    "/repo/.worktrees/run-001",
+    "main",
+  ]);
+  assert.equal(workspaceHarness.commands[1]?.command, "bash");
+  assert.equal(workspaceHarness.commands[1]?.cwd, "/repo/.worktrees/run-001");
+  assert.equal(
+    workspaceHarness.commands[1]?.env?.ORQESTRATE_REPO_ROOT,
+    "/repo/.worktrees/run-001",
+  );
+  assert.equal(
+    workspaceHarness.commands[1]?.env?.ORQESTRATE_SOURCE_REPO_ROOT,
+    "/repo",
+  );
+
+  const preparedRun = repository.getRun(claimedRun.runId);
+  assert.equal(preparedRun?.workspace.allocationId, "workspace-run-001");
+  assert.equal(preparedRun?.workspace.workingDir, "/repo/.worktrees/run-001");
+  assert.equal(
+    repository.getWorkspaceAllocation("workspace-run-001")?.status,
+    "in_use",
+  );
+
+  supervisor.emitOutput("session-1", "READY\n");
+  await waitForAsyncTurn();
+  supervisor.emitExit("session-1", 0, null);
+
+  const completedRun = await execution;
+  const events = repository
+    .listRunEvents(claimedRun.runId)
+    .map((event) => event.eventType);
+
+  assert.equal(completedRun.status, "completed");
+  assert.equal(
+    repository.getWorkspaceAllocation("workspace-run-001")?.status,
+    "released",
+  );
+  assert.ok(events.includes("workspace_preparation_started"));
+  assert.ok(events.includes("workspace_setup_hook_started"));
+  assert.ok(events.includes("workspace_setup_hook_completed"));
+  assert.ok(events.includes("workspace_prepared"));
+  assert.ok(events.includes("workspace_released"));
+  assert.equal(workspaceHarness.commands.at(-1)?.command, "git");
+  assert.deepEqual(workspaceHarness.commands.at(-1)?.args, [
+    "-C",
+    "/repo",
+    "worktree",
+    "remove",
+    "--force",
+    "/repo/.worktrees/run-001",
+  ]);
+});
+
+test("workspace setup hook failures stop the run before provider launch", async (t) => {
+  const { fixture, repository } = createRepositoryFixture(t);
+  const registry = new RuntimeAdapterRegistry().register(
+    "codex",
+    () => new FakeProviderAdapter(),
+  );
+  const supervisor = new FakeSessionSupervisor();
+  const workspaceHarness = createWorkspaceOperationsHarness({
+    hookPath: "/repo/.worktrees/run-001/scripts/codex-setup.sh",
+    failSetup: true,
+  });
+  const executor = new RunExecutor(
+    repository,
+    registry,
+    supervisor,
+    fixture.runtimeConfig.runtimeLogDir,
+    {
+      heartbeatFlushIntervalMs: 5,
+      quietHeartbeatIntervalMs: 20,
+      cancelGracePeriodMs: 5,
+      workspaceOperations: workspaceHarness.operations,
+    },
+  );
+  repository.enqueueRun(
+    createRunInput({
+      workspace: {
+        mode: "ephemeral_worktree",
+        workingDirHint: "/repo/.worktrees/run-001",
+      },
+    }),
+  );
+  const claimedRun = repository.claimNextQueuedRun({
+    runtimeOwner: "runtime-daemon",
+  }) as ExecutableRunRecord;
+
+  const failedRun = await executor.executeClaimedRun(claimedRun);
+  const events = repository.listRunEvents(claimedRun.runId);
+
+  assert.equal(supervisor.launchSpecs.length, 0);
+  assert.equal(failedRun.status, "failed");
+  assert.equal(failedRun.outcome?.code, "workspace_preparation_failed");
+  assert.match(failedRun.outcome?.summary ?? "", /setup hook failed/);
+  assert.equal(
+    repository.getWorkspaceAllocation("workspace-run-001")?.status,
+    "released",
+  );
+  assert.ok(
+    events.some((event) => event.eventType === "workspace_preparation_failed"),
+  );
+  assert.ok(events.some((event) => event.eventType === "workspace_released"));
+  assert.ok(
+    events.some(
+      (event) =>
+        event.eventType === "runtime_issue_detected" &&
+        event.source === "workspace",
+    ),
+  );
+});
+
 test("shutdown marks active runs stale and ignores later heartbeat ticks", async (t) => {
   const { fixture, database, repository } = createRepositoryFixture(t);
   const registry = new RuntimeAdapterRegistry().register(
@@ -392,6 +550,7 @@ type RuntimeFixture = {
 };
 
 class FakeSessionSupervisor implements SessionSupervisor {
+  launchSpecs: LaunchSpec[] = [];
   private readonly sessions = new Map<
     string,
     {
@@ -407,9 +566,10 @@ class FakeSessionSupervisor implements SessionSupervisor {
   >();
 
   async launch(
-    _spec: LaunchSpec,
+    spec: LaunchSpec,
     observer: SessionObserver,
   ): Promise<{ sessionId: string; pid: number; runId: string }> {
+    this.launchSpecs.push(structuredClone(spec));
     this.sessions.set("session-1", {
       runId: observer.runId,
       observer,
@@ -672,6 +832,95 @@ class FakeProviderAdapter implements ProviderAdapter {
   }
 }
 
+function createWorkspaceOperationsHarness(options: {
+  hookPath?: string;
+  failSetup?: boolean;
+} = {}): {
+  commands: Array<{
+    command: string;
+    args: string[];
+    cwd: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+  }>;
+  operations: {
+    exists(filePath: string): boolean;
+    mkdir(dirPath: string): void;
+    removeDir(dirPath: string): void;
+    runCommand(input: {
+      command: string;
+      args: string[];
+      cwd: string;
+      env?: Record<string, string>;
+      timeoutMs?: number;
+    }): Promise<{ stdout: string; stderr: string }>;
+  };
+} {
+  const existingPaths = new Set<string>(
+    options.hookPath === undefined ? [] : [options.hookPath],
+  );
+  const commands: Array<{
+    command: string;
+    args: string[];
+    cwd: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+  }> = [];
+
+  return {
+    commands,
+    operations: {
+      exists: (filePath) => existingPaths.has(filePath),
+      mkdir: () => undefined,
+      removeDir: (dirPath) => {
+        existingPaths.delete(dirPath);
+      },
+      runCommand: async (input) => {
+        commands.push({
+          command: input.command,
+          args: [...input.args],
+          cwd: input.cwd,
+          env: input.env === undefined ? undefined : { ...input.env },
+          timeoutMs: input.timeoutMs,
+        });
+
+        if (input.command === "git" && input.args[2] === "worktree") {
+          const workingDir = input.args[5];
+          if (input.args[3] === "add") {
+            existingPaths.add(workingDir);
+            return {
+              stdout: "",
+              stderr: "",
+            };
+          }
+
+          existingPaths.delete(workingDir);
+          return {
+            stdout: "",
+            stderr: "",
+          };
+        }
+
+        if (input.command === "bash") {
+          if (options.failSetup === true) {
+            throw new Error("setup hook failed");
+          }
+
+          return {
+            stdout: "bootstrap complete",
+            stderr: "",
+          };
+        }
+
+        return {
+          stdout: "",
+          stderr: "",
+        };
+      },
+    },
+  };
+}
+
 function createRepositoryFixture(t: TestContext): {
   fixture: RuntimeFixture;
   database: ReturnType<typeof openRuntimeDatabase>;
@@ -722,6 +971,7 @@ function createRunInput(
     runId?: string;
     phase?: CreateRunInput["phase"];
     provider?: CreateRunInput["provider"];
+    workspace?: Partial<CreateRunInput["workspace"]>;
   } = {},
 ): CreateRunInput {
   return {
@@ -737,14 +987,18 @@ function createRunInput(
     },
     provider: overrides.provider ?? "codex",
     workspace: {
-      repoRoot: "/repo",
-      mode: "ephemeral_worktree",
-      workingDirHint: "/repo/.worktrees/run-001",
-      baseRef: "main",
-      assignedBranch: "hillkimball/orq-33-implement-pty-session-supervisor-abstraction-and-host-process-control",
-      pullRequestUrl: "https://github.com/kimballh/orqestrate/pull/33",
-      pullRequestMode: "draft",
-      writeScope: "repo",
+      repoRoot: overrides.workspace?.repoRoot ?? "/repo",
+      mode: overrides.workspace?.mode ?? "shared_readonly",
+      workingDirHint: overrides.workspace?.workingDirHint ?? "/repo",
+      baseRef: overrides.workspace?.baseRef ?? "main",
+      assignedBranch:
+        overrides.workspace?.assignedBranch ??
+        "hillkimball/orq-33-implement-pty-session-supervisor-abstraction-and-host-process-control",
+      pullRequestUrl:
+        overrides.workspace?.pullRequestUrl ??
+        "https://github.com/kimballh/orqestrate/pull/33",
+      pullRequestMode: overrides.workspace?.pullRequestMode ?? "draft",
+      writeScope: overrides.workspace?.writeScope ?? "repo",
     },
     prompt: {
       contractId: "orqestrate/implement/v1",

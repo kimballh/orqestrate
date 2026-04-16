@@ -355,7 +355,14 @@ test("startRuntimeService waits for daemon shutdown before exiting on signal", a
     log: () => undefined,
   });
 
-  daemon.enqueueRun(createRunInput());
+  daemon.enqueueRun(
+    createRunInput({
+      workspace: {
+        mode: "shared_readonly",
+        workingDirHint: "/repo",
+      },
+    }),
+  );
   for (let attempt = 0; attempt < 40; attempt += 1) {
     if (supervisor.launchRequested > 0) {
       break;
