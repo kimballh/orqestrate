@@ -331,6 +331,26 @@ test("normalizes relative filesystem and prompt asset paths against the config l
   );
 });
 
+test("parses workspace setup scripts relative to the config location", () => {
+  const fixture = createFixtureWorkspace();
+  const config = parseConfig(
+    `${VALID_CONFIG}
+
+[workspace]
+setup_script = "./scripts/bootstrap-worktree.sh"
+`,
+    {
+      sourcePath: fixture.sourcePath,
+      env: {},
+    },
+  );
+
+  assert.equal(
+    config.workspace.setupScript,
+    path.join(fixture.workspaceDir, "scripts", "bootstrap-worktree.sh"),
+  );
+});
+
 test("parses optional Linear project selectors and status-name overrides", () => {
   const fixture = createFixtureWorkspace();
   const config = parseConfig(

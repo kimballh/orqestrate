@@ -27,6 +27,10 @@ test("runtime API exposes runs, pagination, health, capacity, and event replay",
     const firstCreate = await postJson(apiServer.info.endpoint, "/v1/runs", createRunInput({
       runId: "run-001",
       workItemId: "issue-1",
+      workspaceSetup: {
+        source: "config",
+        scriptPath: "/repo/scripts/prepare-worktree.sh",
+      },
     }));
     const secondCreate = await postJson(apiServer.info.endpoint, "/v1/runs", createRunInput({
       runId: "run-002",
@@ -36,6 +40,10 @@ test("runtime API exposes runs, pagination, health, capacity, and event replay",
     assert.equal(firstCreate.status, 201);
     assert.equal(firstCreate.body.created, true);
     assert.equal(secondCreate.status, 201);
+    assert.deepEqual(firstCreate.body.run.workspace.setup, {
+      source: "config",
+      scriptPath: "/repo/scripts/prepare-worktree.sh",
+    });
     assert.equal(
       firstCreate.body.run.promptProvenance.selection.promptPackName,
       "default",

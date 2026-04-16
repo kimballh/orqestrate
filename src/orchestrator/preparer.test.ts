@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import test from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -106,6 +108,61 @@ test("returns a prepared run after claiming, loading context, and assembling the
     result.prepared.submission.promptProvenance?.sources.some(
       (source) => source.ref === "run-context",
     ),
+  );
+});
+
+test("includes configured workspace setup metadata in the prepared submission", async () => {
+  const config = await loadLocalConfig();
+  const repoRoot = createFixtureRepoRoot();
+  const scriptPath = path.join(repoRoot, "scripts", "prepare-worktree.sh");
+  mkdirSync(path.dirname(scriptPath), { recursive: true });
+  writeFileSync(scriptPath, "#!/usr/bin/env bash\nexit 0\n", "utf8");
+  const workItem = createWorkItem();
+  const artifact = createArtifact();
+  const planning = new FakePlanningBackend(workItem);
+  const context = new FakeContextBackend(artifact);
+
+  const result = await prepareClaimedRun(
+    {
+      planning,
+      context,
+      config: {
+        ...config,
+        workspace: {
+          setupScript: scriptPath,
+        },
+      },
+    },
+    {
+      workItemId: workItem.id,
+      provider: "codex",
+      repoRoot,
+      owner: "orchestrator:test",
+      createRunId: () => "run-setup",
+      now: new Date("2026-04-15T00:00:00.000Z"),
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    assert.fail("Expected a prepared run result.");
+  }
+
+  assert.deepEqual(result.prepared.submission.workspace.setup, {
+    source: "config",
+    scriptPath,
+  });
+  assert.deepEqual(result.prepared.submission.promptReplayContext?.workspace.setup, {
+    source: "config",
+    scriptPath,
+  });
+  assert.match(
+    result.prepared.submission.prompt.userPrompt,
+    /Workspace setup source: config/,
+  );
+  assert.match(
+    result.prepared.submission.prompt.userPrompt,
+    new RegExp(scriptPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
   );
 });
 
@@ -430,11 +487,53 @@ test("finalizes the queued run ledger even if the planning transition throws", a
   assert.equal(planning.transitionCalls.length, 1);
 });
 
+test("blocks the run when Codex fallback metadata is malformed", async () => {
+  const config = await loadLocalConfig();
+  const repoRoot = createFixtureRepoRoot();
+  writeFileSync(
+    path.join(repoRoot, ".codex", "environments", "environment.toml"),
+    `[setup]
+script = 7
+`,
+    "utf8",
+  );
+  const planning = new FakePlanningBackend(createWorkItem());
+  const context = new FakeContextBackend(createArtifact());
+
+  await assert.rejects(
+    () =>
+      prepareClaimedRun(
+        { planning, context, config },
+        {
+          workItemId: "ORQ-37",
+          provider: "codex",
+          repoRoot,
+          owner: "orchestrator:test",
+          createRunId: () => "run-bad-codex-env",
+          now: new Date("2026-04-15T00:00:00.000Z"),
+        },
+      ),
+    /Codex environment fallback/,
+  );
+
+  assert.equal(context.createRunLedgerCalls.length, 1);
+  assert.equal(context.finalizeRunLedgerCalls.length, 1);
+  assert.equal(planning.transitionCalls.length, 1);
+  assert.equal(planning.transitionCalls[0]?.nextStatus, "blocked");
+  assert.equal(planning.transitionCalls[0]?.state, "waiting_human");
+});
+
 async function loadLocalConfig(): Promise<LoadedConfig> {
   return loadConfig({
     configPath: path.join(REPO_ROOT, "config.example.toml"),
     cwd: REPO_ROOT,
   });
+}
+
+function createFixtureRepoRoot(): string {
+  const repoRoot = mkdtempSync(path.join(tmpdir(), "orqestrate-preparer-"));
+  mkdirSync(path.join(repoRoot, ".codex", "environments"), { recursive: true });
+  return repoRoot;
 }
 
 class FakePlanningBackend extends PlanningBackend<PlanningLocalFilesProviderConfig> {

@@ -374,6 +374,7 @@ export function createRunInput(
     provider?: CreateRunInput["provider"];
     workItemId?: string;
     workItemIdentifier?: string;
+    workspaceSetup?: CreateRunInput["workspace"]["setup"];
   } = {},
 ): CreateRunInput {
   const runId = overrides.runId ?? "run-001";
@@ -404,6 +405,7 @@ export function createRunInput(
       pullRequestUrl: `https://github.com/kimballh/orqestrate/pull/${runId}`,
       pullRequestMode: "draft",
       writeScope: "repo",
+      setup: overrides.workspaceSetup,
     },
     prompt: {
       contractId: "orqestrate/implement/v1",
@@ -462,6 +464,7 @@ export function createRunInput(
         pullRequestUrl: `https://github.com/kimballh/orqestrate/pull/${runId}`,
         pullRequestMode: "draft",
         writeScope: "repo",
+        setup: overrides.workspaceSetup,
       },
       expectations: {
         expectedOutputs: ["implement the change"],

@@ -85,6 +85,24 @@ export const WORKSPACE_MODES = [
 
 export type WorkspaceMode = (typeof WORKSPACE_MODES)[number];
 
+export const WORKSPACE_SETUP_SOURCES = [
+  "config",
+  "codex_environment",
+] as const;
+
+export type WorkspaceSetupSource = (typeof WORKSPACE_SETUP_SOURCES)[number];
+
+export type WorkspaceSetupRecord =
+  | {
+      source: "config";
+      scriptPath: string;
+    }
+  | {
+      source: "codex_environment";
+      environmentPath: string;
+      script: string;
+    };
+
 export const PROVIDER_FAMILIES = [
   "planning",
   "context",
@@ -215,6 +233,7 @@ export type RunWorkspaceRecord = {
   pullRequestUrl?: string | null;
   pullRequestMode?: string | null;
   writeScope?: string | null;
+  setup?: WorkspaceSetupRecord | null;
 };
 
 export type RunOutcomeRecord = {
@@ -341,6 +360,7 @@ export type PromptReplayContextRecord = {
     pullRequestUrl?: string | null;
     pullRequestMode?: string | null;
     writeScope?: string | null;
+    setup?: WorkspaceSetupRecord | null;
   };
   expectations: {
     expectedOutputs?: string[];
@@ -371,6 +391,7 @@ export type RunSubmissionPayload = {
     pullRequestUrl?: string | null;
     pullRequestMode?: string | null;
     writeScope?: string | null;
+    setup?: WorkspaceSetupRecord | null;
   };
   prompt: PromptEnvelope;
   grantedCapabilities: string[];

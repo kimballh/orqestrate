@@ -44,7 +44,26 @@ orq bootstrap
 
 That validates the selected profile and prepares local state for the chosen providers.
 
-## 5. Start the runtime daemon
+## 5. Optional workspace setup script
+
+If your implementation runs need repo-specific bootstrap steps, add an explicit workspace setup script to `config.toml`:
+
+```toml
+[workspace]
+setup_script = "./scripts/prepare-worktree.sh"
+```
+
+Resolution order for writable prepared workspaces is:
+
+1. `workspace.setup_script`
+2. `.codex/environments/environment.toml` with a non-empty `[setup].script`
+3. no setup script
+
+Relative `workspace.setup_script` paths resolve from the `config.toml` location.
+
+If the selected script path is invalid, or if the Codex fallback file exists but is malformed, Orqestrate fails clearly instead of silently skipping setup.
+
+## 6. Start the runtime daemon
 
 Run:
 
@@ -60,7 +79,7 @@ The runtime daemon owns:
 - event persistence
 - operator actions like cancel, interrupt, and human input
 
-## 6. Start the orchestrator service
+## 7. Start the orchestrator service
 
 When you are ready for Orqestrate to claim and advance work, run:
 
@@ -75,7 +94,7 @@ The orchestrator service owns:
 - work claiming and dispatch into the runtime
 - optional webhook intake for supported planning providers
 
-## 7. Understand the local state created by Orqestrate
+## 8. Understand the local state created by Orqestrate
 
 With the shipped config defaults, Orqestrate resolves state under `./.harness/` in your project:
 

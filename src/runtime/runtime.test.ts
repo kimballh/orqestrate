@@ -557,6 +557,7 @@ function createLoadedConfigFixture(): LoadedConfig {
       dataDir: "/tmp/data",
       logDir: "/tmp/logs",
     },
+    workspace: {},
     policy: {
       maxConcurrentRuns: 4,
       maxRunsPerProvider: 2,

@@ -33,6 +33,7 @@ Recommended top-level sections:
 - `version`
 - `active_profile`
 - `[paths]`
+- `[workspace]`
 - `[policy]`
 - `[prompts]`
 - `[prompt_packs.<name>]`
@@ -53,6 +54,11 @@ active_profile = "saas"
 state_dir = ".harness/state"
 data_dir = ".harness/data"
 log_dir = ".harness/logs"
+
+[workspace]
+# Optional: explicit workspace bootstrap script for prepared writable runs.
+# Relative paths resolve from config.toml.
+setup_script = "./scripts/prepare-worktree.sh"
 
 [policy]
 max_concurrent_runs = 4
@@ -253,7 +259,33 @@ context = "local_context"
 
 That gives self-hosted users a zero-credential fallback path without redefining the core architecture.
 
-## 12. Suggested future extensibility
+## 12. Workspace setup contract
+
+Orqestrate can optionally carry a workspace-preparation setup contract for writable runs.
+
+Use the explicit config setting when you want Orqestrate to run a repo-local bootstrap script:
+
+```toml
+[workspace]
+setup_script = "./scripts/prepare-worktree.sh"
+```
+
+Behavior:
+
+1. `workspace.setup_script` wins when present.
+2. If the explicit setting is absent, Orqestrate checks `.codex/environments/environment.toml`.
+3. If that Codex file exists and defines a non-empty `[setup].script`, Orqestrate uses it as the fallback source.
+4. If neither source exists, Orqestrate runs without a workspace setup script.
+
+Failure rules:
+
+- an explicit `workspace.setup_script` must resolve to a file
+- a Codex fallback file must parse successfully and define a non-empty `[setup].script`
+- invalid selected setup metadata should fail clearly instead of silently skipping setup
+
+The first pass only supports the Codex environment fallback above. Claude project settings are not currently treated as an equivalent file-based setup contract.
+
+## 13. Suggested future extensibility
 
 Leave room for optional provider-specific nested sections:
 

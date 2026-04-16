@@ -1304,6 +1304,9 @@ export class RuntimeRepository {
     const promptProvenance = parseJson<PromptProvenanceRecord>(
       row.prompt_provenance_json,
     );
+    const promptReplayContext = parseJson<PromptReplayContextRecord>(
+      row.prompt_replay_context_json,
+    );
     const hasOutcome =
       row.outcome_code !== null ||
       row.exit_code !== null ||
@@ -1335,6 +1338,7 @@ export class RuntimeRepository {
         pullRequestUrl: row.pull_request_url,
         pullRequestMode: row.pull_request_mode,
         writeScope: row.write_scope,
+        setup: promptReplayContext?.workspace.setup,
       },
       artifactUrl: row.artifact_url,
       requestedBy: row.requested_by,

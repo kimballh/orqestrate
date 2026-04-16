@@ -26,6 +26,7 @@ import {
   type PlanningProviderConfig,
   type PolicyConfig,
   type ProfileConfig,
+  type WorkspaceConfig,
   PROMPT_CAPABILITY_AUTHORITIES,
   PROMPT_CAPABILITY_CONTEXT_REQUIREMENTS,
   PROMPT_CAPABILITY_EFFECTS,
@@ -52,6 +53,7 @@ const TOP_LEVEL_KEYS = [
   "version",
   "active_profile",
   "paths",
+  "workspace",
   "policy",
   "prompts",
   "prompt_capabilities",
@@ -161,6 +163,7 @@ export function parseConfig(
     "",
   );
   const paths = parsePathsSection(document.paths, configDir);
+  const workspace = parseWorkspaceSection(document.workspace, configDir);
   const policy = parsePolicySection(document.policy);
   const prompts = parsePromptsSection(document.prompts, configDir);
   const promptCapabilities = parsePromptCapabilitiesSection(
@@ -220,6 +223,7 @@ export function parseConfig(
     version,
     env,
     paths,
+    workspace,
     policy,
     prompts,
     promptCapabilities,
@@ -265,6 +269,29 @@ function parsePathsSection(value: unknown, configDir: string): PathsConfig {
       configDir,
       "paths.log_dir",
     ),
+  };
+}
+
+function parseWorkspaceSection(
+  value: unknown,
+  configDir: string,
+): WorkspaceConfig {
+  if (value === undefined) {
+    return {};
+  }
+
+  const section = expectRecord(value, "workspace");
+  assertAllowedKeys(section, ["setup_script"], "workspace");
+
+  return {
+    setupScript:
+      section.setup_script === undefined
+        ? undefined
+        : resolveFileSystemPath(
+            expectNonEmptyString(section.setup_script, "workspace.setup_script"),
+            configDir,
+            "workspace.setup_script",
+          ),
   };
 }
 

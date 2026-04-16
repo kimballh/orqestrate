@@ -4,6 +4,7 @@ import type { LoadedConfig } from "../config/types.js";
 import type { ContextBackend } from "../core/context-backend.js";
 import type { PlanningBackend } from "../core/planning-backend.js";
 import { assemblePrompt } from "../core/prompt-assembly.js";
+import { resolveWorkspaceSetup } from "../core/workspace-setup.js";
 import type { RunSubmissionPayload } from "../domain-model.js";
 import { GitHubCliClient } from "../github/client.js";
 import {
@@ -43,7 +44,12 @@ type PrepareClaimedRunDependencies = {
   context: ContextBackend;
   config: Pick<
     LoadedConfig,
-    "activeProfile" | "policy" | "promptCapabilities" | "promptPacks" | "prompts"
+    | "activeProfile"
+    | "policy"
+    | "promptCapabilities"
+    | "promptPacks"
+    | "prompts"
+    | "workspace"
   >;
   runtimeObserver?: RuntimeObserver;
   createGitHubClient?: (
@@ -205,6 +211,10 @@ export async function prepareClaimedRun(
     },
     runLedger.runId,
     async () => {
+      const workspaceSetup = await resolveWorkspaceSetup({
+        repoRoot: input.repoRoot,
+        workspace: dependencies.config.workspace,
+      });
       const promptContext = {
         runId,
         workItem: {
@@ -232,6 +242,7 @@ export async function prepareClaimedRun(
           pullRequestUrl: workspace.pullRequestUrl ?? null,
           pullRequestMode: workspace.pullRequestMode ?? null,
           writeScope: workspace.writeScope ?? null,
+          setup: workspaceSetup,
         },
         expectations: input.prompt?.expectations ?? {},
         operatorNote: input.prompt?.operatorNote ?? null,
@@ -265,6 +276,7 @@ export async function prepareClaimedRun(
       return {
         ...assembly,
         replayContext: promptContext,
+        workspaceSetup,
       };
     },
   );
@@ -299,7 +311,10 @@ export async function prepareClaimedRun(
               summary: resolvedArtifact.summary ?? null,
             },
       provider: input.provider,
-      workspace,
+      workspace: {
+        ...workspace,
+        setup: prompt.workspaceSetup,
+      },
       prompt: prompt.prompt,
       grantedCapabilities: prompt.grantedCapabilities,
       promptProvenance: prompt.provenance,

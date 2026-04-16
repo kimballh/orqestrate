@@ -112,6 +112,10 @@ export interface PathsConfig {
   logDir: string;
 }
 
+export interface WorkspaceConfig {
+  setupScript?: string;
+}
+
 export interface PolicyConfig {
   maxConcurrentRuns: number;
   maxRunsPerProvider: number;
@@ -232,6 +236,7 @@ export interface LoadedConfig {
   version: 1;
   env: NodeJS.ProcessEnv;
   paths: PathsConfig;
+  workspace: WorkspaceConfig;
   policy: PolicyConfig;
   prompts: PromptsConfig;
   promptCapabilities: Record<string, PromptCapabilityDefinition>;
