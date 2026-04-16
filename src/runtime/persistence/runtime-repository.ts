@@ -530,6 +530,36 @@ export class RuntimeRepository {
     });
   }
 
+  bindWorkspaceAllocationToRun(input: {
+    runId: string;
+    workspaceAllocationId: string;
+    occurredAt?: string;
+    payload?: Record<string, unknown>;
+  }): PersistedRunRecord {
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    return this.mutateRun({
+      runId: input.runId,
+      allowedStatuses: ["admitted"],
+      occurredAt,
+      mutate: (current) => ({
+        ...current,
+        workspace: {
+          ...current.workspace,
+          allocationId: input.workspaceAllocationId,
+        },
+      }),
+      event: {
+        eventType: "workspace_allocation_bound",
+        source: "workspace",
+        payload: {
+          workspaceAllocationId: input.workspaceAllocationId,
+          ...(input.payload ?? {}),
+        },
+      },
+    });
+  }
+
   markRunBootstrapping(input: {
     runId: string;
     occurredAt?: string;
@@ -643,6 +673,7 @@ export class RuntimeRepository {
     error: ProviderError;
     occurredAt?: string;
     payload?: Record<string, unknown>;
+    source?: RunEventRecord["source"];
   }): PersistedRunRecord {
     const occurredAt = input.occurredAt ?? new Date().toISOString();
 
@@ -658,7 +689,7 @@ export class RuntimeRepository {
       }),
       event: {
         eventType: "runtime_issue_detected",
-        source: "provider",
+        source: input.source ?? "provider",
         level: "warn",
         payload: {
           ...(input.payload ?? {}),
@@ -681,7 +712,14 @@ export class RuntimeRepository {
 
     return this.mutateRun({
       runId: input.runId,
-      allowedStatuses: ["launching", "bootstrapping", "running", "waiting_human", "stopping"],
+      allowedStatuses: [
+        "admitted",
+        "launching",
+        "bootstrapping",
+        "running",
+        "waiting_human",
+        "stopping",
+      ],
       occurredAt,
       mutate: (current) => ({
         ...current,

@@ -165,6 +165,20 @@ When the run is branch-backed:
 - push the branch
 - create or update the PR
 
+Runtime-owned implementation workspaces now prepare an ephemeral git worktree before the provider launches. If the repo contains one of these setup hooks, the runtime runs it inside the prepared worktree before prompt submission:
+
+- `.codex/setup.sh`
+- `.codex/scripts/setup.sh`
+- `.codex/local-environment-setup.sh`
+- `.codex/worktree-setup.sh`
+- `scripts/codex-setup.sh`
+
+The hook receives:
+
+- `ORQESTRATE_WORKSPACE_ROOT` and `ORQESTRATE_REPO_ROOT` pointing at the prepared worktree
+- `ORQESTRATE_SOURCE_REPO_ROOT` pointing at the source checkout the worktree came from
+- `ORQESTRATE_RUN_ID`, `ORQESTRATE_PROVIDER`, `ORQESTRATE_WORKSPACE_MODE`, `ORQESTRATE_BASE_REF`, and `ORQESTRATE_ASSIGNED_BRANCH`
+
 ### Review
 
 When the assigned phase is `review`:

@@ -375,9 +375,12 @@ export function createRunInput(
     workItemId?: string;
     workItemIdentifier?: string;
     workspaceSetup?: CreateRunInput["workspace"]["setup"];
+    workspace?: Partial<CreateRunInput["workspace"]>;
   } = {},
 ): CreateRunInput {
   const runId = overrides.runId ?? "run-001";
+  const workspaceSetup =
+    overrides.workspace?.setup ?? overrides.workspaceSetup;
 
   return {
     runId,
@@ -397,15 +400,18 @@ export function createRunInput(
     },
     provider: overrides.provider ?? "codex",
     workspace: {
-      repoRoot: "/repo",
-      mode: "ephemeral_worktree",
-      workingDirHint: `/repo/.worktrees/${runId}`,
-      baseRef: "main",
-      assignedBranch: `hillkimball/${runId}`,
-      pullRequestUrl: `https://github.com/kimballh/orqestrate/pull/${runId}`,
-      pullRequestMode: "draft",
-      writeScope: "repo",
-      setup: overrides.workspaceSetup,
+      repoRoot: overrides.workspace?.repoRoot ?? "/repo",
+      mode: overrides.workspace?.mode ?? "shared_readonly",
+      workingDirHint: overrides.workspace?.workingDirHint ?? "/repo",
+      baseRef: overrides.workspace?.baseRef ?? "main",
+      assignedBranch:
+        overrides.workspace?.assignedBranch ?? `hillkimball/${runId}`,
+      pullRequestUrl:
+        overrides.workspace?.pullRequestUrl ??
+        `https://github.com/kimballh/orqestrate/pull/${runId}`,
+      pullRequestMode: overrides.workspace?.pullRequestMode ?? "draft",
+      writeScope: overrides.workspace?.writeScope ?? "repo",
+      setup: workspaceSetup,
     },
     prompt: {
       contractId: "orqestrate/implement/v1",
@@ -456,15 +462,21 @@ export function createRunInput(
         summary: "Artifact placeholder",
       },
       workspace: {
-        repoRoot: "/repo",
-        workingDir: `/repo/.worktrees/${runId}`,
-        mode: "ephemeral_worktree",
-        assignedBranch: `hillkimball/${runId}`,
-        baseBranch: "main",
-        pullRequestUrl: `https://github.com/kimballh/orqestrate/pull/${runId}`,
-        pullRequestMode: "draft",
-        writeScope: "repo",
-        setup: overrides.workspaceSetup,
+        repoRoot: overrides.workspace?.repoRoot ?? "/repo",
+        workingDir:
+          overrides.workspace?.mode === "ephemeral_worktree"
+            ? (overrides.workspace.workingDirHint ?? `/repo/.worktrees/${runId}`)
+            : (overrides.workspace?.workingDirHint ?? "/repo"),
+        mode: overrides.workspace?.mode ?? "shared_readonly",
+        assignedBranch:
+          overrides.workspace?.assignedBranch ?? `hillkimball/${runId}`,
+        baseBranch: overrides.workspace?.baseRef ?? "main",
+        pullRequestUrl:
+          overrides.workspace?.pullRequestUrl ??
+          `https://github.com/kimballh/orqestrate/pull/${runId}`,
+        pullRequestMode: overrides.workspace?.pullRequestMode ?? "draft",
+        writeScope: overrides.workspace?.writeScope ?? "repo",
+        setup: workspaceSetup,
       },
       expectations: {
         expectedOutputs: ["implement the change"],

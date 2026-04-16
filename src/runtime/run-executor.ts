@@ -1,7 +1,9 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 
-import type { RunStatus } from "../domain-model.js";
+import type { ProviderError, RunStatus, WorkspaceMode } from "../domain-model.js";
 import { RuntimeError } from "./errors.js";
 import { LiveRunRegistry } from "./live-run-registry.js";
 import {
@@ -22,8 +24,68 @@ import type {
 import type {
   ExecutableRunRecord,
   PersistedRunRecord,
+  RunEventSource,
+  WorkspaceAllocationRecord,
 } from "./types.js";
 import { RuntimeRepository } from "./persistence/runtime-repository.js";
+
+const execFileAsync = promisify(execFile);
+
+const SETUP_HOOK_CANDIDATES = [
+  ".codex/setup.sh",
+  ".codex/scripts/setup.sh",
+  ".codex/local-environment-setup.sh",
+  ".codex/worktree-setup.sh",
+  "scripts/codex-setup.sh",
+] as const;
+
+type WorkspaceCommandInput = {
+  command: string;
+  args: string[];
+  cwd: string;
+  env?: Record<string, string>;
+  timeoutMs?: number;
+};
+
+type WorkspaceCommandResult = {
+  stdout: string;
+  stderr: string;
+};
+
+type WorkspaceOperations = {
+  exists(filePath: string): boolean;
+  mkdir(dirPath: string): void;
+  removeDir(dirPath: string): void;
+  runCommand(input: WorkspaceCommandInput): Promise<WorkspaceCommandResult>;
+};
+
+type PreparedWorkspaceState = {
+  allocationId: string;
+  mode: WorkspaceMode;
+  workingDir: string;
+  worktreeCreated: boolean;
+  setupHookPath: string | null;
+  cleanupComplete: boolean;
+};
+
+class WorkspacePreparationError extends Error {
+  readonly providerError: ProviderError;
+  readonly outcomeCode: string;
+  readonly payload: Record<string, unknown>;
+
+  constructor(input: {
+    message: string;
+    providerError: ProviderError;
+    outcomeCode?: string;
+    payload?: Record<string, unknown>;
+  }) {
+    super(input.message);
+    this.name = "WorkspacePreparationError";
+    this.providerError = input.providerError;
+    this.outcomeCode = input.outcomeCode ?? "workspace_preparation_failed";
+    this.payload = input.payload ?? {};
+  }
+}
 
 type RunExecutorDependencies = {
   now?: () => string;
@@ -35,6 +97,8 @@ type RunExecutorDependencies = {
   quietHeartbeatIntervalMs?: number;
   cancelGracePeriodMs?: number;
   runtimeApiEndpoint?: string | null;
+  workspaceOperations?: WorkspaceOperations;
+  createWorkspaceAllocationId?: (runId: string) => string;
 };
 
 type LiveRunContext = {
@@ -43,6 +107,7 @@ type LiveRunContext = {
   controller: RuntimeSessionController | null;
   logFilePath: string;
   currentRun: PersistedRunRecord;
+  preparedWorkspace: PreparedWorkspaceState | null;
   pendingHeartbeat: {
     bytesRead: number;
     bytesWritten: number;
@@ -85,6 +150,8 @@ export class RunExecutor {
   private readonly quietHeartbeatIntervalMs: number;
   private readonly cancelGracePeriodMs: number;
   private readonly runtimeApiEndpoint: string | null;
+  private readonly workspaceOperations: WorkspaceOperations;
+  private readonly createWorkspaceAllocationId: (runId: string) => string;
 
   constructor(
     private readonly repository: RuntimeRepository,
@@ -102,6 +169,11 @@ export class RunExecutor {
     this.quietHeartbeatIntervalMs = dependencies.quietHeartbeatIntervalMs ?? 30_000;
     this.cancelGracePeriodMs = dependencies.cancelGracePeriodMs ?? 2_000;
     this.runtimeApiEndpoint = dependencies.runtimeApiEndpoint ?? null;
+    this.workspaceOperations =
+      dependencies.workspaceOperations ?? createDefaultWorkspaceOperations();
+    this.createWorkspaceAllocationId =
+      dependencies.createWorkspaceAllocationId ??
+      ((runId) => `workspace-${runId}`);
   }
 
   executeClaimedRun(run: ExecutableRunRecord): Promise<PersistedRunRecord> {
@@ -112,6 +184,7 @@ export class RunExecutor {
         controller: null,
         logFilePath: this.createLogFilePath(run.runId),
         currentRun: run,
+        preparedWorkspace: null,
         pendingHeartbeat: {
           bytesRead: 0,
           bytesWritten: 0,
@@ -131,6 +204,14 @@ export class RunExecutor {
       this.activeContexts.set(run.runId, context);
       const executionTask = this.executeInternal(context).catch(async (error) => {
         if (context.finishing) {
+          this.resolveFinishingPrelaunchContext(context);
+          if (
+            !this.activeContexts.has(context.run.runId) ||
+            TERMINAL_STATUSES.has(context.currentRun.status)
+          ) {
+            return;
+          }
+
           reject(error);
           return;
         }
@@ -187,6 +268,15 @@ export class RunExecutor {
         context.controller = null;
       }
 
+      if (context.preparedWorkspace !== null) {
+        cleanupTasks.push(
+          this.cleanupPreparedWorkspace(
+            context,
+            "Runtime daemon stopped before the workspace could be released cleanly.",
+          ),
+        );
+      }
+
       context.resolve(context.currentRun);
     }
 
@@ -219,14 +309,15 @@ export class RunExecutor {
     reason: string,
     requestedBy?: string | null,
   ): Promise<PersistedRunRecord> {
-    const context = this.liveRuns.getByRunId(runId);
+    const context =
+      this.liveRuns.getByRunId(runId) ?? this.activeContexts.get(runId) ?? null;
     const run = this.requireRun(runId);
 
     if (TERMINAL_STATUSES.has(run.status)) {
       return run;
     }
 
-    if (context === null || context.controller === null) {
+    if (context === null) {
       return this.repository.cancelRunBeforeLaunch({
         runId,
         occurredAt: this.now(),
@@ -236,6 +327,17 @@ export class RunExecutor {
     }
 
     context.cancelRequested = { reason, requestedBy };
+    if (context.controller === null) {
+      context.currentRun = this.repository.cancelRunBeforeLaunch({
+        runId,
+        occurredAt: this.now(),
+        reason,
+        requestedBy: requestedBy ?? null,
+      });
+      context.finishing = true;
+      return context.currentRun;
+    }
+
     if (context.currentRun.status !== "stopping") {
       context.currentRun = this.repository.markRunStopping({
         runId,
@@ -288,6 +390,19 @@ export class RunExecutor {
   }
 
   private async executeInternal(context: LiveRunContext): Promise<void> {
+    if (context.run.workspace.mode === "ephemeral_worktree") {
+      await this.prepareWorkspace(context);
+    }
+
+    if (context.finishing) {
+      await this.cleanupPreparedWorkspace(
+        context,
+        "Run finished before provider launch started.",
+      );
+      this.resolveFinishingPrelaunchContext(context);
+      return;
+    }
+
     const cwd = resolveWorkingDirectory(context.run);
     const launchInput = {
       run: context.run,
@@ -319,8 +434,15 @@ export class RunExecutor {
 
     if (context.finishing) {
       await this.supervisor.terminate(handle.sessionId, true);
+      await this.cleanupPreparedWorkspace(
+        context,
+        "Run finished before provider launch completed.",
+      );
+      this.resolveFinishingPrelaunchContext(context);
       return;
     }
+
+    await this.markWorkspaceInUse(context);
 
     context.controller = this.createSessionController(
       context.run.runId,
@@ -474,6 +596,8 @@ export class RunExecutor {
     this.flushHeartbeat(context, false);
 
     try {
+      const sessionId = context.controller.sessionId;
+
       if (
         context.currentRun.status === "bootstrapping" &&
         context.exit?.exitCode === 0
@@ -492,20 +616,25 @@ export class RunExecutor {
         (await context.adapter.collectOutcome(context.controller, context.exit));
       const resolvedOutcome = normalizeOutcome(outcome, context);
 
+      this.liveRuns.removeByRunId(context.run.runId);
+      await this.supervisor.terminate(sessionId, true);
+      context.controller = null;
+      await this.cleanupPreparedWorkspace(
+        context,
+        `Run reached terminal status '${resolvedOutcome.status}'.`,
+      );
+
       context.currentRun = this.repository.finalizeRun({
         runId: context.run.runId,
         status: resolvedOutcome.status,
         occurredAt: context.exit?.occurredAt ?? this.now(),
         outcome: resolvedOutcome,
         payload: {
-          sessionId: context.controller.sessionId,
+          sessionId,
           exitCode: context.exit?.exitCode ?? null,
           signal: context.exit?.signal ?? null,
         },
       });
-
-      this.liveRuns.removeByRunId(context.run.runId);
-      await this.supervisor.terminate(context.controller.sessionId, true);
       context.resolve(context.currentRun);
     } catch (error) {
       context.reject(error);
@@ -518,19 +647,23 @@ export class RunExecutor {
     context: LiveRunContext,
     error: Error,
   ): Promise<void> {
-    const providerError = buildRuntimeProviderError({
-      providerKind: context.run.provider,
-      code: "unknown",
-      message: error.message,
-      retryable: false,
-      details: {
-        stage: "execution",
-      },
-    });
+    const workspaceError =
+      error instanceof WorkspacePreparationError ? error : null;
+    const providerError =
+      workspaceError?.providerError ??
+      buildRuntimeProviderError({
+        providerKind: context.run.provider,
+        code: "unknown",
+        message: error.message,
+        retryable: false,
+        details: {
+          stage: "execution",
+        },
+      });
 
     context.forcedOutcome = {
       status: "failed",
-      code: "runtime_execution_failed",
+      code: workspaceError?.outcomeCode ?? "runtime_execution_failed",
       summary: error.message,
       error: providerError,
     };
@@ -543,14 +676,377 @@ export class RunExecutor {
         runId: context.run.runId,
         error: providerError,
         occurredAt: this.now(),
+        source: workspaceError === null ? "provider" : "workspace",
+        payload: workspaceError?.payload,
       });
     }
 
     if (context.controller !== null) {
       await context.controller.terminate(true);
+      await this.finishContext(context);
+      return;
     }
 
-    await this.finishContext(context);
+    context.finishing = true;
+    this.clearTimers(context);
+
+    try {
+      await this.cleanupPreparedWorkspace(
+        context,
+        "Run failed before a provider session was established.",
+      );
+      context.currentRun = this.repository.finalizeRun({
+        runId: context.run.runId,
+        status: "failed",
+        occurredAt: this.now(),
+        outcome: context.forcedOutcome,
+        payload: workspaceError?.payload,
+      });
+      context.resolve(context.currentRun);
+    } catch (finalizeError) {
+      context.reject(finalizeError);
+    } finally {
+      this.activeContexts.delete(context.run.runId);
+    }
+  }
+
+  private async prepareWorkspace(context: LiveRunContext): Promise<void> {
+    if (context.run.workspace.mode !== "ephemeral_worktree") {
+      return;
+    }
+
+    const workingDir = resolveWorkspacePreparationDirectory(context.run);
+    const allocationId = this.createWorkspaceAllocationId(context.run.runId);
+    const occurredAt = this.now();
+    const preparedWorkspace: PreparedWorkspaceState = {
+      allocationId,
+      mode: context.run.workspace.mode,
+      workingDir,
+      worktreeCreated: false,
+      setupHookPath: null,
+      cleanupComplete: false,
+    };
+    context.preparedWorkspace = preparedWorkspace;
+
+    this.repository.createWorkspaceAllocation({
+      workspaceAllocationId: allocationId,
+      repoKey: context.run.repoRoot,
+      repoRoot: context.run.repoRoot,
+      mode: context.run.workspace.mode,
+      workingDir,
+      baseRef: context.run.workspace.baseRef ?? null,
+      status: "preparing",
+      claimedByRunId: context.run.runId,
+      cleanupError: null,
+    });
+    context.currentRun = this.repository.bindWorkspaceAllocationToRun({
+      runId: context.run.runId,
+      workspaceAllocationId: allocationId,
+      occurredAt,
+      payload: {
+        mode: context.run.workspace.mode,
+        workingDir,
+      },
+    });
+    this.refreshExecutableRun(context);
+
+    this.appendWorkspaceEvent(context, {
+      eventType: "workspace_preparation_started",
+      payload: {
+        allocationId,
+        mode: context.run.workspace.mode,
+        workingDir,
+        baseRef: context.run.workspace.baseRef ?? null,
+      },
+    });
+
+    try {
+      if (this.workspaceOperations.exists(workingDir)) {
+        throw this.createWorkspacePreparationError(context, {
+          code: "conflict",
+          message: `Workspace working directory '${workingDir}' already exists.`,
+          stage: "preflight",
+          payload: {
+            allocationId,
+            workingDir,
+          },
+        });
+      }
+
+      this.workspaceOperations.mkdir(path.dirname(workingDir));
+      await this.workspaceOperations.runCommand({
+        command: "git",
+        args: [
+          "-C",
+          context.run.repoRoot,
+          "worktree",
+          "add",
+          "--detach",
+          workingDir,
+          context.run.workspace.baseRef ?? "HEAD",
+        ],
+        cwd: context.run.repoRoot,
+      });
+      preparedWorkspace.worktreeCreated = true;
+
+      const setupHookPath = resolveSetupHookPath(
+        workingDir,
+        this.workspaceOperations.exists,
+      );
+      preparedWorkspace.setupHookPath = setupHookPath;
+      if (this.shouldAbortPrelaunch(context)) {
+        return;
+      }
+
+      if (setupHookPath !== null) {
+        this.appendWorkspaceEvent(context, {
+          eventType: "workspace_setup_hook_started",
+          payload: {
+            allocationId,
+            hookPath: setupHookPath,
+          },
+        });
+
+        const result = await this.workspaceOperations.runCommand({
+          command: "bash",
+          args: [setupHookPath],
+          cwd: workingDir,
+          env: buildSetupHookEnvironment(context, workingDir),
+          timeoutMs: context.run.limits.bootstrapTimeoutSec * 1_000,
+        });
+
+        this.appendWorkspaceEvent(context, {
+          eventType: "workspace_setup_hook_completed",
+          payload: {
+            allocationId,
+            hookPath: setupHookPath,
+            stdout: summarizeCommandOutput(result.stdout),
+            stderr: summarizeCommandOutput(result.stderr),
+          },
+        });
+      }
+
+      if (this.shouldAbortPrelaunch(context)) {
+        return;
+      }
+
+      this.repository.updateWorkspaceAllocationStatus({
+        workspaceAllocationId: allocationId,
+        status: "ready",
+        readyAt: this.now(),
+        claimedByRunId: context.run.runId,
+        cleanupError: null,
+      });
+      this.refreshExecutableRun(context);
+      this.appendWorkspaceEvent(context, {
+        eventType: "workspace_prepared",
+        payload: {
+          allocationId,
+          workingDir,
+          setupHookPath,
+        },
+      });
+    } catch (error) {
+      const workspaceError = toWorkspacePreparationError(context, error, {
+        stage:
+          error instanceof WorkspacePreparationError
+            ? null
+            : preparedWorkspace.worktreeCreated
+              ? "workspace_setup"
+              : "workspace_create",
+        allocationId,
+        workingDir,
+        setupHookPath: preparedWorkspace.setupHookPath,
+      });
+      this.appendWorkspaceEvent(context, {
+        eventType: "workspace_preparation_failed",
+        level: "error",
+        payload: {
+          allocationId,
+          workingDir,
+          ...workspaceError.payload,
+        },
+      });
+      await this.cleanupPreparedWorkspace(
+        context,
+        "Workspace preparation failed before provider launch.",
+      );
+      throw workspaceError;
+    }
+  }
+
+  private async markWorkspaceInUse(context: LiveRunContext): Promise<void> {
+    if (context.preparedWorkspace === null) {
+      return;
+    }
+
+    this.repository.updateWorkspaceAllocationStatus({
+      workspaceAllocationId: context.preparedWorkspace.allocationId,
+      status: "in_use",
+      claimedByRunId: context.run.runId,
+      claimedAt: this.now(),
+      cleanupError: null,
+    });
+    this.refreshExecutableRun(context);
+    this.appendWorkspaceEvent(context, {
+      eventType: "workspace_in_use",
+      payload: {
+        allocationId: context.preparedWorkspace.allocationId,
+        workingDir: context.preparedWorkspace.workingDir,
+      },
+    });
+  }
+
+  private async cleanupPreparedWorkspace(
+    context: LiveRunContext,
+    reason: string,
+  ): Promise<void> {
+    const preparedWorkspace = context.preparedWorkspace;
+
+    if (
+      preparedWorkspace === null ||
+      preparedWorkspace.mode !== "ephemeral_worktree" ||
+      preparedWorkspace.cleanupComplete
+    ) {
+      return;
+    }
+
+    preparedWorkspace.cleanupComplete = true;
+    this.appendWorkspaceEvent(context, {
+      eventType: "workspace_release_started",
+      payload: {
+        allocationId: preparedWorkspace.allocationId,
+        workingDir: preparedWorkspace.workingDir,
+        reason,
+      },
+    });
+    this.repository.updateWorkspaceAllocationStatus({
+      workspaceAllocationId: preparedWorkspace.allocationId,
+      status: "releasing",
+      claimedByRunId: context.run.runId,
+      cleanupError: null,
+    });
+
+    try {
+      if (preparedWorkspace.worktreeCreated) {
+        await this.workspaceOperations.runCommand({
+          command: "git",
+          args: [
+            "-C",
+            context.run.repoRoot,
+            "worktree",
+            "remove",
+            "--force",
+            preparedWorkspace.workingDir,
+          ],
+          cwd: context.run.repoRoot,
+        });
+      }
+
+      this.repository.updateWorkspaceAllocationStatus({
+        workspaceAllocationId: preparedWorkspace.allocationId,
+        status: "released",
+        claimedByRunId: null,
+        releasedAt: this.now(),
+        cleanupError: null,
+      });
+      this.appendWorkspaceEvent(context, {
+        eventType: "workspace_released",
+        payload: {
+          allocationId: preparedWorkspace.allocationId,
+          workingDir: preparedWorkspace.workingDir,
+        },
+      });
+    } catch (error) {
+      const cleanupMessage = error instanceof Error ? error.message : String(error);
+      this.repository.updateWorkspaceAllocationStatus({
+        workspaceAllocationId: preparedWorkspace.allocationId,
+        status: "cleanup_failed",
+        claimedByRunId: context.run.runId,
+        cleanupError: cleanupMessage,
+      });
+      this.appendWorkspaceEvent(context, {
+        eventType: "workspace_cleanup_failed",
+        level: "warn",
+        payload: {
+          allocationId: preparedWorkspace.allocationId,
+          workingDir: preparedWorkspace.workingDir,
+          message: cleanupMessage,
+        },
+      });
+    }
+  }
+
+  private refreshExecutableRun(context: LiveRunContext): void {
+    const refreshedRun = this.repository.getExecutableRun(context.run.runId);
+    if (refreshedRun !== null) {
+      context.run = refreshedRun;
+    }
+    const refreshedCurrentRun = this.repository.getRun(context.run.runId);
+    if (refreshedCurrentRun !== null) {
+      context.currentRun = refreshedCurrentRun;
+    }
+  }
+
+  private shouldAbortPrelaunch(context: LiveRunContext): boolean {
+    return context.finishing || TERMINAL_STATUSES.has(context.currentRun.status);
+  }
+
+  private resolveFinishingPrelaunchContext(context: LiveRunContext): void {
+    if (
+      context.controller !== null ||
+      !TERMINAL_STATUSES.has(context.currentRun.status) ||
+      !this.activeContexts.has(context.run.runId)
+    ) {
+      return;
+    }
+
+    this.activeContexts.delete(context.run.runId);
+    context.resolve(context.currentRun);
+  }
+
+  private appendWorkspaceEvent(
+    context: LiveRunContext,
+    input: {
+      eventType: string;
+      level?: "debug" | "info" | "warn" | "error";
+      payload?: Record<string, unknown>;
+      source?: RunEventSource;
+    },
+  ): void {
+    this.repository.appendRunEvent({
+      runId: context.run.runId,
+      eventType: input.eventType,
+      level: input.level ?? "info",
+      source: input.source ?? "workspace",
+      occurredAt: this.now(),
+      payload: input.payload ?? {},
+    });
+  }
+
+  private createWorkspacePreparationError(
+    context: LiveRunContext,
+    input: {
+      code: ProviderError["code"];
+      message: string;
+      retryable?: boolean;
+      stage: string;
+      payload?: Record<string, unknown>;
+    },
+  ): WorkspacePreparationError {
+    return new WorkspacePreparationError({
+      message: input.message,
+      providerError: buildRuntimeProviderError({
+        providerKind: context.run.provider,
+        code: input.code,
+        message: input.message,
+        retryable: input.retryable ?? false,
+        details: {
+          stage: input.stage,
+        },
+      }),
+      payload: input.payload,
+    });
   }
 
   private createSessionController(
@@ -711,6 +1207,16 @@ function resolveWorkingDirectory(run: ExecutableRunRecord): string {
   return run.workspace.workingDir ?? run.workspace.workingDirHint ?? run.repoRoot;
 }
 
+function resolveWorkspacePreparationDirectory(run: ExecutableRunRecord): string {
+  const hint = run.workspace.workingDirHint;
+
+  if (hint === null || hint === undefined || hint.length === 0) {
+    return path.join(run.repoRoot, ".worktrees", run.runId);
+  }
+
+  return path.isAbsolute(hint) ? hint : path.resolve(run.repoRoot, hint);
+}
+
 function normalizeOutcome(
   outcome: RunOutcome,
   context: LiveRunContext,
@@ -725,4 +1231,145 @@ function normalizeOutcome(
     code: outcome.code ?? "canceled_by_request",
     summary: outcome.summary ?? context.cancelRequested.reason,
   };
+}
+
+function createDefaultWorkspaceOperations(): WorkspaceOperations {
+  return {
+    exists: (filePath) => existsSync(filePath),
+    mkdir: (dirPath) => {
+      mkdirSync(dirPath, { recursive: true });
+    },
+    removeDir: (dirPath) => {
+      rmSync(dirPath, { recursive: true, force: true });
+    },
+    runCommand: async (input) => {
+      try {
+        const result = await execFileAsync(input.command, input.args, {
+          cwd: input.cwd,
+          env: input.env === undefined ? process.env : { ...process.env, ...input.env },
+          timeout: input.timeoutMs,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+
+        return {
+          stdout: result.stdout ?? "",
+          stderr: result.stderr ?? "",
+        };
+      } catch (error) {
+        throw createWorkspaceCommandError(input, error);
+      }
+    },
+  };
+}
+
+function buildSetupHookEnvironment(
+  context: LiveRunContext,
+  workingDir: string,
+): Record<string, string> {
+  return {
+    ORQESTRATE_WORKSPACE_ROOT: workingDir,
+    ORQESTRATE_REPO_ROOT: workingDir,
+    ORQESTRATE_SOURCE_REPO_ROOT: context.run.repoRoot,
+    ORQESTRATE_RUN_ID: context.run.runId,
+    ORQESTRATE_PROVIDER: context.run.provider,
+    ORQESTRATE_WORKSPACE_MODE: context.run.workspace.mode,
+    ORQESTRATE_BASE_REF: context.run.workspace.baseRef ?? "",
+    ORQESTRATE_ASSIGNED_BRANCH: context.run.workspace.assignedBranch ?? "",
+  };
+}
+
+function resolveSetupHookPath(
+  workingDir: string,
+  exists: WorkspaceOperations["exists"],
+): string | null {
+  for (const candidate of SETUP_HOOK_CANDIDATES) {
+    const candidatePath = path.join(workingDir, candidate);
+    if (exists(candidatePath)) {
+      return candidatePath;
+    }
+  }
+
+  return null;
+}
+
+function summarizeCommandOutput(output: string, maxChars = 4_000): string | null {
+  const trimmed = output.trim();
+
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  if (trimmed.length <= maxChars) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, maxChars)}...`;
+}
+
+function createWorkspaceCommandError(
+  input: WorkspaceCommandInput,
+  error: unknown,
+): Error {
+  if (error instanceof Error) {
+    const details = error as Error & {
+      stdout?: string | Buffer;
+      stderr?: string | Buffer;
+      code?: number | string;
+      signal?: string;
+      killed?: boolean;
+    };
+
+    const stdout = summarizeCommandOutput(String(details.stdout ?? ""));
+    const stderr = summarizeCommandOutput(String(details.stderr ?? ""));
+    const code = details.code ?? details.signal ?? "unknown";
+
+    return new Error(
+      [
+        `Command '${input.command} ${input.args.join(" ")}' failed with '${code}'.`,
+        stderr === null ? null : `stderr: ${stderr}`,
+        stdout === null ? null : `stdout: ${stdout}`,
+      ]
+        .filter((value) => value !== null)
+        .join(" "),
+    );
+  }
+
+  return new Error(String(error));
+}
+
+function toWorkspacePreparationError(
+  context: LiveRunContext,
+  error: unknown,
+  fallback: {
+    stage: string | null;
+    allocationId: string;
+    workingDir: string;
+    setupHookPath: string | null;
+  },
+): WorkspacePreparationError {
+  if (error instanceof WorkspacePreparationError) {
+    return error;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const stage = fallback.stage ?? "workspace_prepare";
+  return new WorkspacePreparationError({
+    message,
+    providerError: buildRuntimeProviderError({
+      providerKind: context.run.provider,
+      code: stage === "workspace_setup" ? "validation" : "unknown",
+      message,
+      retryable: false,
+      details: {
+        stage,
+      },
+    }),
+    payload: {
+      stage,
+      allocationId: fallback.allocationId,
+      workingDir: fallback.workingDir,
+      hookPath: fallback.setupHookPath,
+      message,
+    },
+  });
 }

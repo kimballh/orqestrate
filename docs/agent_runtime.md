@@ -281,6 +281,13 @@ First-pass recommendation:
 
 The runtime service should own workspace preparation and cleanup, then report the resulting paths back to the orchestrator.
 
+Current runtime behavior for `ephemeral_worktree` runs:
+
+- create a detached git worktree before provider launch
+- discover an optional repo-local setup hook from fixed paths such as `.codex/setup.sh` or `scripts/codex-setup.sh`
+- run that hook inside the prepared worktree before the initial prompt is submitted
+- record workspace preparation and cleanup milestones in runtime events
+
 ## 10. Failure detection
 
 This service needs stronger runtime detection than "process exists".
