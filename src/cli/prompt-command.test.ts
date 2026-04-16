@@ -146,8 +146,9 @@ test("prompt render uses the repo root when the config lives in a nested directo
   assert.equal(parsed.context.workspace.workingDir, fixture.workspaceDir);
 });
 
-test("prompt render reads workspace-local prompt overrides from the workspace root for nested configs", async () => {
+test("prompt render reads workspace-local prompt overrides from the workspace root even when invoked outside the repo", async () => {
   const fixture = createPromptCliFixture({ configSubdir: "ops" });
+  const outsideDir = mkdtempSync(path.join(tmpdir(), "orq-prompt-cli-outside-"));
   const overridePath = path.join(
     fixture.workspaceDir,
     ".orqestrate",
@@ -172,7 +173,7 @@ test("prompt render reads workspace-local prompt overrides from the workspace ro
       "--format",
       "json",
     ],
-    fixture.workspaceDir,
+    outsideDir,
   );
 
   const parsed = JSON.parse(result.stdout);
@@ -187,6 +188,8 @@ test("prompt render reads workspace-local prompt overrides from the workspace ro
     ),
     true,
   );
+  assert.equal(parsed.context.workspace.repoRoot, fixture.workspaceDir);
+  assert.equal(parsed.context.workspace.workingDir, fixture.workspaceDir);
   assert.match(parsed.prompt.userPrompt, /Workspace review override\./);
   assert.doesNotMatch(parsed.prompt.userPrompt, /Review role instructions\./);
 });

@@ -965,6 +965,37 @@ test("anchors workspace-local prompt overrides to the workspace root for nested 
   );
 });
 
+test("loadConfig infers the workspace root from an explicit config path", async () => {
+  const fixture = createFixtureWorkspace();
+  const nestedConfigPath = path.join(fixture.workspaceDir, "ops", "config.toml");
+  const outsideDir = mkdtempSync(
+    path.join(tmpdir(), "orqestrate-config-outside-fixture-"),
+  );
+
+  mkdirSync(path.dirname(nestedConfigPath), { recursive: true });
+  writeFileSync(
+    path.join(fixture.workspaceDir, "package.json"),
+    JSON.stringify({ name: "config-loader-fixture", private: true }, null, 2),
+    "utf8",
+  );
+  writeFileSync(
+    nestedConfigPath,
+    VALID_CONFIG.replace('root = "./prompts"', 'root = "../prompts"'),
+    "utf8",
+  );
+
+  const config = await loadConfig({
+    cwd: outsideDir,
+    configPath: nestedConfigPath,
+    env: {},
+  });
+
+  assert.equal(
+    config.prompts.localOverrideRoot,
+    path.join(fixture.workspaceDir, ".orqestrate", "prompts"),
+  );
+});
+
 test("rejects prompt packs that reference undefined prompt capabilities", () => {
   const fixture = createFixtureWorkspace();
 

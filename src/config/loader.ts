@@ -134,7 +134,7 @@ export async function loadConfig(
     sourcePath,
     activeProfile: options.activeProfile,
     env: options.env,
-    workspaceRoot: cwd,
+    workspaceRoot: inferWorkspaceRootFromConfigPath(sourcePath) ?? cwd,
   });
 }
 
@@ -1581,6 +1581,35 @@ function validatePromptPackCapabilityReferences(
         }
       }
     }
+  }
+}
+
+function inferWorkspaceRootFromConfigPath(sourcePath: string): string | null {
+  let current = path.dirname(path.resolve(sourcePath));
+
+  while (true) {
+    if (
+      pathExists(path.join(current, ".git")) ||
+      pathExists(path.join(current, "package.json"))
+    ) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return null;
+    }
+
+    current = parent;
+  }
+}
+
+function pathExists(targetPath: string): boolean {
+  try {
+    statSync(targetPath);
+    return true;
+  } catch {
+    return false;
   }
 }
 
