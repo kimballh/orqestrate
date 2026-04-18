@@ -76,8 +76,6 @@ The installed CLI exposes:
 - `orq prompt ...`
 - `orq github ...`
 
-The runtime daemon and orchestrator service are both packaged behind the global CLI so consumer workspaces can start each long-lived service without reaching into `node_modules/.../dist`.
-
 ## Contributing
 
 If you want to work on Orqestrate itself rather than use it as a tool:
